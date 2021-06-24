@@ -57,6 +57,7 @@ an image building =FROM= a prior version of itself.
 #+begin_src dockerfile :tangle ./musl/updated/Dockerfile
 FROM gentoo/stage3:amd64-musl-hardened
 
+ARG ARCHIVE
 ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -66,7 +67,8 @@ echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
    echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/base \
 && emerge -j4 -q \
    dev-vcs/git \
-   eselect-repository
+   eselect-repository \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 mkdir /etc/portage/repos.conf \
@@ -79,7 +81,8 @@ emerge -j4 -q -uDN @world \
    --keep-going \
    --exclude sys-devel/gcc \
    --exclude sys-process/procps \
-|| echo "something failed to build"
+|| echo "something failed to build" \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 VOLUME /var/cache/distfiles
 #+end_src
@@ -93,12 +96,15 @@ VOLUME /var/cache/distfiles
 #+begin_src dockerfile :tangle ./musl/updated/remerge.Dockerfile
 FROM tgbugs/musl:updated
 
-VOLUME /var/cache/distfiles
+ARG ARCHIVE
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q -uDN @world \
    --keep-going \
-   --exclude sys-process/procps
+   --exclude sys-process/procps \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/cache/distfiles
 #+end_src
 
 *** build
@@ -125,6 +131,8 @@ docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
 #+name: &musl/icedtea
 #+begin_src dockerfile :tangle ./musl/icedtea/Dockerfile
 FROM tgbugs/musl:updated
+
+ARG ARCHIVE
 
 ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
 
@@ -153,9 +161,9 @@ eselect repository create local /usr/local/portage \
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
    dev-java/icedtea-bin::local \
-   dev-libs/nss
+   dev-libs/nss \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
-# make sure that we don't keep distfiles around
 VOLUME /var/cache/distfiles
 #+end_src
 
@@ -173,6 +181,7 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/protege/Dockerfile :noweb yes
 FROM tgbugs/musl:icedtea
 
+ARG ARCHIVE
 ARG NUID=11741
 ARG USER_NAME=protegeuser
 
@@ -185,10 +194,12 @@ echo '*/* -cleartype_hinting' >> /etc/portage/package.use/base \
 && emerge -j4 -q \
    dev-python/pip \
    media-fonts/dejavu \
-&& groupadd -g ${NUID} ${USER_NAME} \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN \
+groupadd -g ${NUID} ${USER_NAME} \
 && useradd -m -k /etc/skel -u ${NUID} -g ${NUID} -d /home/${USER_NAME} ${USER_NAME}
 
-# make sure that we don't keep distfiles around
 VOLUME /var/cache/distfiles
 
 # the rest is run as the neurondm user
@@ -317,6 +328,8 @@ protege
 #+begin_src dockerfile :tangle ./musl/racket/Dockerfile
 FROM tgbugs/musl:updated
 
+ARG ARCHIVE
+
 # if you don't need the gui then us this instead of just perl
 # && echo '*/* -perl -X -gui -introspection' >> /etc/portage/package.use/base \
 
@@ -339,13 +352,16 @@ eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overl
 && emaint sync --repo tgbugs-overlay
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q vim emacs media-fonts/dejavu
+emerge -j4 -q vim emacs media-fonts/dejavu \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q racket --onlydeps
+emerge -j4 -q racket --onlydeps \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -q racket
+emerge -q racket \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN \
 eselect racket set cs
