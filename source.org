@@ -99,7 +99,8 @@ FROM tgbugs/musl:updated
 ARG ARCHIVE
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q -uDN @world \
+emaint sync --repo musl \
+&& emerge -j4 -q -uDN @world \
    --keep-going \
    --exclude sys-process/procps \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
