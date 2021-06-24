@@ -1,0 +1,571 @@
+#+title: Literate source for docker files
+
+#+property: header-args :eval no-export
+#+property: header-args:dockerfile :mkdirp yes :comments link
+
+* Setup
+** Server
+Docker files in this repo use buildkit features. To enable it include
+the following in [[/etc/docker/daemon.json]].
+#+begin_src json :tangle /etc/docker/daemon.json :tangle no
+{"experimental": true,
+ "features": {"buildkit": true}}
+#+end_src
+
+** Client
+Building the precursor images in =gentoo/stage3= for this repo from
+[[https://github.com/gentoo/gentoo-docker-images][scratch]] requires
+the =buildx= extension which requires experimental features to be
+enabled in the client.
+#+begin_src json :tangle ~/.docker/config.json :tangle no
+{"experimental": "enabled"}
+#+end_src
+
+* Ops
+#+begin_src bash
+docker pull gentoo/stage3:amd64-musl-hardened
+docker pull gentoo/portage
+docker create -v /usr/portage --name local-portage-snap gentoo/portage:latest /bin/true
+#+end_src
+
+If you are bootstrapping this file from scratch you will need to build
+dependent images in order.
+
+* musl
+Pushes to https://hub.docker.com/r/tgbugs/musl. \\
+Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
+Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
+and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
+** updated
+*** file
+Produce an up-to-date base image for =amd64-hardened-musl= from the
+latest stage3 image including the
+[[https://github.com/gentoo/musl][musl overlay]] as noted on the
+[[https://wiki.gentoo.org/wiki/Project:Hardened_musl#Working_with_musl][wiki]].
+
+At the moment the docker images are generated far more frequently than
+the underlying stage3 tarballs are updated, so there are two docker
+files, one for building the first time and another for running routine
+emerge updates until a new stage3 is released.
+
+Alternately, one way to avoid rebuilds is to build packages and store
+them across rebuilds. This will take more work, but ultimately might
+be a bit more reproducible since we would avoid the issues with having
+an image building =FROM= a prior version of itself.
+
+#+name: &musl/updated
+#+begin_src dockerfile :tangle ./musl/updated/Dockerfile
+FROM gentoo/stage3:amd64-musl-hardened
+
+ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
+&& echo '*/* -perl -gtk -cups -postscript' >> /etc/portage/package.use/base \
+&& [[ -z ${PYTHON_TARGETS} ]] || \
+   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/base \
+&& emerge -j4 -q \
+   dev-vcs/git \
+   eselect-repository
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+mkdir /etc/portage/repos.conf \
+&& eselect repository enable musl \
+&& emaint sync --repo musl
+
+# exclude gcc during first update since it is slow, it will be updated when running remerge.Dockerfile
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q -uDN @world \
+   --keep-going \
+   --exclude sys-devel/gcc \
+   --exclude sys-process/procps \
+|| echo "something failed to build"
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+# extras
+# don't include these at this stage
+# RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+# emerge -j4 -q media-libs/dejavu vim
+
+#+name: &musl/updated-remerge
+#+begin_src dockerfile :tangle ./musl/updated/remerge.Dockerfile
+FROM tgbugs/musl:updated
+
+VOLUME /var/cache/distfiles
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q -uDN @world \
+   --keep-going \
+   --exclude sys-process/procps
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:updated \
+--build-arg PYTHON_TARGETS="python3_8 python3_9" \
+--file musl/updated/Dockerfile .
+#+end_src
+
+*** rebuild
+Since
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:updated-remerge \
+--file musl/updated/remerge.Dockerfile .
+
+# check that everything works as expected and then rename
+docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
+#+end_src
+
+** icedtea
+*** file
+#+name: &musl/icedtea
+#+begin_src dockerfile :tangle ./musl/icedtea/Dockerfile
+FROM tgbugs/musl:updated
+
+ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
+
+ARG SIGH="icedtea-bin-3.18.0-dbg-x86_64-musl.tar.gz \
+icedtea-bin-3.18.0-doc-x86_64.tar-musl.gz \
+icedtea-bin-3.18.0-jre-base-x86_64-musl.tar.gz \
+icedtea-bin-3.18.0-jre-lib-x86_64-musl.tar.gz \
+icedtea-bin-3.18.0-jre-x86_64-musl.tar.gz \
+icedtea-bin-3.18.0-libjpeg-x86_64-musl.tar.gz"
+
+ARG TMCH=34581ad0f14b5898abfb8d0a7ad89d560270a2e5
+
+# FIXME this is an evil hack that WILL expire
+RUN \
+eselect repository create local /usr/local/portage \
+&& mkdir -p /usr/local/portage/dev-java/icedtea-bin \
+&& pushd /usr/local/portage/dev-java/icedtea-bin \
+&& ln -s /var/db/repos/musl/dev-java/icedtea-bin/files \
+&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/icedtea-bin-3.18.0.ebuild" \
+&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/Manifest" \
+&& popd \
+&& pushd /var/cache/distfiles \
+&& for SI in ${SIGH}; do curl -L -o "${SI}" "${BASE}${SI/-musl//}"; done \
+&& popd
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   dev-java/icedtea-bin::local \
+   dev-libs/nss
+
+# make sure that we don't keep distfiles around
+VOLUME /var/cache/distfiles
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:icedtea \
+--file musl/icedtea/Dockerfile .
+#+end_src
+
+** protege
+*** file
+# <<&musl/icedtea>>
+#+name: &musl/protege
+#+begin_src dockerfile :tangle ./musl/protege/Dockerfile :noweb yes
+FROM tgbugs/musl:icedtea
+
+ARG NUID=11741
+ARG USER_NAME=protegeuser
+
+# add this line to phase one if you need to debug
+# && emerge -j4 -q emacs vim eix \
+
+# phase one build environment
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+echo '*/* -cleartype_hinting' >> /etc/portage/package.use/base \
+&& emerge -j4 -q \
+   dev-python/pip \
+   media-fonts/dejavu \
+&& groupadd -g ${NUID} ${USER_NAME} \
+&& useradd -m -k /etc/skel -u ${NUID} -g ${NUID} -d /home/${USER_NAME} ${USER_NAME}
+
+# make sure that we don't keep distfiles around
+VOLUME /var/cache/distfiles
+
+# the rest is run as the neurondm user
+USER $USER_NAME
+
+# phase two protege and reasoners
+ARG URL_PROTEGE="https://github.com/protegeproject/protege-distribution/releases/download/v5.5.0/Protege-5.5.0-linux.tar.gz"
+ARG URL_ELK="https://github.com/liveontologies/elk-reasoner/releases/download/v0.4.3/elk-distribution-0.4.3-protege-plugin.zip"
+ARG URL_FACT="https://bitbucket.org/dtsarkov/factplusplus/downloads/uk.ac.manchester.cs.owl.factplusplus-P5.x-v1.6.5.jar"
+
+RUN \
+cd ~/ \
+&& curl -L -O ${URL_PROTEGE} \
+&& tar xvzf Protege-5.5.0-linux.tar.gz \
+&& pushd Protege-5.5.0 \
+&& rm jre/ -r \
+&& sed -i 's/^jre\/bin\/java/\/usr\/bin\/java/' run.sh \
+&& sed -i 's/500M/12G/' run.sh \
+&& sed -i 's/200M/5G/' run.sh \
+&& sed -i 's/16M/160M/' run.sh \
+&& pushd plugins \
+&& curl -L -O ${URL_FACT} \
+&& curl -L -O ${URL_ELK} \
+&& unzip -p elk-distribution-0.4.3-protege-plugin.zip elk-distribution-0.4.3-protege-plugin/org.semanticweb.elk.jar > org.semanticweb.elk-0.4.3.jar \
+&& rm elk-distribution-0.4.3-protege-plugin.zip \
+&& popd; popd \
+&& mkdir -p ~/.local/share ~/.local/bin \
+&& mv Protege-5.5.0 ~/.local/share/ \
+&& pushd ~/.local/bin \
+&& ln -s ~/.local/share/Protege-5.5.0/run.sh protege \
+&& popd \
+&& rm Protege-5.5.0-linux.tar.gz
+
+# ensure that users can type protege to launch the reasoner
+# must use absolute path otherwise command form won't work
+ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
+WORKDIR /home/${USER_NAME}
+#+end_src
+
+We install pip here because any builds that =FROM tgbugs/musl:protege=
+default to =protegeuser=.
+# TODO FIXME we should be able to install protege as root
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:protege \
+--build-arg NUID=${UID} \
+--file musl/protege/Dockerfile .
+#+end_src
+
+** neurondm
+*** file
+#+name: &musl/neurondm
+#+begin_src dockerfile :tangle ./musl/neurondm/Dockerfile
+FROM tgbugs/musl:protege
+
+# phase three ontology
+RUN \
+pushd ~/ \
+;   mkdir git \
+;   pushd git \
+;       git clone https://github.com/SciCrunch/NIF-Ontology.git \
+;       pushd NIF-Ontology \
+;           git checkout neurons \
+;       popd
+
+# phase four python tools
+RUN \
+pushd ~/ \
+;   pushd git \
+;       git clone https://github.com/tgbugs/pyontutils.git \
+;       pushd pyontutils \
+;           pip install --user -e . \
+;           pushd neurondm \
+;               pip install --user -e . \
+;           popd \
+;       popd \
+;   popd
+
+# phase five build
+ARG NUID=11741
+# FIXME waiting on https://github.com/moby/buildkit/issues/815
+#RUN --mount=type=secret,id=scigraph-api-key,uid=${NUID} \
+RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigraph-api-key ;\
+python -m neurondm.models.allen_cell_types ;\
+python -m neurondm.models.huang2017 ;\
+python -m neurondm.models.ma2015 ;\
+git -C ~/git/NIF-Ontology status
+
+# TODO catalog file and protege options
+#+end_src
+
+*** build
+#+begin_src bash
+# XXX note that NUID does nothing right now
+docker build \
+--tag tgbugs/musl:neurondm \
+--build-arg NUID=${UID} \
+--secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
+--file musl/neurondm/Dockerfile .
+#+end_src
+
+*** run
+#+begin_src bash
+# to allow the container access to the local x session you have to run the following
+xhost local:docker
+# use xhost -local:docker to remove
+
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:neurondm
+
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--workdir /home/protegeuser/git/NIF-Ontology/ttl \
+tgbugs/musl:neurondm \
+protege
+#+end_src
+
+** racket
+*** file
+#+name: &musl/racket
+#+begin_src dockerfile :tangle ./musl/racket/Dockerfile
+FROM tgbugs/musl:updated
+
+# if you don't need the gui then us this instead of just perl
+# && echo '*/* -perl -X -gui -introspection' >> /etc/portage/package.use/base \
+
+RUN \
+echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
+&& echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection X' >> /etc/portage/package.use/base \
+&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/base \
+&& echo 'dev-scheme/racket cs bc cgc jit' >> /etc/portage/package.use/base \
+&& echo 'app-editors/emacs json dynamic-loading' >> /etc/portage/package.use/base \
+&& echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/base \
+&& echo 'dev-scheme/racket' >> /etc/portage/package.accept_keywords \
+&& echo '=gnome-base/librsvg-2.40.21 **' >> /etc/portage/package.accept_keywords \
+&& echo '<gnome-base/librsvg-2.41' >> /etc/portage/package.unmask \
+&& echo '>=gnome-base/librsvg-2.41' >> /etc/portage/package.mask \
+&& echo '>x11-themes/adwaita-icon-theme-3.33' >> /etc/portage/package.mask \
+&& echo '>=media-libs/mesa-21' >> /etc/portage/package.mask
+
+RUN \
+eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+&& emaint sync --repo tgbugs-overlay
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q vim emacs media-fonts/dejavu
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q racket --onlydeps
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -q racket
+
+RUN \
+eselect racket set cs
+
+VOLUME /var/db/distfiles
+#+end_src
+
+#+begin_src dockerfile
+# ----------------------------------------- modify below this line during development
+
+#RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+#USE=-cleartype_hinting emerge -1q freetype \
+#&& emerge -q dev-python/pip eix 
+
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:racket \
+--file musl/racket/Dockerfile .
+#+end_src
+
+Build debug workflow.
+#+begin_src bash
+# if you have not done so already
+docker create \
+-v /var/db/repos/gentoo \
+--name local-portage-snap \
+gentoo/portage:latest \
+/bin/true
+
+# if you have you have to clear the container with
+# docker rm local-portage-snap
+
+# then
+docker run \
+--volumes-from local-portage-snap \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:racket
+#+end_src
+
+** racket-user
+*** file
+#+name: &musl/racket-user
+#+begin_src dockerfile :tangle ./musl/racket-user/Dockerfile
+FROM tgbugs/musl:racket
+
+ARG RUID=1000
+ARG USER_NAME=rackuser
+
+RUN \
+groupadd -g ${RUID} ${USER_NAME} \
+&& useradd -m -k /etc/skel -u ${RUID} -g ${RUID} -d /home/${USER_NAME} ${USER_NAME}
+
+USER $USER_NAME
+
+WORKDIR /home/${USER_NAME}
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:racket-user \
+--build-arg RUID=${UID} \
+--file musl/racket-user/Dockerfile .
+#+end_src
+
+*** run
+#+begin_src bash
+# to allow the container access to the local x session you have to run the following
+xhost local:docker
+# use xhost -local:docker to remove
+
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:racket-user
+
+#+end_src
+
+* other
+** ubuntu-genera-base
+*** file
+#+begin_src dockerfile :tangle ./other/ubuntu-genera-base/Dockerfile
+FROM ubuntu:18.04
+
+RUN apt update
+
+RUN apt install -y \
+curl \
+inetutils-inetd \
+vim \
+telnet \
+nfs-common \
+nfs-kernel-server \
+iproute2 \
+libx11-6 \
+xserver-xephyr \
+x11-xserver-utils \
+iputils-ping
+#+end_src
+
+*** build
+# docker pull ubuntu:18.04
+# docker run -it ubuntu:18.04
+
+#+begin_src bash
+docker build \
+--tag tgbugs/other:ubuntu-genera-base \
+--file other/ubuntu-genera-base/Dockerfile .
+#+end_src
+
+** genera
+A docker file that specifies and image that can run Open Genera 2.0.
+
+We can't distribute the final image for a variety of reasons, however
+the configured base image can be distributed and is a valuable
+resource as a result.
+
+Useful as a starting point for debugging why it won't work on other systems.
+
+Nearly everything is working except that docker and NFS exports seem
+to be fighting with each other.  Old comments on the web mention
+issues with exporting overlayfs mounts to NFS, but this commit from
+2017 <https://patchwork.kernel.org/project/linux-fsdevel/patch/
+1508258671-10800-15-git-send-email-amir73il@gmail.com/> seems to have
+fixed that issue.
+
+Three entry points.
+https://www.reddit.com/r/lisp/comments/lhsltk/lisp_implementations_similiar_to_old_lisp_machines/
+https://gist.github.com/oubiwann/1e7aadfc22e3ae908921aeaccf27e82d
+https://archives.loomcom.com/genera/genera-install.html
+*** exploration
+This will eventually become a docker file, but right now it is still
+too experimental so the workflow is run and commit rather than build.
+
+#+begin_src bash
+xhost local:docker
+
+# NET_ADMIN apparently needed for tuntap creation (bsd jails and vnets looking really good right now)
+# SYS_ADMIN apparently needed to get NFS exports to work (bsd jails looking even better!?)
+# generally though this is ok because we are really only using this docker image as a way to get
+# an environment where genera will run
+
+docker run -it \
+-v ~/files/tmp/genera:/files \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--device /dev/net/tun \
+--cap-add NET_ADMIN \
+--cap-add SYS_ADMIN \
+tgbugs/other:ubuntu-genera-base
+#+end_src
+
+In the docker shell (will become the docker file or a script run in the docker file)
+#+begin_src bash
+#mkdir -p /dev/net
+#mknod /dev/net/tun c 10 200
+
+# tunnel creation
+# ip tuntap delete dev tap0 mode tap  # to remove since it fights with the host
+ip tuntap add dev tap0 mode tap
+ip addr add 192.168.2.1/24 dev tap0
+ip link set dev tap0 up
+
+# inetd
+
+echo "time      stream  tcp  nowait root internal" >> /etc/inetd.conf
+echo "time      dgram   udp  wait   root internal" >> /etc/inetd.conf
+echo "daytime   stream  tcp  nowait root internal" >> /etc/inetd.conf
+echo "daytime   dgram   udp  wait   root internal" >> /etc/inetd.conf
+
+service inetutils-inetd restart
+
+# retrieve genera files TODO snapshot these to reduce redownload
+
+mkdir genera
+pushd genera
+curl -LO https://archives.loomcom.com/genera/genera
+chmod a+x genera
+curl -L -O https://archives.loomcom.com/genera/worlds/Genera-8-5-xlib-patched.vlod
+curl -L -O https://archives.loomcom.com/genera/worlds/VLM_debugger
+curl -L -O https://archives.loomcom.com/genera/worlds/dot.VLM
+mv dot.VLM .VLM
+mkdir lib
+pushd lib
+curl -L -O https://archives.loomcom.com/genera/var_lib_symbolics.tar.gz
+tar xvf var_lib_symbolics.tar.gz
+chown -R root:root symbolics
+ln -s /genera/lib/symbolics /var/lib/symbolics  # may fail
+popd
+
+sed -i 's,/home/seth,,' .VLM
+echo "192.168.2.1    genera-vlm" >> /etc/hosts
+echo "192.168.2.2    genera" >> /etc/hosts
+
+# nfs XXX TODO broken
+
+echo 'RPCNFSDCOUNT="--nfs-version 2 8"' >> /etc/default/nfs-kernel-server
+echo 'RPCMOUNTDOPTS="--nfs-version 2 --manage-gids"' >> /etc/default/nfs-kernel-server
+echo "/files genera(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)" >> /etc/exports
+# we really want to export / but I'm seeing the following error
+# exportfs: / does not support NFS export 
+#echo "/ genera(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)" >> /etc/exports
+
+# I think rpcbind needs be be started, otherwise nfs-kernel-server may fail to start
+# and/or NFS will not work at all
+service rpcbind start
+
+service nfs-kernel-server restart
+
+# start genera using host X server
+
+DISPLAY=:0.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
+
+# start genera using Xephyr (a bit more stable/predictable)
+
+DISPLAY=:0.0; Xephyr -br -reset -terminate -ac -noreset -screen 1280x1024 :3 &
+DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
+
+#+end_src
