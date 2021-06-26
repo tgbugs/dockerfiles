@@ -1,7 +1,7 @@
 #+title: Literate source for docker files
 
 #+property: header-args :eval no-export
-#+property: header-args:dockerfile :mkdirp yes :comments link
+#+property: header-args:dockerfile :mkdirp yes :comments link :var BUILDKIT_PROGRESS="plain"
 
 * Setup
 ** Server
@@ -177,14 +177,17 @@ docker build \
 
 ** protege
 *** file
-# <<&musl/icedtea>>
+We install pip during this step because any builds that =FROM
+tgbugs/musl:protege= default to =protegeuser=.
+# TODO FIXME we should be able to install protege as root
 #+name: &musl/protege
-#+begin_src dockerfile :tangle ./musl/protege/Dockerfile :noweb yes
+#+begin_src dockerfile :tangle ./musl/protege/Dockerfile
 FROM tgbugs/musl:icedtea
 
 ARG ARCHIVE
 ARG NUID=11741
 ARG USER_NAME=protegeuser
+ARG PROTEGE_VERSION="5.5.0"
 
 # add this line to phase one if you need to debug
 # && emerge -j4 -q emacs vim eix \
@@ -214,8 +217,8 @@ ARG URL_FACT="https://bitbucket.org/dtsarkov/factplusplus/downloads/uk.ac.manche
 RUN \
 cd ~/ \
 && curl -L -O ${URL_PROTEGE} \
-&& tar xvzf Protege-5.5.0-linux.tar.gz \
-&& pushd Protege-5.5.0 \
+&& tar xvzf Protege-${PROTEGE_VERSION}-linux.tar.gz \
+&& pushd Protege-${PROTEGE_VERSION} \
 && rm jre/ -r \
 && sed -i 's/^jre\/bin\/java/\/usr\/bin\/java/' run.sh \
 && sed -i 's/500M/12G/' run.sh \
@@ -224,25 +227,75 @@ cd ~/ \
 && pushd plugins \
 && curl -L -O ${URL_FACT} \
 && curl -L -O ${URL_ELK} \
-&& unzip -p elk-distribution-0.4.3-protege-plugin.zip elk-distribution-0.4.3-protege-plugin/org.semanticweb.elk.jar > org.semanticweb.elk-0.4.3.jar \
+&& unzip -p elk-distribution-0.4.3-protege-plugin.zip \
+   elk-distribution-0.4.3-protege-plugin/org.semanticweb.elk.jar \
+   > org.semanticweb.elk-0.4.3.jar \
 && rm elk-distribution-0.4.3-protege-plugin.zip \
 && popd; popd \
 && mkdir -p ~/.local/share ~/.local/bin \
-&& mv Protege-5.5.0 ~/.local/share/ \
+&& mv Protege-${PROTEGE_VERSION} ~/.local/share/ \
 && pushd ~/.local/bin \
-&& ln -s ~/.local/share/Protege-5.5.0/run.sh protege \
+&& ln -s ~/.local/share/Protege-${PROTEGE_VERSION}/run.sh protege \
 && popd \
-&& rm Protege-5.5.0-linux.tar.gz
+&& rm Protege-${PROTEGE_VERSION}-linux.tar.gz
 
-# ensure that users can type protege to launch the reasoner
-# must use absolute path otherwise command form won't work
 ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
+
+# paths to preferences files
+ARG PATH_CFU_1=_\!\&\!\!\`g\"\>\!\&@\!\[@\"\(\!%\`\!\|w\"@\!\&\)\!\[@\"\'\!%\`\!\`g\"\&\!%4\!@w\"\&\!\&:=
+ARG PATH_CFU_2=_\!\'%\!c\!\"w\!\'w\!a@\"j\!\'%\!d\!\"p\!\'8\!bg\"f\!\(\!\!cg\"l\!\'\}\!~@\"y\!\'\`\!bg\"j\!\'\`\!cw==
+ARG PATH_CFU_3=_\!\'8\!cg\"n\!#4\!c\!\"y\!\'8\!d\!\"l\!\'c\!~@\!u\!\'\`\!~\!\"p\!\(@\!bw\"y\!#4\!\}w\"v\!\(\)\!~@\!u\!\(\`\!c\!\"k\!\'%\!d\!\"l\!#4\!\`\!\"s\!\(\`\!~w\"p\!\'4\!\^@\"h\!\'4\!\}@\"n\!\'\`\!cg==
+ARG PATH_CFU="${PATH_CFU_1}/${PATH_CFU_2}/${PATH_CFU_3}"
+
+# set preferences so that protege starts in the right state the first time
+# protege doesn't create this prefs file by default so we would have to do this regardless
+# this helps because it prevents the search for plugins on first run so that goes faster
+RUN \
+pushd ~/ \
+&& mkdir -p ".java/.userPrefs/${PATH_DRI_1}" \
+&& chmod 0700 ".java/.userPrefs" \
+&& mkdir -p ".java/.userPrefs/${PATH_CFU}" \
+&& echo '<?xml version="1.0" encoding="UTF-8" standalone="no"?>' > ".java/.userPrefs/${PATH_CFU}/prefs.xml" \
+&& echo '<!DOCTYPE map SYSTEM "http://java.sun.com/dtd/preferences.dtd">' >> ".java/.userPrefs/${PATH_CFU}/prefs.xml" \
+&& echo '<map MAP_XML_VERSION="1.0">' >> ".java/.userPrefs/${PATH_CFU}/prefs.xml" \
+&& echo '  <entry key="CheckForUpdates" value="false"/>' >> ".java/.userPrefs/${PATH_CFU}/prefs.xml" \
+&& echo '</map>' >> ".java/.userPrefs/${PATH_CFU}/prefs.xml" \
+&& popd
+
 WORKDIR /home/${USER_NAME}
 #+end_src
 
-We install pip here because any builds that =FROM tgbugs/musl:protege=
-default to =protegeuser=.
-# TODO FIXME we should be able to install protege as root
+Sadly this approach does not work because protege dies before the
+reasoner prefs file is written.  Therefore we have to run the image
+manually and commit before release. Sigh.
+#+begin_src dockerfile
+# start protege to generate settings files, have to sleep becuase the
+# protege sh wrapper breaks $!
+RUN \
+protege \
+& sleep 6 \
+&& kill $(ps | grep java | awk '{ printf $1 }')
+
+# on first run protege doesn't check to see if there is already
+# something in this prefs.xml file and appends to it automatically
+RUN \
+find ~/.java/.userPrefs -name 'prefs.xml' -exec grep -q DEFAULT_REASONER_ID {} \; \
+-exec sed -i 's/org.protege.editor.owl.NoOpReasoner/org.semanticweb.elk.elk.reasoner.factory/' {} \;
+
+# must use absolute path otherwise command form won't work
+WORKDIR /home/${USER_NAME}
+#+end_src
+
+In order to get paths that point to the prefs.xml files that we can
+embed in the docker file you need the following commands.
+#+begin_src bash
+printf '%q' $(find ~/.java/.userPrefs -name 'prefs.xml' -exec grep -q CheckForUpdates {} \; -print0)
+#+end_src
+
+A useful find command for debugging whether the correct reasoner has been set.
+#+begin_src bash
+find ~/.java/.userPrefs -name 'prefs.xml' -exec grep -q DEFAULT_REASONER_ID {} \; -exec cat {} \;
+#+end_src
 
 *** build
 #+begin_src bash
@@ -252,10 +305,35 @@ docker build \
 --file musl/protege/Dockerfile .
 #+end_src
 
-** neurondm
+Due to the fact that protege needs X11 running in order to create
+config files.  Run the following command, change the default reasoner
+to ELK, make any other changes that are needed, and then quit protege.
+The second command will run automatically and commit the changes.
+
+NOTE you must run the =protege= command manually to prevent the commit
+from changing the default behavior of the container from changing its
+entry point to run =protege=.
+
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:protege && \
+docker commit $(docker ps -lq) tgbugs/musl:protege
+#+end_src
+
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:protege
+#+end_src
+
+** NIF-Ontology
 *** file
-#+name: &musl/neurondm
-#+begin_src dockerfile :tangle ./musl/neurondm/Dockerfile
+#+name: &musl/NIF-Ontology
+#+begin_src dockerfile :tangle ./musl/NIF-Ontology/Dockerfile
 FROM tgbugs/musl:protege
 
 # phase three ontology
@@ -265,8 +343,41 @@ pushd ~/ \
 ;   pushd git \
 ;       git clone https://github.com/SciCrunch/NIF-Ontology.git \
 ;       pushd NIF-Ontology \
-;           git checkout neurons \
-;       popd
+;           pushd ttl \
+;           cp catalog-v001.xml.example catalog-v001.xml \
+;       popd \
+;   popd
+#+end_src
+
+*** build
+# TODO progress prints to stderr
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:NIF-Ontology \
+--file musl/NIF-Ontology/Dockerfile .
+#+end_src
+
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:NIF-Ontology
+#+end_src
+
+** neurondm
+*** file
+#+name: &musl/neurondm
+#+begin_src dockerfile :tangle ./musl/neurondm/Dockerfile
+FROM tgbugs/musl:NIF-Ontology
+
+ARG ONTOLOGY_GITREF=neurons
+
+# phase three ontology
+RUN \
+pushd ~/git/NIF-Ontology \
+;   git checkout ${ONTOLOGY_GITREF} \
+;   popd
 
 # phase four python tools
 RUN \
@@ -282,16 +393,19 @@ pushd ~/ \
 ;   popd
 
 # phase five build
+# XXX FIXME we can't run this for for the demonstrator because the
+# change in the lack fo npokb identifiers causes the queries to fail
+# we probably want two separate images for this
+ARG SCIGRAPH_API
+ARG NEURONS_BRANCH
 ARG NUID=11741
 # FIXME waiting on https://github.com/moby/buildkit/issues/815
 #RUN --mount=type=secret,id=scigraph-api-key,uid=${NUID} \
-RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigraph-api-key ;\
-python -m neurondm.models.allen_cell_types ;\
-python -m neurondm.models.huang2017 ;\
-python -m neurondm.models.ma2015 ;\
-git -C ~/git/NIF-Ontology status
-
-# TODO catalog file and protege options
+RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigraph-api-key \
+; python -m neurondm.models.allen_cell_types \
+; python -m neurondm.models.huang2017 \
+; python -m neurondm.models.ma2015 \
+; git -C ~/git/NIF-Ontology status
 #+end_src
 
 *** build
@@ -321,6 +435,76 @@ docker run \
 --workdir /home/protegeuser/git/NIF-Ontology/ttl \
 tgbugs/musl:neurondm \
 protege
+#+end_src
+
+** npo-1.0
+*** build
+Build using the SciCrunch SciGraph API endpoint.
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:npo-1.0 \
+--build-arg ONTOLOGY_GITREF=npo-1.0 \
+--build-arg NEURONS_BRANCH=npo-1.0 \
+--build-arg NUID=${UID} \
+--secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
+--file musl/neurondm/Dockerfile .
+#+end_src
+
+Build using an alternate SciGraph API endpoint.
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:npo-1.0 \
+--build-arg ONTOLOGY_GITREF=npo-1.0 \
+--build-arg NEURONS_BRANCH=npo-1.0 \
+--build-arg NUID=${UID} \
+--secret id=scigraph-api-key,src=<(echo) \
+--build-arg SCIGRAPH_API=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api"))') \
+--file musl/neurondm/Dockerfile .
+#+end_src
+
+*** run
+#+begin_src bash
+xhost local:docker
+docker pull tgbugs/musl:npo-1.0
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--workdir /home/protegeuser/git/NIF-Ontology/ttl \
+tgbugs/musl:npo-1.0 \
+protege-npo-1.0
+#+end_src
+** python
+*** file
+#+begin_src dockerfile :tangle ./musl/python/Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q -uDN @world \
+   --keep-going \
+   --exclude sys-process/procps \
+   python:3.6 \
+   python:3.7 \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN \
+echo 'dev-python/pipenv' >> /etc/portage/package.accept_keywords
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q -uDN @world \
+   --keep-going \
+   --exclude sys-process/procps \
+   pipenv \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:python \
+--file musl/python/Dockerfile .
 #+end_src
 
 ** racket
