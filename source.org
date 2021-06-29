@@ -438,6 +438,30 @@ protege
 #+end_src
 
 ** npo-1.0
+# XXX FIXME TODO From a reader point of view 99% of the time they are
+# going to want things in reverse temporal order because the author
+# will have already run the build and written the file, thus the more
+# technical components should be farther down the page, practically it
+# also is a workaround for the fact that github section generation is
+# broken for org files
+*** run
+#+begin_src bash
+xhost local:docker
+
+docker pull tgbugs/musl:npo-1.0
+
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--workdir /home/protegeuser/git/NIF-Ontology/ttl \
+tgbugs/musl:npo-1.0 \
+sh -c 'protege ~/git/NIF-Ontology/ttl/npo.ttl'
+#+end_src
+
+Run the block above and once protege starts type =Control R= (=Command
+R= on macos) to run the reasoner. You can then run owldl queries in
+the tab.
+
 *** build
 Build using the SciCrunch SciGraph API endpoint.
 #+begin_src bash
@@ -462,17 +486,6 @@ docker build \
 --file musl/neurondm/Dockerfile .
 #+end_src
 
-*** run
-#+begin_src bash
-xhost local:docker
-docker pull tgbugs/musl:npo-1.0
-docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
---workdir /home/protegeuser/git/NIF-Ontology/ttl \
-tgbugs/musl:npo-1.0 \
-protege-npo-1.0
-#+end_src
 ** python
 *** file
 #+begin_src dockerfile :tangle ./musl/python/Dockerfile
