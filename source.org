@@ -391,30 +391,13 @@ pushd ~/ \
 ;           popd \
 ;       popd \
 ;   popd
-
-# phase five build
-# XXX FIXME we can't run this for for the demonstrator because the
-# change in the lack fo npokb identifiers causes the queries to fail
-# we probably want two separate images for this
-ARG SCIGRAPH_API
-ARG NEURONS_BRANCH
-ARG NUID=11741
-# FIXME waiting on https://github.com/moby/buildkit/issues/815
-#RUN --mount=type=secret,id=scigraph-api-key,uid=${NUID} \
-RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigraph-api-key \
-; python -m neurondm.models.allen_cell_types \
-; python -m neurondm.models.huang2017 \
-; python -m neurondm.models.ma2015 \
-; git -C ~/git/NIF-Ontology status
 #+end_src
 
 *** build
 #+begin_src bash
-# XXX note that NUID does nothing right now
 docker build \
 --tag tgbugs/musl:neurondm \
---build-arg NUID=${UID} \
---secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
+--build-arg ONTOLOGY_GITREF=neurons \
 --file musl/neurondm/Dockerfile .
 #+end_src
 
@@ -463,27 +446,96 @@ R= on macos) to run the reasoner. You can then run owldl queries in
 the tab.
 
 *** build
-Build using the SciCrunch SciGraph API endpoint.
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:npo-1.0 \
 --build-arg ONTOLOGY_GITREF=npo-1.0 \
+--file musl/neurondm/Dockerfile .
+#+end_src
+
+** npo-1.0-neurondm-build
+*** run
+*** build
+Build using the SciCrunch SciGraph API endpoint.
+#+begin_src bash
+# XXX note that NUID does nothing right now
+docker build \
+--tag tgbugs/musl:npo-1.0-neurondm-build \
 --build-arg NEURONS_BRANCH=npo-1.0 \
 --build-arg NUID=${UID} \
 --secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
---file musl/neurondm/Dockerfile .
+--file musl/npo-1.0-neurondm-build/Dockerfile .
 #+end_src
 
 Build using an alternate SciGraph API endpoint.
 #+begin_src bash
+# XXX note that NUID does nothing right now
 docker build \
---tag tgbugs/musl:npo-1.0 \
---build-arg ONTOLOGY_GITREF=npo-1.0 \
+--tag tgbugs/musl:npo-1.0-neurondm-build \
 --build-arg NEURONS_BRANCH=npo-1.0 \
 --build-arg NUID=${UID} \
---secret id=scigraph-api-key,src=<(echo) \
 --build-arg SCIGRAPH_API=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api"))') \
---file musl/neurondm/Dockerfile .
+--secret id=scigraph-api-key,src=<(echo) \
+--file musl/npo-1.0-neurondm-build/Dockerfile .
+#+end_src
+
+*** file
+# FIXME should probably be using a multi source file here instead of
+# noweb but I'm not sure we can really do that because the output
+# depends on the state of the ontology repo
+#+name: &musl/neurondm-build
+#+begin_src dockerfile :noweb yes :tangle ./musl/npo-1.0-neurondm-build/Dockerfile
+FROM tgbugs/musl:npo-1.0
+<<&-base-musl/neurondm-build>>
+#+end_src
+
+** neurondm-build
+This image runs the neurondm build process.
+*** run
+*** build
+#+begin_src bash
+# XXX note that NUID does nothing right now
+docker build \
+--tag tgbugs/musl:neurondm-build \
+--build-arg NUID=${UID} \
+--secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
+--file musl/neurondm-build/Dockerfile .
+#+end_src
+
+Build using an alternate SciGraph API endpoint.
+#+begin_src bash
+# XXX note that NUID does nothing right now
+docker build \
+--tag tgbugs/musl:neurondm-build \
+--build-arg NUID=${UID} \
+--build-arg SCIGRAPH_API=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api"))') \
+--secret id=scigraph-api-key,src=<(echo) \
+--file musl/neurondm-build/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/neurondm-build
+#+begin_src dockerfile :noweb yes :tangle ./musl/neurondm-build/Dockerfile
+FROM tgbugs/musl:neurondm
+<<&-base-musl/neurondm-build>>
+#+end_src
+
+#+name: &-base-musl/neurondm-build
+#+begin_src dockerfile
+# phase five build
+# XXX FIXME we can't run this for the demonstrator because the lack of
+# npokb identifiers causes the queries to fail we probably want two
+# separate images for this
+ARG SCIGRAPH_API
+ARG NEURONS_BRANCH
+ARG NUID=11741
+# FIXME waiting on https://github.com/moby/buildkit/issues/815
+#RUN --mount=type=secret,id=scigraph-api-key,uid=${NUID} \
+RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigraph-api-key \
+; python -m neurondm.models.allen_cell_types \
+; python -m neurondm.models.huang2017 \
+; python -m neurondm.models.ma2015 \
+; git -C ~/git/NIF-Ontology status
 #+end_src
 
 ** python
