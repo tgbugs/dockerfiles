@@ -455,6 +455,14 @@ docker build \
 
 ** npo-1.0-neurondm-build
 *** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--workdir /home/protegeuser/git/NIF-Ontology/ttl \
+tgbugs/musl:npo-1.0-neurondm-build \
+sh -c 'git stash && protege ~/git/NIF-Ontology/ttl/npo.ttl'
+#+end_src
 *** build
 Build using the SciCrunch SciGraph API endpoint.
 #+begin_src bash
@@ -488,6 +496,24 @@ docker build \
 FROM tgbugs/musl:npo-1.0
 <<&-base-musl/neurondm-build>>
 #+end_src
+
+*** save
+This is the image that will be archived to Zenodo for the paper. Note
+that the dl queries will not run as expected on this unless you first
+stash the changes in =~/git/NIF-Ontology=.
+
+#+begin_src bash
+docker save tgbugs/musl:npo-1.0-neurondm-build | gzip > /tmp/npo-1.0-neurondm-build.tar.gz
+#+end_src
+
+To restore from the archive run
+#+begin_src bash
+docker load --input npo-1.0-neurondm-build.tar.gz
+#+end_src
+
+The sha256 checksum for npo-1.0-neurondm-build.tar.gz on Zenodo at
+doi:10.5281/zenodo.5033493 is
+=8e0bb1c684ca8a28f1abeb01ef7aa2597388b8011244f097a92bdd2a523db102=.
 
 ** neurondm-build
 This image runs the neurondm build process.
