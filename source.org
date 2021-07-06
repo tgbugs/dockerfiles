@@ -849,9 +849,9 @@ pushd ~/git/dynapad
         ninja
     popd
     SUBPATH=$(racketcgc -e "(display (path->string (system-library-subpath)))")
+    mkdir -p dynapad/compiled/bc/native/${SUBPATH}
     racocgc ctool --cgc --ld dynapad/compiled/bc/native/${SUBPATH}/libdynapad_rkt.so \
         "${PWD}/build_musl/libdynapad.so"
-    mkdir -p dynapad/compiled/bc/native/${SUBPATH}
     racocgc pkg install collects/ dynapad/
     racocgc make apps/paddraw/paddraw.rkt
     racocgc make apps/uberapp/uberapp.rkt
