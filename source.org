@@ -440,10 +440,37 @@ docker run \
 tgbugs/musl:npo-1.0 \
 sh -c 'protege ~/git/NIF-Ontology/ttl/npo.ttl'
 #+end_src
+**** macos notes
+#+begin_src bash
+brew install --cask docker
+open -a Docker\ Desktop
+# You will need to go to Docker Desktop > Preferences > Resources
+# and increase the memory limit to 8 gigs
+# otherwise oom killer will end Protege while trying to load npo.ttl
 
-Run the block above and once protege starts type =Control R= (=Command
-R= on macos) to run the reasoner. You can then run owldl queries in
-the tab.
+brew install xquartz
+open -a XQuartz
+# You will need to go to XQuartz > Preferences > Security
+# and enable Allow connections from network clients
+xhost +localhost
+export DISPLAY=:0
+# test to make sure everything still works e.g. by running xeyes
+
+docker pull tgbugs/musl:npo-1.0
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=host.docker.internal$DISPLAY \
+--workdir /home/protegeuser/git/NIF-Ontology/ttl \
+tgbugs/musl:npo-1.0 \
+sh -c 'protege ~/git/NIF-Ontology/ttl/npo.ttl'
+#+end_src
+
+Run the block above and once protege starts type =Control R= to run
+the reasoner. The docker image is running the Linux version of Protege
+so the key bindings use Control instead of Command. You can then run
+OWL DL queries in the tab. Note that if you are using the ELK reasoner
+(enabled by default in the image) then you will have to click through
+a number of warning dialogues, this is normal.
 
 *** build
 #+begin_src bash
