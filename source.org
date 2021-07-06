@@ -747,6 +747,116 @@ docker run \
 
 #+end_src
 
+** dynapad-base
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:dynapad-base \
+--file musl/dynapad-base/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/dynapad-base
+#+begin_src dockerfile :tangle ./musl/dynapad-base/Dockerfile
+FROM tgbugs/musl:racket
+
+ARG ARCHIVE
+
+RUN \
+echo '>=media-gfx/imagemagick-7' >> /etc/portage/package.mask
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   dev-lang/tk \
+   sys-libs/db \
+   media-gfx/imagemagick \
+   app-text/poppler \
+   dev-libs/libconfig \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/db/distfiles
+#+end_src
+
+** dynapad-user
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:dynapad-user \
+--build-arg DUID=${UID} \
+--file musl/dynapad-user/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/dynapad-user
+#+begin_src dockerfile :tangle ./musl/dynapad-user/Dockerfile
+FROM tgbugs/musl:dynapad-base
+
+ARG DUID=1000
+ARG USER_NAME=dynapad
+
+RUN \
+groupadd -g ${DUID} ${USER_NAME} \
+&& useradd -m -k /etc/skel -u ${DUID} -g ${DUID} -d /home/${USER_NAME} ${USER_NAME}
+
+USER $USER_NAME
+
+WORKDIR /home/${USER_NAME}
+#+end_src
+
+** dynapad
+*** run
+Once you have created the =tgbugs/musl:dynapad= image (see the build
+section below) you can use this command to run it and commit on close
+each time so as not to lose any work. You will probably want to mount
+any additional directories you will need .e.g for images using =-v=.
+
+See [[#macos-notes][macos notes]] to get docker working with XQuartz.
+
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/git/dynapad:/home/dynapad/git/dynapad \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:dynapad \
+sh -c 'pushd ~/git/dynapad && racketcgc -it apps/paddraw/paddraw.rkt'
+docker commit $(docker ps -lq) tgbugs/musl:dynapad
+#+end_src
+
+*** build
+Since we need to mount the git directory from outside the image we
+can't use a docker file. Commit the image after these steps are
+finished (the commands above do that automatically).
+
+If your UID is something other than 1000 you will probably want to
+rebuild =tgbugs/musl:dynapad-user= so that your UID matches.
+
+#+begin_src bash
+docker pull tgbugs/musl:dynapad-user
+
+docker run \
+-v ~/git/dynapad:/home/dynapad/git/dynapad \
+-ti tgbugs/musl:dynapad-user
+docker commit $(docker ps -lq) tgbugs/musl:dynapad
+#+end_src
+
+In the image run the following and then exit, the commit will be made
+automatically.
+#+begin_src bash
+pushd ~/git/dynapad
+    mkdir build_musl
+    pushd build_musl
+        cmake .. -G Ninja
+        ninja
+    popd
+    SUBPATH=$(racketcgc -e "(display (path->string (system-library-subpath)))")
+    racocgc ctool --cgc --ld dynapad/compiled/bc/native/${SUBPATH}/libdynapad_rkt.so \
+        "${PWD}/build_musl/libdynapad.so"
+    mkdir -p dynapad/compiled/bc/native/${SUBPATH}
+    racocgc pkg install collects/ dynapad/
+    racocgc make apps/paddraw/paddraw.rkt
+    racocgc make apps/uberapp/uberapp.rkt
+#+end_src
+
 * other
 ** ubuntu-genera-base
 *** file
