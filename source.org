@@ -442,6 +442,7 @@ sh -c 'protege ~/git/NIF-Ontology/ttl/npo.ttl'
 #+end_src
 **** macos notes
 #+begin_src bash
+brew install virtualbox  # there are some system level persmissions that you will need to set
 brew install --cask docker
 open -a Docker\ Desktop
 # You will need to go to Docker Desktop > Preferences > Resources
