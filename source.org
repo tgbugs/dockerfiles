@@ -87,11 +87,6 @@ emerge -j4 -q -uDN @world \
 VOLUME /var/cache/distfiles
 #+end_src
 
-# extras
-# don't include these at this stage
-# RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-# emerge -j4 -q media-libs/dejavu vim
-
 #+name: &musl/updated-remerge
 #+begin_src dockerfile :tangle ./musl/updated/remerge.Dockerfile
 FROM tgbugs/musl:updated
@@ -126,6 +121,42 @@ docker build \
 # check that everything works as expected and then rename
 docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
 #+end_src
+
+** fix fonts
+# TODO convert this to actually be used in a dockerfile
+#+name: &fix-fonts
+#+begin_src dockerfile
+RUN \
+echo '*/* -cleartype_hinting' >> /etc/portage/package.use/base
+
+# rebuild freetype without cleartype hinting
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -1q media-libs/freetype \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q media-fonts/dejavu \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN \
+eselect fontconfig disable 10-hinting-slight.conf \
+&& eselect fontconfig enable \
+   10-no-sub-pixel.conf \
+   57-dejavu-sans.conf \
+   57-dejavu-sans-mono.conf
+#+end_src
+
+Only enabling dejavu sans and disabling any and all hinting matters.
+There isn't a way to disable antialiasing using the gentoo fontconfig
+and even if you do the disabled hinting engine has different and ugly
+behavior compared to =-cleartype_hinting= so not sure what is going on
+for even further insanity if you enable =10-hinting-none.conf= OR
+=10-unhinted.conf= *YOU WILL GET HINTING !?!?!??! WAT!?* or at least
+maybe AA is enabled which does not maybe ANY sense. Probably there is
+some logic which is that in order to disable some feature there is
+some default that is enabled so there winds up being a difference
+between there being no reference to a feature and a reference to it to
+explicitly disable it. Sigh.
 
 ** icedtea
 *** file
@@ -181,7 +212,7 @@ We install pip during this step because any builds that =FROM
 tgbugs/musl:protege= default to =protegeuser=.
 # TODO FIXME we should be able to install protege as root
 #+name: &musl/protege
-#+begin_src dockerfile :tangle ./musl/protege/Dockerfile
+#+begin_src dockerfile :noweb yes :tangle ./musl/protege/Dockerfile
 FROM tgbugs/musl:icedtea
 
 ARG ARCHIVE
@@ -189,15 +220,12 @@ ARG NUID=11741
 ARG USER_NAME=protegeuser
 ARG PROTEGE_VERSION="5.5.0"
 
-# add this line to phase one if you need to debug
-# && emerge -j4 -q emacs vim eix \
+<<&fix-fonts>>
 
 # phase one build environment
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-echo '*/* -cleartype_hinting' >> /etc/portage/package.use/base \
-&& emerge -j4 -q \
+emerge -j4 -q \
    dev-python/pip \
-   media-fonts/dejavu \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN \
@@ -592,6 +620,147 @@ RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigrap
 ; git -C ~/git/NIF-Ontology status
 #+end_src
 
+** scigraph
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:scigraph
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:scigraph \
+--file musl/scigraph/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/scigraph
+#+begin_src dockerfile :tangle ./musl/scigraph/Dockerfile
+FROM tgbugs/musl:icedtea
+
+ARG ARCHIVE
+ARG EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
+ARG EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
+
+RUN \
+eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+&& emaint sync --repo tgbugs-overlay
+
+RUN \
+echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind X' >> /etc/portage/package.use/base \
+&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/base \
+&& echo 'x11-base/xorg-server minimal xvfb' >> /etc/portage/package.use/base \
+&& echo 'dev-java/scigraph-bin' >> /etc/portage/package.accept_keywords
+# TODO dev-java/blazegraph-bin
+
+RUN \
+mkdir -p /var/lib/portage/home/.m2 \
+&& echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /var/lib/portage/home/.m2/settings.xml \
+&& echo '          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">' >> /var/lib/portage/home/.m2/settings.xml \
+&& echo '<localRepository>/var/tmp/portage/.m2/repository</localRepository>' >> /var/lib/portage/home/.m2/settings.xml \
+&& echo '</settings>' >> /var/lib/portage/home/.m2/settings.xml \
+&& chown -R portage:portage /var/lib/portage/home/.m2 \
+&& mkdir -p /var/tmp/portage/.m2/repository \
+&& chown -R portage:portage /var/tmp/portage/.m2
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q vim \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q scigraph-bin --onlydeps \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q scigraph-bin \
+;  [[ -n ${ARCHIVE} ]] || { rm -r /var/cache/distfiles/*; rm -r /var/tmp/portage/.m2/repository/*; }
+
+# needed to be able to start services inside the container, but has to be done at run time I think?
+#RUN \
+#touch /run/openrc/softlevel
+
+VOLUME /var/db/distfiles
+#+end_src
+
+** kg-base
+Base environment for knowledge graph distribution and interaction.
+Combines both server and client functionalities into a single image.
+In principle this could be split into multiple images, but for the
+sake of simplicity and reproducibility it is a single image.
+
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:kg-base
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:kg-base \
+--file musl/kg-base/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/kg-base
+#+begin_src dockerfile :noweb yes :tangle ./musl/kg-base/Dockerfile
+FROM tgbugs/musl:scigraph
+
+ARG ARCHIVE
+
+<<&fix-fonts>>
+
+RUN \
+echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/base \
+&& echo 'app-editors/emacs gui Xaw3d xft' >> /etc/portage/package.use/base \
+&& echo 'app-emacs/emacs-common gui' >> /etc/portage/package.use/base
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q emacs \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+** kg-user
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-ti tgbugs/musl:kg-user
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:kg-user \
+--build-arg KUID=${UID} \
+--file musl/kg-user/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/kg-user
+#+begin_src dockerfile :tangle ./musl/kg-user/Dockerfile
+FROM tgbugs/musl:kg-base
+
+ARG KUID=1000
+ARG USER_NAME=kguser
+
+RUN \
+groupadd -g ${KUID} ${USER_NAME} \
+&& useradd -m -k /etc/skel -u ${KUID} -g ${KUID} -d /home/${USER_NAME} ${USER_NAME}
+
+USER $USER_NAME
+
+WORKDIR /home/${USER_NAME}
+#+end_src
+
 ** python
 *** file
 #+begin_src dockerfile :tangle ./musl/python/Dockerfile
@@ -634,15 +803,13 @@ FROM tgbugs/musl:updated
 
 ARG ARCHIVE
 
-# if you don't need the gui then us this instead of just perl
-# && echo '*/* -perl -X -gui -introspection' >> /etc/portage/package.use/base \
+<<&fix-fonts>>
 
 RUN \
-echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
-&& echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection X' >> /etc/portage/package.use/base \
+echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind X' >> /etc/portage/package.use/base \
 && echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/base \
 && echo 'dev-scheme/racket cs bc cgc jit' >> /etc/portage/package.use/base \
-&& echo 'app-editors/emacs json dynamic-loading' >> /etc/portage/package.use/base \
+&& echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/base \
 && echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/base \
 && echo 'dev-scheme/racket' >> /etc/portage/package.accept_keywords \
 && echo '=gnome-base/librsvg-2.40.21 **' >> /etc/portage/package.accept_keywords \
@@ -654,10 +821,6 @@ echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
 RUN \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && emaint sync --repo tgbugs-overlay
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q vim emacs media-fonts/dejavu \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q racket --onlydeps \
@@ -745,7 +908,6 @@ docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -ti tgbugs/musl:racket-user
-
 #+end_src
 
 ** dynapad-base
