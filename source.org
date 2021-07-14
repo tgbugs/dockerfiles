@@ -136,7 +136,9 @@ emerge -j4 -1q media-libs/freetype \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q media-fonts/dejavu \
+emerge -j4 -q \
+   fontconfig \
+   media-fonts/dejavu \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN \
@@ -555,6 +557,7 @@ docker build \
 --secret id=scigraph-api-key,src=<(echo) \
 --file musl/npo-1.0-neurondm-build/Dockerfile .
 #+end_src
+# --build-arg SCIGRAPH_API=http://192.168.1.207:9000/scigraph \
 
 *** file
 # FIXME should probably be using a multi source file here instead of
@@ -787,6 +790,8 @@ emerge -j4 -q -uDN @world \
    --exclude sys-process/procps \
    python:3.6 \
    python:3.7 \
+   python:3.8 \
+   python:3.9 \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN \
@@ -811,7 +816,7 @@ docker build \
 ** racket
 *** file
 #+name: &musl/racket
-#+begin_src dockerfile :tangle ./musl/racket/Dockerfile
+#+begin_src dockerfile :noweb yes :tangle ./musl/racket/Dockerfile
 FROM tgbugs/musl:updated
 
 ARG ARCHIVE
@@ -824,9 +829,11 @@ echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind X
 && echo 'dev-scheme/racket cs bc cgc jit' >> /etc/portage/package.use/base \
 && echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/base \
 && echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/base \
+&& echo 'media-libs/freetype harfbuzz' >> /etc/portage/package.use/base \
 && echo 'dev-scheme/racket' >> /etc/portage/package.accept_keywords \
 && echo '=gnome-base/librsvg-2.40.21 **' >> /etc/portage/package.accept_keywords \
 && echo '<gnome-base/librsvg-2.41' >> /etc/portage/package.unmask \
+&& rmdir /etc/portage/package.mask \
 && echo '>=gnome-base/librsvg-2.41' >> /etc/portage/package.mask \
 && echo '>x11-themes/adwaita-icon-theme-3.33' >> /etc/portage/package.mask \
 && echo '>=media-libs/mesa-21' >> /etc/portage/package.mask
@@ -986,8 +993,7 @@ section below) you can use this command to run it and commit on close
 each time so as not to lose any work. You will probably want to mount
 any additional directories you will need .e.g for images using =-v=.
 
-See [[#macos-notes][macos notes]] to get docker working with XQuartz.
-
+**** linux
 #+begin_src bash
 docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
@@ -995,7 +1001,22 @@ docker run \
 -e DISPLAY=$DISPLAY \
 -ti tgbugs/musl:dynapad \
 sh -c 'pushd ~/git/dynapad && racketcgc -it apps/paddraw/paddraw.rkt'
-docker commit $(docker ps -lq) tgbugs/musl:dynapad
+
+# docker commit $(docker ps -lq) tgbugs/musl:dynapad
+#+end_src
+**** macos
+See [[#macos-notes][macos notes]] for notes on getting docker working
+with XQuartz.  Assuming everything is set up correctly you can the run
+the following.
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/git/dynapad:/home/dynapad/git/dynapad \
+-e DISPLAY=host.docker.internal:0 \
+-ti tgbugs/musl:dynapad \
+sh -c 'pushd ~/git/dynapad && racketcgc -it apps/paddraw/paddraw.rkt'
+
+# docker commit $(docker ps -lq) tgbugs/musl:dynapad
 #+end_src
 
 *** build
@@ -1011,12 +1032,13 @@ docker pull tgbugs/musl:dynapad-user
 
 docker run \
 -v ~/git/dynapad:/home/dynapad/git/dynapad \
--ti tgbugs/musl:dynapad-user
+-it tgbugs/musl:dynapad-user
 docker commit $(docker ps -lq) tgbugs/musl:dynapad
 #+end_src
 
 In the image run the following and then exit, the commit will be made
-automatically.
+automatically. *NOTE* You may need to remove =build_musl= if it
+already exists.
 #+begin_src bash
 pushd ~/git/dynapad
     mkdir build_musl
@@ -1025,9 +1047,12 @@ pushd ~/git/dynapad
         ninja
     popd
     SUBPATH=$(racketcgc -e "(display (path->string (system-library-subpath)))")
+    SO_SUFFIX=$(racketcgc -e "(display (bytes->string/utf-8 (system-type 'so-suffix)))")
     mkdir -p dynapad/compiled/bc/native/${SUBPATH}
-    racocgc ctool --cgc --ld dynapad/compiled/bc/native/${SUBPATH}/libdynapad_rkt.so \
-        "${PWD}/build_musl/libdynapad.so"
+    racocgc ctool --cgc \
+            ++ldf -Wl,-rpath,"${PWD}/build_musl/" \
+            --ld dynapad/compiled/bc/native/${SUBPATH}/libdynapad_rkt${SO_SUFFIX} \
+            "${PWD}/build_musl/libdynapad${SO_SUFFIX}"
     racocgc pkg install collects/ dynapad/
     racocgc make apps/paddraw/paddraw.rkt
     racocgc make apps/uberapp/uberapp.rkt
