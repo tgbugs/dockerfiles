@@ -107,18 +107,19 @@ VOLUME /var/cache/distfiles
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:updated \
---build-arg PYTHON_TARGETS="python3_8 python3_9" \
 --file musl/updated/Dockerfile .
 #+end_src
 
 *** rebuild
-Since
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:updated-remerge \
 --file musl/updated/remerge.Dockerfile .
 
-# check that everything works as expected and then rename
+# check that everything works as expected
+docker run -it tgbugs/musl:updated-remerge
+
+# rename the image
 docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
 #+end_src
 
@@ -168,36 +169,48 @@ ARG ARCHIVE
 
 ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
 
-ARG SIGH="icedtea-bin-3.18.0-dbg-x86_64-musl.tar.gz \
-icedtea-bin-3.18.0-doc-x86_64.tar-musl.gz \
+ARG TMCH=34581ad0f14b5898abfb8d0a7ad89d560270a2e5
+
+RUN \
+eselect repository create local /usr/local/portage
+
+# FIXME this is an evil hack that WILL expire
+RUN \
+mkdir -p /usr/local/portage/dev-java/icedtea-bin \
+&& pushd /usr/local/portage/dev-java/icedtea-bin \
+&& ln -s /var/db/repos/musl/dev-java/icedtea-bin/files \
+&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/icedtea-bin-3.18.0.ebuild" \
+&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/Manifest"
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q nss \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q dev-java/icedtea-bin::local --onlydeps \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+ARG SIGH="icedtea-bin-3.18.0-x86_64-musl.tar.gz \
+icedtea-bin-3.18.0-dbg-x86_64-musl.tar.gz \
+icedtea-bin-3.18.0-doc-x86_64-musl.tar.gz \
 icedtea-bin-3.18.0-jre-base-x86_64-musl.tar.gz \
 icedtea-bin-3.18.0-jre-lib-x86_64-musl.tar.gz \
 icedtea-bin-3.18.0-jre-x86_64-musl.tar.gz \
 icedtea-bin-3.18.0-libjpeg-x86_64-musl.tar.gz"
 
-ARG TMCH=34581ad0f14b5898abfb8d0a7ad89d560270a2e5
-
-# FIXME this is an evil hack that WILL expire
-RUN \
-eselect repository create local /usr/local/portage \
-&& mkdir -p /usr/local/portage/dev-java/icedtea-bin \
-&& pushd /usr/local/portage/dev-java/icedtea-bin \
-&& ln -s /var/db/repos/musl/dev-java/icedtea-bin/files \
-&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/icedtea-bin-3.18.0.ebuild" \
-&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/Manifest" \
-&& popd \
-&& pushd /var/cache/distfiles \
-&& for SI in ${SIGH}; do curl -L -o "${SI}" "${BASE}${SI/-musl//}"; done \
-&& popd
-
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
-   dev-java/icedtea-bin::local \
-   dev-libs/nss \
+pushd /var/cache/distfiles \
+&& for SI in ${SIGH}; do curl -L -o "${SI}" "${BASE}${SI/-musl/}"; done \
+&& popd \
+&& emerge -j4 -q dev-java/icedtea-bin::local \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 VOLUME /var/cache/distfiles
 #+end_src
+
+# export failure=$(docker ps -lq)
+# docker start $failure
+# docker attach $failure
 
 *** build
 #+begin_src bash
