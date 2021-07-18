@@ -123,6 +123,23 @@ docker run -it tgbugs/musl:updated-remerge
 docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
 #+end_src
 
+** gdb
+If the =nls= or the =python= use flag is set for =gdb= then it will
+try to link =libintl_gettext= and fail. Therefore both use flags must
+be disabled when building on musl systems at this time. This should
+probably be dealt with or fixed in the musl overlay. This might also
+be a bug in the =gdb= build since it may need to use =-lintl=.
+#+name: &gdb
+#+begin_src dockerfile
+RUN \
+echo 'sys-devel/gdb -nls -python' >> /etc/portage/package.use/base
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   sys-devel/gdb::musl \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+#+end_src
+
 ** fix fonts
 # TODO convert this to actually be used in a dockerfile
 #+name: &fix-fonts
