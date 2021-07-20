@@ -31,6 +31,57 @@ docker create -v /usr/portage --name local-portage-snap gentoo/portage:latest /b
 If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
 
+* Next
+** TODO a better way
+The primary issue here is that it really is not safe to compose after
+merge because the power and flexibility of portage happen before
+merge, and are quite state dependent after the fact. The key then is
+to be able to create images that do compose well, and the only at
+the very end materialize them by installing all the packages at once.
+
+The problem is that you give up the utility of the docker layers, but
+if we are installing binary packages that have been build on a
+separate system then we know that we won't encounter build errors.
+
+The final obstacle to full composability in this way is the issue of
+incompatible use flags, but I think it is safe to say that it is not
+really possible to solve that problem.
+
+This consideration suggests that the layers of docker images, while
+useful, are fundamentally at odds with composability when there are
+files inside images that track state (e.g. =/var/lib/portage/world=).
+
+** TODO condense use flags
+At the moment we keep use flags with packages and try to keep them
+mostly orthogonal to each other. However, at a certain point it is
+going to be easier to maintain a single shared use flag image that
+will be synchronized across all images. Granular control is nice from
+a learning and minimal specification point of view, but from an
+engineering an maintenance point of view it is vastly easier easier to
+maintain a single shared use flag image that will be synchronized
+across all images. Granular control is nice from a learning and
+minimal specification point of view, but from an engineering an
+maintenance point of view it is simpler to unify the individual image
+environments into a single file.
+** TODO create an image to build packages
+Rebuilding images is wasteful when nothing has changed, and packages
+and install properly to maintain the correct state of the image. While
+=COPY --from= works, it mangles things like =/var/lib/portage/world=,
+and if use flags were changed on a dependency by another source image
+then unusual and unexpected errors could occur. This is another reason
+to move to manage use flags one or two images, one image for cases
+where X11 is not needed, and another where it is.
+
+In fact, I'm fairly certain that having a shared use flag environment
+is necessary for it to be possible to safely compose packages and
+images. Composition across environments requires something like nix
+where each package carries around its own environment. It might be
+possible to do better than this by allowing composition in cases where
+the environments are compatible, but that would still require
+computation at composition time, you can't just layer images an expect
+things to work.
+** TODO separate user image
+Should be able to =COPY --from=tgbugs/musl:user= across all images.
 * musl
 Pushes to https://hub.docker.com/r/tgbugs/musl. \\
 Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
@@ -60,12 +111,23 @@ FROM gentoo/stage3:amd64-musl-hardened
 ARG ARCHIVE
 ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
 
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+RUN \
+mkdir /etc/portage/package.accept_keywords \
+;  mkdir /etc/portage/package.env \
+;  mkdir /etc/portage/package.mask \
+;  mkdir /etc/portage/package.unmask \
+;  mkdir /etc/portage/package.use \
+;  mkdir /etc/portage/repos.conf \
+|| echo "fail ok"
+
+RUN \
 echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
-&& echo '*/* -perl -gtk -cups -postscript' >> /etc/portage/package.use/base \
+&& echo '*/* -perl -gtk -cups -postscript' >> /etc/portage/package.use/00-base \
 && [[ -z ${PYTHON_TARGETS} ]] || \
-   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/base \
-&& emerge -j4 -q \
+   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/00-base \
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
    dev-vcs/git \
    eselect-repository \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
@@ -123,6 +185,97 @@ docker run -it tgbugs/musl:updated-remerge
 docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
 #+end_src
 
+*** refix
+Temp fix.
+#+begin_src dockerfile :tangle ./musl/updated/remerge-fix.Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
+RUN \
+mkdir /etc/portage/package.accept_keywords \
+;  mkdir /etc/portage/package.env \
+;  mkdir /etc/portage/package.mask \
+;  mkdir /etc/portage/package.unmask \
+;  mkdir /etc/portage/package.use \
+;  mkdir /etc/portage/repos.conf \
+|| echo "fail ok"
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:updated-remerge-fix \
+--file musl/updated/remerge-fix.Dockerfile .
+
+# check that everything works as expected
+docker run -it tgbugs/musl:updated-remerge-fix
+
+# rename the image
+docker image tag tgbugs/musl:updated-remerge-fix tgbugs/musl:updated
+#+end_src
+
+** TODO use
+Modifications to use flags and other system settings and
+configurations that are easier to keep in a single location.
+*** file
+#+begin_src dockerfile :tangle ./musl/use/Dockerfile
+# until the new musl allocator is implemented use jemalloc when possible
+RUN \
+echo '*/* jemalloc' >> /etc/portage/package.use/00-musl
+#+end_src
+*** nox
+#+begin_src dockerfile :tangle ./musl/use/nox.Dockerfile
+#+end_src
+
+** portage-maven
+Hack to make it possible to install from maven using portage.
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:portage-maven \
+--file musl/portage-maven/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/portage-maven/Dockerfile
+FROM tgbugs/musl:updated
+
+RUN \
+mkdir -p /var/lib/portage/home/.m2 \
+&& echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /var/lib/portage/home/.m2/settings.xml \
+&& echo '          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">' >> /var/lib/portage/home/.m2/settings.xml \
+&& echo '<localRepository>/var/tmp/portage/.m2/repository</localRepository>' >> /var/lib/portage/home/.m2/settings.xml \
+&& echo '</settings>' >> /var/lib/portage/home/.m2/settings.xml \
+&& chown -R portage:portage /var/lib/portage/home/.m2 \
+&& mkdir -p /var/tmp/portage/.m2/repository \
+&& chown -R portage:portage /var/tmp/portage/.m2
+#+end_src
+
+** vim
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:vim \
+--file musl/vim/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/vim
+#+begin_src dockerfile :tangle ./musl/vim/Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   app-editors/vim \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/db/distfiles
+#+end_src
+
 ** gdb
 If the =nls= or the =python= use flag is set for =gdb= then it will
 try to link =libintl_gettext= and fail. Therefore both use flags must
@@ -130,22 +283,121 @@ be disabled when building on musl systems at this time. This should
 probably be dealt with or fixed in the musl overlay. This might also
 be a bug in the =gdb= build since it may need to use =-lintl=.
 #+name: &gdb
-#+begin_src dockerfile
+#+begin_src dockerfile :tangle ./musl/gdb/Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
 RUN \
-echo 'sys-devel/gdb -nls -python' >> /etc/portage/package.use/base
+echo 'sys-devel/gdb -nls -python' >> /etc/portage/package.use/99-gdb
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
    sys-devel/gdb::musl \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+** pip
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:pip \
+--file musl/pip/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/pip
+#+begin_src dockerfile :tangle ./musl/pip/Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   dev-python/pip \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/db/distfiles
+#+end_src
+
+** python
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:python \
+--file musl/python/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/python/Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q -uDN --keep-going \
+   python:3.6 \
+   python:3.7 \
+   python:3.8 \
+   python:3.9 \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN \
+echo 'dev-python/pipenv' >> /etc/portage/package.accept_keywords/pipenv
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q pipenv \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/db/distfiles
+#+end_src
+
+** nodejs
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:nodejs \
+--file musl/nodejs/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/nodejs/Dockerfile
+FROM tgbugs/musl:updated
+
+RUN \
+echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/99-cmake
+
+ARG ARCHIVE
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   net-libs/nodejs \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/db/distfiles
 #+end_src
 
 ** fix fonts
-# TODO convert this to actually be used in a dockerfile
+Many other packages pull in freetype, so we have to deal with the
+issue before anything else.
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:fix-fonts \
+--file musl/fix-fonts/Dockerfile .
+#+end_src
+
+*** file
 #+name: &fix-fonts
-#+begin_src dockerfile
+#+begin_src dockerfile :tangle ./musl/fix-fonts/Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
 RUN \
-echo '*/* -cleartype_hinting' >> /etc/portage/package.use/base
+echo 'media-libs/freetype -cleartype_hinting' >> /etc/portage/package.use/99-freetype
 
 # rebuild freetype without cleartype hinting
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -164,6 +416,8 @@ eselect fontconfig disable 10-hinting-slight.conf \
    10-no-sub-pixel.conf \
    57-dejavu-sans.conf \
    57-dejavu-sans-mono.conf
+
+VOLUME /var/cache/distfiles
 #+end_src
 
 Only enabling dejavu sans and disabling any and all hinting matters.
@@ -178,11 +432,153 @@ some default that is enabled so there winds up being a difference
 between there being no reference to a feature and a reference to it to
 explicitly disable it. Sigh.
 
-** icedtea
+** xorg
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:xorg \
+--file musl/xorg/Dockerfile .
+#+end_src
+
+# someday when we get babel configured correctly to use comint
+# #+call: docker-build-musl(image="xorg")
+
 *** file
-#+name: &musl/icedtea
+#+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
+FROM tgbugs/musl:fix-fonts
+
+ARG ARCHIVE
+
+RUN \
+echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/20-xorg \
+&& echo '*/* -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind' >> /etc/portage/package.use/20-xorg \
+&& echo '*/* X' >> /etc/portage/package.use/20-xorg
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -1q \
+    x11-base/xcb-proto \
+    x11-base/xorg-proto \
+    x11-libs/libX11 \
+    x11-libs/libXau \
+    x11-libs/libXdmcp \
+    x11-libs/libXext \
+    x11-libs/libXfixes \
+    x11-libs/libXrender \
+    x11-libs/libxcb \
+    x11-libs/xtrans \
+    x11-misc/compose-tables \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+# needed to ensure that -egl doesn't introduce conflicts
+RUN \
+echo 'x11-base/xorg-server minimal' >> /etc/portage/package.use/99-xorg-server
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+** emacs
+Emacs using the athena 3d toolkit to avoid pulling in gtk.
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:emacs
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:emacs \
+--file musl/emacs/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/emacs/Dockerfile
+FROM tgbugs/musl:xorg
+
+ARG ARCHIVE
+
+RUN \
+echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/99-emacs \
+&& echo 'app-editors/emacs gui Xaw3d xft' >> /etc/portage/package.use/99-emacs-gui \
+&& echo 'app-emacs/emacs-common gui' >> /etc/portage/package.use/99-emacs-gui
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   app-editors/emacs \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+** gtk-no-rust
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:gtk-no-rust \
+--file musl/gtk-no-rust/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/gtk-no-rust/Dockerfile
+FROM tgbugs/musl:xorg
+
+ARG ARCHIVE
+
+RUN \
+echo 'media-libs/freetype harfbuzz' >> /etc/portage/package.use/99-freetype \
+&& echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/99-cmake \
+&& echo '=gnome-base/librsvg-2.40.21 **' >> /etc/portage/package.accept_keywords/librsvg \
+&& echo '<gnome-base/librsvg-2.41' >> /etc/portage/package.unmask/librsvg \
+&& echo '>=gnome-base/librsvg-2.41' >> /etc/portage/package.mask/base \
+&& echo '>x11-themes/adwaita-icon-theme-3.33' >> /etc/portage/package.mask/adwaita \
+&& echo '>=media-libs/mesa-21' >> /etc/portage/package.mask/mesa
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -1q \
+   x11-libs/gtk+ \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+** icedtea
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:icedtea \
+--file musl/icedtea/Dockerfile .
+#+end_src
+
+*** file
 #+begin_src dockerfile :tangle ./musl/icedtea/Dockerfile
-FROM tgbugs/musl:updated
+FROM tgbugs/musl:xorg
+
+ARG ARCHIVE
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q nss \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q --onlydeps \
+   dev-java/icedtea-bin::musl \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   dev-java/icedtea-bin::musl \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+*** legacy
+The musl overlay installs icedtea-bin correctly now so this is thankfully no longer needed.
+#+name: &musl/icedtea/legacy
+#+begin_src dockerfile :tangle ./musl/icedtea/legacy.Dockerfile
+FROM tgbugs/musl:xorg
 
 ARG ARCHIVE
 
@@ -231,14 +627,40 @@ VOLUME /var/cache/distfiles
 # docker start $failure
 # docker attach $failure
 
+** protege
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:protege
+#+end_src
+
 *** build
 #+begin_src bash
 docker build \
---tag tgbugs/musl:icedtea \
---file musl/icedtea/Dockerfile .
+--tag tgbugs/musl:protege \
+--build-arg NUID=${UID} \
+--file musl/protege/Dockerfile .
 #+end_src
 
-** protege
+Due to the fact that protege needs X11 running in order to create
+config files.  Run the following command, change the default reasoner
+to ELK, make any other changes that are needed, and then quit protege.
+The second command will run automatically and commit the changes.
+
+NOTE you must run the =protege= command manually to prevent the commit
+from changing the default behavior of the container from changing its
+entry point to run =protege=.
+
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:protege && \
+docker commit $(docker ps -lq) tgbugs/musl:protege
+#+end_src
+
 *** file
 We install pip during this step because any builds that =FROM
 tgbugs/musl:protege= default to =protegeuser=.
@@ -251,8 +673,6 @@ ARG ARCHIVE
 ARG NUID=11741
 ARG USER_NAME=protegeuser
 ARG PROTEGE_VERSION="5.5.0"
-
-<<&fix-fonts>>
 
 # phase one build environment
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -357,41 +777,27 @@ A useful find command for debugging whether the correct reasoner has been set.
 find ~/.java/.userPrefs -name 'prefs.xml' -exec grep -q DEFAULT_REASONER_ID {} \; -exec cat {} \;
 #+end_src
 
-*** build
-#+begin_src bash
-docker build \
---tag tgbugs/musl:protege \
---build-arg NUID=${UID} \
---file musl/protege/Dockerfile .
-#+end_src
-
-Due to the fact that protege needs X11 running in order to create
-config files.  Run the following command, change the default reasoner
-to ELK, make any other changes that are needed, and then quit protege.
-The second command will run automatically and commit the changes.
-
-NOTE you must run the =protege= command manually to prevent the commit
-from changing the default behavior of the container from changing its
-entry point to run =protege=.
-
-#+begin_src bash
-docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:protege && \
-docker commit $(docker ps -lq) tgbugs/musl:protege
-#+end_src
-
+** NIF-Ontology
 *** run
 #+begin_src bash
 docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
--it tgbugs/musl:protege
+-it tgbugs/musl:NIF-Ontology
 #+end_src
 
-** NIF-Ontology
+*** build
+# TODO progress prints to stderr
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:NIF-Ontology \
+--file musl/NIF-Ontology/Dockerfile .
+#+end_src
+
 *** file
+# FIXME composition with protege user issues I think the right way to
+# do this is to move to having a single container user image that we
+# build and then use COPY --from on that?
 #+name: &musl/NIF-Ontology
 #+begin_src dockerfile :tangle ./musl/NIF-Ontology/Dockerfile
 FROM tgbugs/musl:protege
@@ -409,23 +815,34 @@ pushd ~/ \
 ;   popd
 #+end_src
 
-*** build
-# TODO progress prints to stderr
-#+begin_src bash
-docker build \
---tag tgbugs/musl:NIF-Ontology \
---file musl/NIF-Ontology/Dockerfile .
-#+end_src
-
+** neurondm
 *** run
 #+begin_src bash
+# to allow the container access to the local x session you have to run the following
+xhost local:docker
+# use xhost -local:docker to remove
+
 docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
--it tgbugs/musl:NIF-Ontology
+-it tgbugs/musl:neurondm
+
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--workdir /home/protegeuser/git/NIF-Ontology/ttl \
+tgbugs/musl:neurondm \
+protege
 #+end_src
 
-** neurondm
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:neurondm \
+--build-arg ONTOLOGY_GITREF=neurons \
+--file musl/neurondm/Dockerfile .
+#+end_src
+
 *** file
 #+name: &musl/neurondm
 #+begin_src dockerfile :tangle ./musl/neurondm/Dockerfile
@@ -453,40 +870,7 @@ pushd ~/ \
 ;   popd
 #+end_src
 
-*** build
-#+begin_src bash
-docker build \
---tag tgbugs/musl:neurondm \
---build-arg ONTOLOGY_GITREF=neurons \
---file musl/neurondm/Dockerfile .
-#+end_src
-
-*** run
-#+begin_src bash
-# to allow the container access to the local x session you have to run the following
-xhost local:docker
-# use xhost -local:docker to remove
-
-docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:neurondm
-
-docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
---workdir /home/protegeuser/git/NIF-Ontology/ttl \
-tgbugs/musl:neurondm \
-protege
-#+end_src
-
 ** npo-1.0
-# XXX FIXME TODO From a reader point of view 99% of the time they are
-# going to want things in reverse temporal order because the author
-# will have already run the build and written the file, thus the more
-# technical components should be farther down the page, practically it
-# also is a workaround for the fact that github section generation is
-# broken for org files
 *** run
 #+begin_src bash
 xhost local:docker
@@ -683,23 +1067,19 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/blazegraph/Dockerfile
 FROM tgbugs/musl:icedtea
 
-ARG ARCHIVE
-ARG ACCT_GROUP_BLAZEGRAPH_ID=834
-ARG ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
-
 RUN \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && emaint sync --repo tgbugs-overlay
 
 RUN \
-echo 'dev-db/blazegraph-bin' >> /etc/portage/package.accept_keywords
+echo 'dev-db/blazegraph-bin' >> /etc/portage/package.accept_keywords/blazegraph
+
+ARG ARCHIVE
+ARG ACCT_GROUP_BLAZEGRAPH_ID=834
+ARG ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q blazegraph-bin \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q vim \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 VOLUME /var/db/distfiles
@@ -724,11 +1104,19 @@ docker build \
 *** file
 #+name: &musl/scigraph
 #+begin_src dockerfile :tangle ./musl/scigraph/Dockerfile
+FROM tgbugs/musl:portage-maven AS pm
 FROM tgbugs/musl:icedtea
+
+COPY --from=pm / /
+# COPY --from=ict / /
 
 RUN \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && emaint sync --repo tgbugs-overlay
+
+RUN \
+echo 'dev-java/scigraph-bin' >> /etc/portage/package.accept_keywords/scigraph \
+&& echo 'x11-base/xorg-server xvfb # scigraph' >> /etc/portage/package.use/99-xorg-server
 
 ARG ARCHIVE
 ARG ACCT_GROUP_SCIGRAPH_ID=835
@@ -736,21 +1124,19 @@ ARG ACCT_USER_SCIGRAPH_ID="${ACCT_GROUP_SCIGRAPH_ID}"
 ARG EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
 ARG EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
 
-RUN \
-echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind X' >> /etc/portage/package.use/base \
-&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/base \
-&& echo 'x11-base/xorg-server minimal xvfb' >> /etc/portage/package.use/base \
-&& echo 'dev-java/scigraph-bin' >> /etc/portage/package.accept_keywords
+#&& echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind X' >> /etc/portage/package.use/base \
+#&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/base \
+#&& echo 'x11-base/xorg-server minimal xvfb' >> /etc/portage/package.use/base \
 
-RUN \
-mkdir -p /var/lib/portage/home/.m2 \
-&& echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /var/lib/portage/home/.m2/settings.xml \
-&& echo '          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">' >> /var/lib/portage/home/.m2/settings.xml \
-&& echo '<localRepository>/var/tmp/portage/.m2/repository</localRepository>' >> /var/lib/portage/home/.m2/settings.xml \
-&& echo '</settings>' >> /var/lib/portage/home/.m2/settings.xml \
-&& chown -R portage:portage /var/lib/portage/home/.m2 \
-&& mkdir -p /var/tmp/portage/.m2/repository \
-&& chown -R portage:portage /var/tmp/portage/.m2
+#RUN \
+#mkdir -p /var/lib/portage/home/.m2 \
+#&& echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" #xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /var/lib/portage/home/.m2/settings.xml \
+#&& echo '          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 #https://maven.apache.org/xsd/settings-1.0.0.xsd">' >> /var/lib/portage/home/.m2/settings.xml \
+#&& echo '<localRepository>/var/tmp/portage/.m2/repository</localRepository>' >> #/var/lib/portage/home/.m2/settings.xml \
+#&& echo '</settings>' >> /var/lib/portage/home/.m2/settings.xml \
+#&& chown -R portage:portage /var/lib/portage/home/.m2 \
+#&& mkdir -p /var/tmp/portage/.m2/repository \
+#&& chown -R portage:portage /var/tmp/portage/.m2
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q scigraph-bin --onlydeps \
@@ -759,10 +1145,6 @@ emerge -j4 -q scigraph-bin --onlydeps \
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q scigraph-bin \
 ;  [[ -n ${ARCHIVE} ]] || { rm -r /var/cache/distfiles/*; rm -r /var/tmp/portage/.m2/repository/*; }
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q vim \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 VOLUME /var/db/distfiles
 #+end_src
@@ -791,22 +1173,24 @@ docker build \
 *** file
 #+name: &musl/kg-base
 #+begin_src dockerfile :noweb yes :tangle ./musl/kg-base/Dockerfile
-FROM tgbugs/musl:scigraph
+#FROM tgbugs/musl:blazegraph AS blaze
+#FROM tgbugs/musl:scigraph AS scig
+#FROM tgbugs/musl:emacs AS em
+FROM tgbugs/musl:updated
+
+# FIXME /var/lib/portage/world issues
+
+COPY --from=tgbugs/musl:blazegraph / /
+COPY --from=tgbugs/musl:scigraph / /
+COPY --from=tgbugs/musl:emacs / /
+
+#COPY --from=blaze / /
+#COPY --from=scig / /
+#COPY --from=em / /
 
 ARG ARCHIVE
 
-<<&fix-fonts>>
-
-RUN \
-echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/base \
-&& echo 'app-editors/emacs gui Xaw3d xft' >> /etc/portage/package.use/base \
-&& echo 'app-emacs/emacs-common gui' >> /etc/portage/package.use/base
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q emacs \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-VOLUME /var/cache/distfiles
+VOLUME /var/db/distfiles
 #+end_src
 
 ** kg-user
@@ -843,94 +1227,148 @@ USER $USER_NAME
 WORKDIR /home/${USER_NAME}
 #+end_src
 
-** python
-*** file
-#+begin_src dockerfile :tangle ./musl/python/Dockerfile
-FROM tgbugs/musl:updated
+** kg-dev
+*** run
+# scigraph-build-local
+# scigraph-deploy-local
+# TODO package ontree server so that the updated local scigraph can be seen
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:kg-dev
+#+end_src
 
-ARG ARCHIVE
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q -uDN @world \
-   --keep-going \
-   --exclude sys-process/procps \
-   python:3.6 \
-   python:3.7 \
-   python:3.8 \
-   python:3.9 \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-RUN \
-echo 'dev-python/pipenv' >> /etc/portage/package.accept_keywords
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q -uDN @world \
-   --keep-going \
-   --exclude sys-process/procps \
-   pipenv \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v /tmp/scigraph-build:/tmp/scigraph-build \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:kg-dev \
+echo TODO secrets, apinat build and more!
 #+end_src
 
 *** build
 #+begin_src bash
 docker build \
---tag tgbugs/musl:python \
---file musl/python/Dockerfile .
+--tag tgbugs/musl:kg-dev \
+--build-arg AUID=${UID} \
+--file musl/kg-dev/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl/kg-dev
+#+begin_src dockerfile :tangle ./musl/kg-dev/Dockerfile
+#FROM tgbugs/musl:python AS py
+#FROM tgbugs/musl:emacs AS em
+# FROM tgbugs/musl:racket AS rkt
+FROM tgbugs/musl:kg-base
+
+#COPY --from=tgbugs/musl:blazegraph / /
+#COPY --from=tgbugs/musl:scigraph / /
+#COPY --from=tgbugs/musl:emacs / /
+COPY --from=tgbugs/musl:racket / /
+COPY --from=tgbugs/musl:nodejs / /
+COPY --from=tgbugs/musl:pip / /
+
+# COPY --from=rkt / /
+
+ARG ARCHIVE
+ARG AUID=1000
+ARG USER_NAME=apinatuser
+
+RUN \
+echo 'net-libs/zeromq drafts' >> /etc/portage/package.use/99-zeromq \
+&& echo 'app-misc/yq' >> /etc/portage/package.accept_keywords/yq
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   app-arch/zip \
+   app-misc/yq \
+   dev-python/pyzmq \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN \
+groupadd -g ${AUID} ${USER_NAME} \
+&& useradd -m -k /etc/skel -u ${AUID} -g ${AUID} -d /home/${USER_NAME} ${USER_NAME}
+
+USER $USER_NAME
+
+WORKDIR /home/${USER_NAME}
+
+ARG INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simple.el
+
+RUN \
+emacs --batch --quick --eval "(progn (url-handler-mode 1) (find-file \"${INIT_URL}\") (eval-buffer))"
+
+RUN \
+ln -s ~/.emacs.d/reval/cache/*/*-ow.el ~/.emacs.d/ow.el \
+&& ln -s ~/.emacs.d/reval/cache/*/*-reval.el ~/.emacs.d/reval.el \
+&& ln -s ~/.emacs.d/reval/cache/*/*-init-content.el ~/.emacs.d/init-content.el \
+&& echo "(load (concat user-emacs-directory \"ow.el\"))" >> ~/.emacs.d/init.el \
+&& echo "(load (concat user-emacs-directory \"reval.el\"))" >> ~/.emacs.d/init.el \
+&& echo "(load (concat user-emacs-directory \"init-content.el\"))" >> ~/.emacs.d/init.el
+
+RUN \
+mkdir ~/git \
+&& mkdir -p ~/.local/bin
+
+RUN \
+pushd git \
+&&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
+&&     pushd open-physiology-viewer \
+&&         git fetch origin pull/83/head:pr-83 \
+&&         git checkout pr-83 \
+&&         npm install \
+&&         pushd wrapper \
+&&             npm install \
+&&         popd \
+&&         npm run build \
+&&     popd \
+&& popd \
+&& ln -s ~/git/open-physiology-viewer/wrapper/bin/converter.js ~/.local/bin/apinat-converter
+
+RUN \
+pushd git \
+&&     git clone https://github.com/tgbugs/pyontutils.git \
+&&     pushd pyontutils \
+&&         pushd ttlser \
+&&             pip install --user -e . \
+&&         popd \
+&&         pip install --user -e . \
+&&         python setup.py --release || true \
+&&         pushd nifstd \
+&&             pip install --user -e . \
+&&             python setup.py --release || true \
+&&         popd \
+&&     popd \
+&& popd
+
+RUN \
+pushd git \
+&&     git clone https://github.com/SciCrunch/sparc-curation.git \
+&&     pushd sparc-curation \
+&&         pip install --user -e . \
+&&     popd \
+&& popd
+
+RUN \
+pip install --user git+https://github.com/rdflib/rdflib-jsonld.git
+
+RUN \
+pushd git \
+&&     git clone https://github.com/tgbugs/idlib.git \
+&&     pushd idlib \
+&&         pip install --user -e . \
+&&     popd \
+&& popd
+
+ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
+
+VOLUME /var/cache/distfiles
 #+end_src
 
 ** racket
-*** file
-#+name: &musl/racket
-#+begin_src dockerfile :noweb yes :tangle ./musl/racket/Dockerfile
-FROM tgbugs/musl:updated
-
-ARG ARCHIVE
-
-<<&fix-fonts>>
-
-RUN \
-echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind X' >> /etc/portage/package.use/base \
-&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/base \
-&& echo 'dev-scheme/racket cs bc cgc jit' >> /etc/portage/package.use/base \
-&& echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/base \
-&& echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/base \
-&& echo 'media-libs/freetype harfbuzz' >> /etc/portage/package.use/base \
-&& echo 'dev-scheme/racket' >> /etc/portage/package.accept_keywords \
-&& echo '=gnome-base/librsvg-2.40.21 **' >> /etc/portage/package.accept_keywords \
-&& echo '<gnome-base/librsvg-2.41' >> /etc/portage/package.unmask \
-&& rmdir /etc/portage/package.mask \
-&& echo '>=gnome-base/librsvg-2.41' >> /etc/portage/package.mask \
-&& echo '>x11-themes/adwaita-icon-theme-3.33' >> /etc/portage/package.mask \
-&& echo '>=media-libs/mesa-21' >> /etc/portage/package.mask
-
-RUN \
-eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
-&& emaint sync --repo tgbugs-overlay
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q racket --onlydeps \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -q racket \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-RUN \
-eselect racket set cs
-
-VOLUME /var/db/distfiles
-#+end_src
-
-#+begin_src dockerfile
-# ----------------------------------------- modify below this line during development
-
-#RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-#USE=-cleartype_hinting emerge -1q freetype \
-#&& emerge -q dev-python/pip eix 
-
-#+end_src
-
 *** build
 #+begin_src bash
 docker build \
@@ -958,7 +1396,70 @@ docker run \
 -it tgbugs/musl:racket
 #+end_src
 
+*** file
+#+name: &musl/racket
+#+begin_src dockerfile :noweb yes :tangle ./musl/racket/Dockerfile
+FROM tgbugs/musl:gtk-no-rust AS gtk-nor
+FROM tgbugs/musl:emacs AS em
+FROM tgbugs/musl:updated
+
+COPY --from=gtk-nor / /
+COPY --from=em / /
+
+RUN \
+eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+&& emaint sync --repo tgbugs-overlay
+
+RUN \
+echo 'dev-scheme/racket cs bc cgc jit' >> /etc/portage/package.use/99-racket \
+&& echo 'dev-scheme/racket' >> /etc/portage/package.accept_keywords/racket
+
+ARG ARCHIVE
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q racket --onlydeps \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -q racket \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN \
+eselect racket set cs
+
+VOLUME /var/db/distfiles
+#+end_src
+
+#+begin_src dockerfile
+# ----------------------------------------- modify below this line during development
+
+#RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+#USE=-cleartype_hinting emerge -1q freetype \
+#&& emerge -q dev-python/pip eix
+
+#+end_src
+
 ** racket-user
+*** run
+#+begin_src bash
+# to allow the container access to the local x session you have to run the following
+xhost local:docker
+# use xhost -local:docker to remove
+
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:racket-user
+#+end_src
+
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:racket-user \
+--build-arg RUID=${UID} \
+--file musl/racket-user/Dockerfile .
+#+end_src
+
 *** file
 #+name: &musl/racket-user
 #+begin_src dockerfile :tangle ./musl/racket-user/Dockerfile
@@ -974,26 +1475,6 @@ groupadd -g ${RUID} ${USER_NAME} \
 USER $USER_NAME
 
 WORKDIR /home/${USER_NAME}
-#+end_src
-
-*** build
-#+begin_src bash
-docker build \
---tag tgbugs/musl:racket-user \
---build-arg RUID=${UID} \
---file musl/racket-user/Dockerfile .
-#+end_src
-
-*** run
-#+begin_src bash
-# to allow the container access to the local x session you have to run the following
-xhost local:docker
-# use xhost -local:docker to remove
-
-docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:racket-user
 #+end_src
 
 ** dynapad-base
@@ -1012,7 +1493,7 @@ FROM tgbugs/musl:racket
 ARG ARCHIVE
 
 RUN \
-echo '>=media-gfx/imagemagick-7' >> /etc/portage/package.mask
+echo '>=media-gfx/imagemagick-7' >> /etc/portage/package.mask/imagemagick
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
@@ -1083,6 +1564,10 @@ docker run \
 sh -c 'pushd ~/git/dynapad && racketcgc -it apps/paddraw/paddraw.rkt'
 
 # docker commit $(docker ps -lq) tgbugs/musl:dynapad
+#+end_src
+
+#+begin_src bash
+xattr -d -r -s com.apple.quarantine /Applications/Docker.app
 #+end_src
 
 *** build
@@ -1246,7 +1731,7 @@ echo 'RPCNFSDCOUNT="--nfs-version 2 8"' >> /etc/default/nfs-kernel-server
 echo 'RPCMOUNTDOPTS="--nfs-version 2 --manage-gids"' >> /etc/default/nfs-kernel-server
 echo "/files genera(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)" >> /etc/exports
 # we really want to export / but I'm seeing the following error
-# exportfs: / does not support NFS export 
+# exportfs: / does not support NFS export
 #echo "/ genera(rw,sync,no_subtree_check,all_squash,anonuid=1000,anongid=1000)" >> /etc/exports
 
 # I think rpcbind needs be be started, otherwise nfs-kernel-server may fail to start
