@@ -397,7 +397,7 @@ FROM tgbugs/musl:updated
 ARG ARCHIVE
 
 RUN \
-echo 'media-libs/freetype -cleartype_hinting' >> /etc/portage/package.use/99-freetype
+echo 'media-libs/freetype -cleartype_hinting -cleartype-hinting' >> /etc/portage/package.use/99-freetype
 
 # rebuild freetype without cleartype hinting
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -423,7 +423,7 @@ VOLUME /var/cache/distfiles
 Only enabling dejavu sans and disabling any and all hinting matters.
 There isn't a way to disable antialiasing using the gentoo fontconfig
 and even if you do the disabled hinting engine has different and ugly
-behavior compared to =-cleartype_hinting= so not sure what is going on
+behavior compared to =-cleartype-hinting= so not sure what is going on
 for even further insanity if you enable =10-hinting-none.conf= OR
 =10-unhinted.conf= *YOU WILL GET HINTING !?!?!??! WAT!?* or at least
 maybe AA is enabled which does not maybe ANY sense. Probably there is
@@ -1429,16 +1429,6 @@ eselect racket set cs
 
 VOLUME /var/db/distfiles
 #+end_src
-
-#+begin_src dockerfile
-# ----------------------------------------- modify below this line during development
-
-#RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-#USE=-cleartype_hinting emerge -1q freetype \
-#&& emerge -q dev-python/pip eix
-
-#+end_src
-
 ** racket-user
 *** run
 #+begin_src bash
