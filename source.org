@@ -1,7 +1,23 @@
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--prp-1\.1; orgstrap-block-checksum: c7cdde86afa872b74438254451b1945f7bce60efa3e30a94dbda03d1c39a4112; -*-
+# [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
 #+property: header-args :eval no-export
 #+property: header-args:dockerfile :mkdirp yes :comments link :var BUILDKIT_PROGRESS="plain"
+
+#+name: shebang
+#+begin_src bash
+{ __p=$(mktemp -d); touch ${__p}/=; chmod +x ${__p}/=; __op=$PATH; PATH=${__p}:$PATH;} > ${null="/dev/null"}
+$file= $MyInvocation.MyCommand.Source
+$ErrorActionPreference= "silentlycontinue"
+file=$0
+args=$@
+$ErrorActionPreference= "Continue"
+{ PATH=$__op; rm ${__p}/=; rmdir ${__p}; } > $null
+emacs -batch -no-site-file -load ~/.emacs.d/orgstrap-developer-checksums.el -load ~/.emacs.d/orgstrap-batch-helper.el -visit "${file}" -- $args
+exit
+<# powershell open
+#+end_src
 
 * Setup
 ** Server
@@ -30,6 +46,32 @@ docker create -v /usr/portage --name local-portage-snap gentoo/portage:latest /b
 
 If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
+
+To prepare a fresh cycle of images.
+#+begin_src screen :noweb yes :session org-session :results none
+docker pull gentoo/stage3:amd64-musl-hardened
+docker pull gentoo/portage:latest
+# TODO if portage changed ...
+# docker rm local-portage-snap
+# docker create -v /usr/portage --name local-portage-snap gentoo/portage:latest /bin/true
+pushd ~/git/dockerfiles
+./source.org
+<<&musl-build-profile>>
+<<&musl-build-user>>
+<<&musl-build-portage-maven>>
+<<&musl-build-eselect-repository>>
+<<&musl-build-repos>>
+<<&musl-build-updated>>
+<<&musl-build-updated-user>>
+# quickpkg
+# package host
+# build a bunch of packages
+popd
+#+end_src
+
+#+begin_src screen :noweb yes :session org-session :results none
+<<&musl-run-updated-user>>
+#+end_src
 
 * Next
 ** TODO a better way
@@ -80,8 +122,16 @@ possible to do better than this by allowing composition in cases where
 the environments are compatible, but that would still require
 computation at composition time, you can't just layer images an expect
 things to work.
+
+alternately mount =/var/cache/binpkgs= and then run quickpkg or
+something devious like that
 ** TODO separate user image
 Should be able to =COPY --from=tgbugs/musl:user= across all images.
+build the user image from a base that has next to nothing in it
+add the user and group to the system and then copy that minimal
+user stuff in, most of the time there isn't any fancy installation
+that needed to be done, and we could just copy the user directory
+when building from scratch
 * musl
 Pushes to https://hub.docker.com/r/tgbugs/musl. \\
 Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
@@ -101,6 +151,7 @@ configurations that are easier to keep in a single location.
 # the images from scratch which we often have to do anyway, though some
 # packages may not be affect by profile changes
 *** build
+#+name: &musl-build-profile
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:profile \
@@ -140,7 +191,8 @@ profile-formats = portage-2
 #+end_src
 
 #+begin_src conf :tangle ./musl/profile/local/profiles/profiles.desc
-amd64 tgbugs/musl dev
+amd64 tgbugs/musl   dev
+amd64 tgbugs/musl/x dev
 #+end_src
 **** common
 ***** parent
@@ -148,7 +200,7 @@ amd64 tgbugs/musl dev
 gentoo:default/linux/amd64/17.0/musl/hardened
 #+end_src
 ***** make.defaults
-#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/package.mask
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/make.defaults
 VIDEO_CARDS=""
 #+end_src
 ***** mask
@@ -292,142 +344,65 @@ echo 'media-libs/freetype harfbuzz' >> /etc/portage/package.use/99-freetype \
 && echo 'x11-base/xorg-server xvfb' >> /etc/portage/package.use/99-xorg-server
 
 #+end_src
-
-** updated
-*** file
-Produce an up-to-date base image for =amd64-hardened-musl= from the
-latest stage3 image including the
-[[https://github.com/gentoo/musl][musl overlay]] as noted on the
-[[https://wiki.gentoo.org/wiki/Project:Hardened_musl#Working_with_musl][wiki]].
-
-At the moment the docker images are generated far more frequently than
-the underlying stage3 tarballs are updated, so there are two docker
-files, one for building the first time and another for running routine
-emerge updates until a new stage3 is released.
-
-Alternately, one way to avoid rebuilds is to build packages and store
-them across rebuilds. This will take more work, but ultimately might
-be a bit more reproducible since we would avoid the issues with having
-an image building =FROM= a prior version of itself.
-
-#+name: &musl/updated
-#+begin_src dockerfile :tangle ./musl/updated/Dockerfile
-FROM gentoo/stage3:amd64-musl-hardened
-
-ARG ARCHIVE
-ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
-
-COPY --from=tgbugs/musl:profile / /
-
-RUN \
-mkdir /etc/portage/package.accept_keywords \
-;  mkdir /etc/portage/package.env \
-;  mkdir /etc/portage/package.mask \
-;  mkdir /etc/portage/package.unmask \
-;  mkdir /etc/portage/package.use \
-;  mkdir /etc/portage/repos.conf \
-|| true
-
-RUN \
-eselect profile set local:tgbugs/musl
-
-RUN \
-echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
-&& [[ -z ${PYTHON_TARGETS} ]] || \
-   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
-   dev-vcs/git \
-   eselect-repository \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-eselect repository enable musl \
-&& emaint sync --repo musl
-
-# exclude gcc during first update since it is slow, it will be updated when running remerge.Dockerfile
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q -uDN @world \
-   --keep-going \
-   --exclude sys-devel/gcc \
-   --exclude sys-process/procps \
-|| echo "something failed to build" \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-VOLUME /var/cache/distfiles
-#+end_src
-
-#+name: &musl/updated-remerge
-#+begin_src dockerfile :tangle ./musl/updated/remerge.Dockerfile
-FROM tgbugs/musl:updated
-
-ARG ARCHIVE
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emaint sync --repo musl \
-&& emerge -j4 -q -uDN @world \
-   --keep-going \
-   --exclude sys-process/procps \
-;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-VOLUME /var/cache/distfiles
-#+end_src
-
-*** build
+** user
+#+name: &musl-build-user
 #+begin_src bash
 docker build \
---tag tgbugs/musl:updated \
---file musl/updated/Dockerfile .
+--tag tgbugs/musl:user \
+--file musl/user/Dockerfile .
 #+end_src
 
-*** rebuild
-#+begin_src bash
-docker build \
---tag tgbugs/musl:updated-remerge \
---file musl/updated/remerge.Dockerfile .
+# FIXME this is sufficient to create the default set of files and directories for the user
+# however it is not able to deal with the fact that groupadd and useradd still must be run
+# on the host system, which leads me to think that the only composability we are going to
+# get here is via noweb :/ the primary issue is /etc/groups and other similar things
 
-# check that everything works as expected
-docker run -it tgbugs/musl:updated-remerge
-
-# rename the image
-docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
+#+name: &run-user-noskel
+#+begin_src bash :eval never
+groupadd -g ${UID} ${USER_NAME} \
+&& useradd -M -u ${UID} -g ${UID} ${USER_NAME}
 #+end_src
 
-*** refix
-Temp fix.
-#+begin_src dockerfile :tangle ./musl/updated/remerge-fix.Dockerfile
-FROM tgbugs/musl:updated
 
-ARG ARCHIVE
+Block to be nowebbed for the user creation portion of the images.
+Should be +followed+ preceded? by a =COPY --from= that was built by
+layering on top of the image we build below.
+
+#+name: &musl-file-user-base
+#+begin_src dockerfile :noweb yes
+ARG UID=1000
+ARG USER_NAME=user
 
 RUN \
-mkdir /etc/portage/package.accept_keywords \
-;  mkdir /etc/portage/package.env \
-;  mkdir /etc/portage/package.mask \
-;  mkdir /etc/portage/package.unmask \
-;  mkdir /etc/portage/package.use \
-;  mkdir /etc/portage/repos.conf \
-|| echo "fail ok"
+<<&run-user-noskel>>
 
-VOLUME /var/cache/distfiles
+USER $USER_NAME
+
+WORKDIR /home/${USER_NAME}
 #+end_src
 
-#+begin_src bash
-docker build \
---tag tgbugs/musl:updated-remerge-fix \
---file musl/updated/remerge-fix.Dockerfile .
+#+begin_src dockerfile :noweb yes :tangle ./musl/user/Dockerfile
+FROM gentoo/stage3:amd64-musl-hardened as builder
 
-# check that everything works as expected
-docker run -it tgbugs/musl:updated-remerge-fix
+ARG UID=1000
+ARG USER_NAME=user
 
-# rename the image
-docker image tag tgbugs/musl:updated-remerge-fix tgbugs/musl:updated
+WORKDIR /build
+
+RUN \
+groupadd -g ${UID} ${USER_NAME} \
+&& useradd -m -k /etc/skel -u ${UID} -g ${UID} -d /build/home/${USER_NAME} ${USER_NAME}
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
 #+end_src
 
 ** portage-maven
 Hack to make it possible to install from maven using portage.
 *** build
+#+name: &musl-build-portage-maven
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:portage-maven \
@@ -472,34 +447,237 @@ WORKDIR /
 COPY --from=builder /build /
 #+end_src
 
-** user
-# FIXME this is sufficient to create the default set of files and directories for the user
-# however it is not able to deal with the fact that groupadd and useradd still must be run
-# on the host system, which leads me to think that the only composability we are going to
-# get here is via noweb :/ the primary issue is /etc/groups and other similar things
-#+name: &run-user-1
-#+begin_src bash :eval never
-groupadd -g ${UID} ${USER_NAME} \
-&& useradd -m -k /etc/skel -u ${UID} -g ${UID} -d ${WORKDIR}/home/${USER_NAME} ${USER_NAME}
+** eselect-repository
+This is where everything starts. The profile has to be set here etc.
+#+name: &musl-build-eselect-repository
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:eselect-repository \
+--file musl/eselect-repository/Dockerfile .
 #+end_src
 
-#+begin_src dockerfile :noweb yes :tangle ./musl/user/Dockerfile
-FROM gentoo/stage3:amd64-musl-hardened as builder
+#+begin_src dockerfile :tangle ./musl/eselect-repository/Dockerfile
+FROM gentoo/stage3:amd64-musl-hardened
 
-ARG UID=1000
-ARG USER_NAME=user
+ARG ARCHIVE
+ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
 
-WORKDIR /build
+COPY --from=tgbugs/musl:profile / /
 
 RUN \
-<<&run-user-1>>
+mkdir /etc/portage/package.accept_keywords \
+;  mkdir /etc/portage/package.env \
+;  mkdir /etc/portage/package.mask \
+;  mkdir /etc/portage/package.unmask \
+;  mkdir /etc/portage/package.use \
+;  mkdir /etc/portage/repos.conf \
+|| true
 
-FROM scratch
+RUN \
+eselect profile set local:tgbugs/musl
+
+RUN \
+echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
+&& [[ -z ${PYTHON_TARGETS} ]] || \
+   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
+# XXX setting PORTAGE_BINHOSTS has to come later? maybe as an envar?
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge -j4 -q \
+   dev-vcs/git \
+   eselect-repository \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+RUN \
+eselect repository enable musl \
+
+RUN \
+eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+#+end_src
+# TODO should we be adding the mount points here as well or is that not necessary?
+
+** repos
+#+name: &musl-build-repos
+#+begin_src bash
+docker build \
+--no-cache \
+--tag tgbugs/repos:latest \
+--file repos/Dockerfile .
+#+end_src
+The overlays can take up quite a bit of space so it is better to mount
+them the same way we mount the gentoo repo during build so that we can
+keep the images a bit slimmer. We can publish the build images
+independently, and it is also worth noting that from a reproducibility
+perspective the exact ebuilds are stored in file:/var/db/pkg/.
+#+begin_src dockerfile :tangle ./repos/Dockerfile
+FROM tgbugs/musl:eselect-repository as builder
+
+RUN \
+emaint sync --repo musl
+
+RUN \
+emaint sync --repo tgbugs-overlay
+
+FROM busybox:latest
 
 WORKDIR /
-COPY --from=builder /build /
+COPY --from=builder /var/db/repos /var/db/repos
+COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
+CMD /bin/true
+VOLUME /var/db/repos
 #+end_src
 
+** updated
+*** file
+Produce an up-to-date base image for =amd64-hardened-musl= from the
+latest stage3 image including the
+[[https://github.com/gentoo/musl][musl overlay]] as noted on the
+[[https://wiki.gentoo.org/wiki/Project:Hardened_musl#Working_with_musl][wiki]].
+
+At the moment the docker images are generated far more frequently than
+the underlying stage3 tarballs are updated, so there are two docker
+files, one for building the first time and another for running routine
+emerge updates until a new stage3 is released.
+
+Alternately, one way to avoid rebuilds is to build packages and store
+them across rebuilds. This will take more work, but ultimately might
+be a bit more reproducible since we would avoid the issues with having
+an image building =FROM= a prior version of itself.
+
+#+name: &musl/updated
+#+begin_src dockerfile :tangle ./musl/updated/Dockerfile
+FROM tgbugs/musl:eselect-repository
+
+# FIXME eselect new read all probably
+
+# exclude gcc during first update since it is slow, it will be updated when running remerge.Dockerfile
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q -uDN @world \
+   --keep-going \
+   --exclude sys-devel/gcc \
+   --exclude sys-process/procps \
+|| echo "something failed to build" \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+#+name: &musl/updated-remerge
+#+begin_src dockerfile :tangle ./musl/updated/remerge.Dockerfile
+FROM tgbugs/musl:updated
+
+ARG ARCHIVE
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q -uDN @world \
+   --keep-going \
+   --exclude sys-process/procps \
+;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/* || true
+
+VOLUME /var/cache/distfiles
+#+end_src
+
+*** build
+#+name: &musl-build-updated
+#+begin_src screen :session org-session
+docker build \
+--tag tgbugs/musl:updated \
+--file musl/updated/Dockerfile .
+#+end_src
+
+*** rebuild
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:updated-remerge \
+--file musl/updated/remerge.Dockerfile .
+
+# check that everything works as expected (and that there were changes at all)
+docker run -it tgbugs/musl:updated-remerge
+
+# rename the image
+docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
+#+end_src
+
+*** run
+#+name: &musl-run-updated
+#+begin_src bash
+docker run \
+--volumes-from local-portage-snap \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=${DISPLAY} \
+-it tgbugs/musl:updated
+#+end_src
+** updated-user
+An example of how to compose user images to minimize size.
+*** run
+#+begin_src bash
+docker run -it tgbugs/musl:updated-user
+#+end_src
+
+*** build
+#+name: &musl-build-updated-user
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:updated-user \
+--build-arg UID=${UID} \
+--file musl/updated-user/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :noweb yes :tangle ./musl/updated-user/Dockerfile
+FROM tgbugs/musl:updated
+
+# change this line to copy from whatever user image you need
+COPY --from=tgbugs/musl:user / /
+
+<<&musl-file-user-base>>
+#+end_src
+
+** package-builder
+*** host
+#+begin_src bash
+pushd ~/files/binpkgs
+python -m http.server 8089 --bind 127.0.0.1
+#+end_src
+*** run
+#+begin_src bash
+# --volumes-from local-overlay-snap \
+function build_package () {
+    docker run \
+    --volumes-from local-portage-snap \
+    -v ~/files/binpkgs:/var/cache/binpkgs \
+    tgbugs/musl:builder \
+    $@
+}
+
+#+end_src
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:package-builder \
+--file musl/package-builder/Dockerfile .
+#+end_src
+*** file
+#+begin_src dockerfile
+FROM tgbugs/musl:updated
+
+RUN \
+echo 'FEATURES="buildpkg"' >> /etc/portage/make.conf \
+echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg"' >> /etc/portage/make.conf \
+
+VOLUME /var/cache/binpkgs
+#+end_src
+** package-binhost
+#+begin_src dockerfile
+RUN \
+echo 'PORTAGE_BINHOST="http://host.docker.internal/packages"' >> /etc/portage/make.conf \
+echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --getbinpkgonly"' >> /etc/portage/make.conf \
+
+# consider whether it is possible to put the binhost has an ARG for the build process
+# and what the tradeoffs are, I think it is better to hardcode it since we can remap
+# ports etc
+#+end_src
 ** vim
 *** build
 #+begin_src bash
@@ -1280,10 +1458,6 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/blazegraph/Dockerfile
 FROM tgbugs/musl:icedtea
 
-RUN \
-eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
-&& emaint sync --repo tgbugs-overlay
-
 ARG ARCHIVE
 ARG ACCT_GROUP_BLAZEGRAPH_ID=834
 ARG ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
@@ -1603,10 +1777,6 @@ FROM tgbugs/musl:updated
 
 COPY --from=gtk-nor / /
 COPY --from=em / /
-
-RUN \
-eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
-&& emaint sync --repo tgbugs-overlay
 
 ARG ARCHIVE
 
@@ -1931,3 +2101,21 @@ DISPLAY=:0.0; Xephyr -br -reset -terminate -ac -noreset -screen 1280x1024 :3 &
 DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 
 #+end_src
+* Bootstrap :noexport:
+
+#+name: orgstrap
+#+begin_src elisp :results none :lexical yes
+(when noninteractive
+  (setq args nil)
+  (unless (fboundp #'dockerfile-mode)
+    (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
+      "Stub to avoid comment-start issues"
+      (set (make-local-variable 'comment-start) "#")))
+  (org-babel-tangle))
+#+end_src
+
+** Local Variables :ARCHIVE:
+# close powershell comment #>
+# Local Variables:
+# eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((actual (org-version)) (need orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not need) (string< need actual) (string= need actual) (error "Your Org is too old! %s < %s" actual need))) (defun orgstrap-norm-func--prp-1\.1 (body) (let (print-quoted print-length print-level) (prin1-to-string (read (concat "(progn\n" body "\n)"))))) (unless (boundp 'orgstrap-norm-func) (defvar orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap--confirm-eval-minimal (lang body) (not (and (member lang '("elisp" "emacs-lisp")) (eq orgstrap-block-checksum (intern (secure-hash orgstrap-cypher (orgstrap-norm body))))))) (unless (fboundp 'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-minimal)) (let ((enable-local-eval nil)) (vc-refresh-state)) (let ((ocbe org-confirm-babel-evaluate) (obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (setq-local org-confirm-babel-evaluate ocbe) (org-set-startup-visibility)) (warn "No orgstrap block."))))
+# End:
