@@ -87,6 +87,212 @@ Pushes to https://hub.docker.com/r/tgbugs/musl. \\
 Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
 Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
 and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
+** profile
+:PROPERTIES:
+:header-args:conf: :mkdirp yes
+:END:
+The right way to do this is to create two custom profiles on top of musl-hardened.
+
+https://wiki.gentoo.org/wiki/Profile_(Portage)#custom
+
+Modifications to use flags and other system settings and
+configurations that are easier to keep in a single location.
+# FIXME this may need to be versioned, or we just force rebuild on all
+# the images from scratch which we often have to do anyway, though some
+# packages may not be affect by profile changes
+*** build
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:profile \
+--file musl/profile/Dockerfile musl/profile
+#+end_src
+*** file
+# https://github.com/GoogleContainerTools/skaffold/issues/5015
+# https://github.com/moby/buildkit/issues/1271
+# ?? no not the issue?
+#+begin_src dockerfile :noweb yes :tangle ./musl/profile/Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+ADD local var/db/repos/local
+ADD local.conf etc/portage/repos.conf/local.conf
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+*** repos.conf
+#+begin_src conf :tangle ./musl/profile/local.conf
+[local]
+location = /var/db/repos/local
+#+end_src
+
+*** profiles
+#+begin_src conf :tangle ./musl/profile/local/repo_name
+local
+#+end_src
+
+#+begin_src conf :tangle ./musl/profile/local/metadata/layout.conf
+masters = gentoo
+profile-formats = portage-2
+#+end_src
+
+#+begin_src conf :tangle ./musl/profile/local/profiles/profiles.desc
+amd64 tgbugs/musl dev
+#+end_src
+**** common
+***** parent
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/parent
+gentoo:default/linux/amd64/17.0/musl/hardened
+#+end_src
+***** make.defaults
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/package.mask
+VIDEO_CARDS=""
+#+end_src
+***** mask
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/package.mask
+# insurance
+dev-lang/rust
+dev-lang/rust-bin
+
+# gtknor
+>=gnome-base/librsvg-2.41
+>x11-themes/adwaita-icon-theme-3.33
+>=media-libs/mesa-21 # FIXME temporary
+
+# dynapad
+>=media-gfx/imagemagick-7
+#+end_src
+***** unmask
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/package.unmask
+# gtknor
+<gnome-base/librsvg-2.41
+#+end_src
+***** accept_keywords
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/package.accept_keywords
+dev-python/pipenv ~amd64
+app-misc/yq ~amd64
+
+# tgbugs-overlay
+dev-db/blazegraph-bin
+dev-java/scigraph-bin
+dev-scheme/racket
+
+# tgbugs-overlay python # XXX if we introduct pypy3 this is going to be a mess
+# dev-python/pyontutils ~amd64
+#+end_src
+***** package.use
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/package.use
+# musl performance
+# ,*/* jemalloc # FIXME not sure how to enable the positive use flag
+
+# font rendering
+media-libs/freetype -cleartype-hinting
+
+app-editors/emacs dynamic-loading gmp json threads
+
+# gdb don't pull in the world
+sys-devel/gdb -nls -python
+
+# pyzmq
+net-libs/zeromq drafts
+
+dev-scheme/racket cs bc cgc jit
+#+end_src
+***** use.mask
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/use.mask
+# reduce deps
+perl
+gtk
+cups
+postscript
+
+# reduce xorg deps
+llvm
+egl
+gles
+gallium
+dbus
+vala
+introspection
+elogind
+#+end_src
+**** x
+***** parent
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/x/parent
+..
+#+end_src
+***** use
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/x/package.use
+,*/* X
+# needed to ensure that -egl doesn't introduce conflicts
+x11-base/xorg-server minimal
+
+media-libs/freetype harfbuzz
+
+app-editors/emacs gui Xaw3d xft # XXX note that latest reccomendations are to use harfbuzz + cairo for text shaping (or something like that)
+app-emacs/emacs-common gui
+
+# avoid extra deps
+dev-util/cmake -ncurses
+
+# scigraph
+x11-base/xorg-server xvfb
+#+end_src
+
+**** file :old:
+***** common
+#+begin_src bash
+# use
+# until the new musl allocator is implemented use jemalloc when possible
+echo '*/* jemalloc' >> /etc/portage/package.use/00-musl
+
+# font rendering issues
+echo 'media-libs/freetype -cleartype_hinting -cleartype-hinting' >> /etc/portage/package.use/99-freetype
+
+# mostly needed to deal with X
+echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/20-xorg \
+&& echo '*/* -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind' >> /etc/portage/package.use/20-xorg \
+
+# emacs
+echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/99-emacs \
+
+# blazegraph
+echo 'dev-db/blazegraph-bin' >> /etc/portage/package.accept_keywords/blazegraph
+
+# scigraph
+echo 'dev-java/scigraph-bin' >> /etc/portage/package.accept_keywords/scigraph \
+
+# eselect repos and syncing ...
+eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+&& emaint sync --repo tgbugs-overlay
+
+#+end_src
+***** x
+#+begin_src bash
+# general
+&& echo '*/* X' >> /etc/portage/package.use/20-xorg
+
+# emacs
+&& echo 'app-editors/emacs gui Xaw3d xft' >> /etc/portage/package.use/99-emacs-gui \
+&& echo 'app-emacs/emacs-common gui' >> /etc/portage/package.use/99-emacs-gui
+
+# gtk no rust note that this pulls in harfbuzz so you are already on that train if you are using the xserver at all
+echo 'media-libs/freetype harfbuzz' >> /etc/portage/package.use/99-freetype \
+&& echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/99-cmake \
+&& echo '=gnome-base/librsvg-2.40.21 **' >> /etc/portage/package.accept_keywords/librsvg \
+&& echo '<gnome-base/librsvg-2.41' >> /etc/portage/package.unmask/librsvg \
+&& echo '>=gnome-base/librsvg-2.41' >> /etc/portage/package.mask/base \
+&& echo '>x11-themes/adwaita-icon-theme-3.33' >> /etc/portage/package.mask/adwaita \
+&& echo '>=media-libs/mesa-21' >> /etc/portage/package.mask/mesa
+
+# scigraph
+&& echo 'x11-base/xorg-server xvfb' >> /etc/portage/package.use/99-xorg-server
+
+#+end_src
+
 ** updated
 *** file
 Produce an up-to-date base image for =amd64-hardened-musl= from the
@@ -111,6 +317,8 @@ FROM gentoo/stage3:amd64-musl-hardened
 ARG ARCHIVE
 ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
 
+COPY --from=tgbugs/musl:profile / /
+
 RUN \
 mkdir /etc/portage/package.accept_keywords \
 ;  mkdir /etc/portage/package.env \
@@ -118,13 +326,15 @@ mkdir /etc/portage/package.accept_keywords \
 ;  mkdir /etc/portage/package.unmask \
 ;  mkdir /etc/portage/package.use \
 ;  mkdir /etc/portage/repos.conf \
-|| echo "fail ok"
+|| true
+
+RUN \
+eselect profile set local:tgbugs/musl
 
 RUN \
 echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
-&& echo '*/* -perl -gtk -cups -postscript' >> /etc/portage/package.use/00-base \
 && [[ -z ${PYTHON_TARGETS} ]] || \
-   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/00-base \
+   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
@@ -133,8 +343,7 @@ emerge -j4 -q \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-mkdir /etc/portage/repos.conf \
-&& eselect repository enable musl \
+eselect repository enable musl \
 && emaint sync --repo musl
 
 # exclude gcc during first update since it is slow, it will be updated when running remerge.Dockerfile
@@ -216,41 +425,79 @@ docker run -it tgbugs/musl:updated-remerge-fix
 docker image tag tgbugs/musl:updated-remerge-fix tgbugs/musl:updated
 #+end_src
 
-** TODO use
-Modifications to use flags and other system settings and
-configurations that are easier to keep in a single location.
-*** file
-#+begin_src dockerfile :tangle ./musl/use/Dockerfile
-# until the new musl allocator is implemented use jemalloc when possible
-RUN \
-echo '*/* jemalloc' >> /etc/portage/package.use/00-musl
-#+end_src
-*** nox
-#+begin_src dockerfile :tangle ./musl/use/nox.Dockerfile
-#+end_src
-
 ** portage-maven
 Hack to make it possible to install from maven using portage.
 *** build
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:portage-maven \
---file musl/portage-maven/Dockerfile .
+--file musl/portage-maven/Dockerfile musl/portage-maven
 #+end_src
 
 *** file
-#+begin_src dockerfile :tangle ./musl/portage-maven/Dockerfile
-FROM tgbugs/musl:updated
+The UID for portage is static so it is ok to hard code it [fn::
+https://api.gentoo.org/uid-gid.txt
+https://wiki.gentoo.org/wiki/Project:Quality_Assurance/UID_GID_Assignment].
+
+#+name: &portage-maven-settings
+#+begin_src xml :tangle ./musl/portage-maven/settings.xml
+<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
+  <localRepository>/var/tmp/portage/.m2/repository</localRepository>
+</settings>
+#+end_src
+
+#+name: &run-portage-maven-1
+#+begin_src bash :eval never :noweb yes
+# mkdir -p var/lib/portage/home/.m2 \
+chown -R 250:250 var/lib/portage \
+&& mkdir -p var/tmp/portage/.m2/repository \
+&& chown -R 250:250 var/tmp/portage
+#+end_src
+
+#+begin_src dockerfile :noweb yes :tangle ./musl/portage-maven/Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+ADD settings.xml var/lib/portage/home/.m2/settings.xml
 
 RUN \
-mkdir -p /var/lib/portage/home/.m2 \
-&& echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /var/lib/portage/home/.m2/settings.xml \
-&& echo '          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">' >> /var/lib/portage/home/.m2/settings.xml \
-&& echo '<localRepository>/var/tmp/portage/.m2/repository</localRepository>' >> /var/lib/portage/home/.m2/settings.xml \
-&& echo '</settings>' >> /var/lib/portage/home/.m2/settings.xml \
-&& chown -R portage:portage /var/lib/portage/home/.m2 \
-&& mkdir -p /var/tmp/portage/.m2/repository \
-&& chown -R portage:portage /var/tmp/portage/.m2
+<<&run-portage-maven-1>>
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+
+** user
+# FIXME this is sufficient to create the default set of files and directories for the user
+# however it is not able to deal with the fact that groupadd and useradd still must be run
+# on the host system, which leads me to think that the only composability we are going to
+# get here is via noweb :/ the primary issue is /etc/groups and other similar things
+#+name: &run-user-1
+#+begin_src bash :eval never
+groupadd -g ${UID} ${USER_NAME} \
+&& useradd -m -k /etc/skel -u ${UID} -g ${UID} -d ${WORKDIR}/home/${USER_NAME} ${USER_NAME}
+#+end_src
+
+#+begin_src dockerfile :noweb yes :tangle ./musl/user/Dockerfile
+FROM gentoo/stage3:amd64-musl-hardened as builder
+
+ARG UID=1000
+ARG USER_NAME=user
+
+WORKDIR /build
+
+RUN \
+<<&run-user-1>>
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
 #+end_src
 
 ** vim
@@ -287,9 +534,6 @@ be a bug in the =gdb= build since it may need to use =-lintl=.
 FROM tgbugs/musl:updated
 
 ARG ARCHIVE
-
-RUN \
-echo 'sys-devel/gdb -nls -python' >> /etc/portage/package.use/99-gdb
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
@@ -344,8 +588,6 @@ emerge -j4 -q -uDN --keep-going \
    python:3.9 \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
 
-RUN \
-echo 'dev-python/pipenv' >> /etc/portage/package.accept_keywords/pipenv
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q pipenv \
@@ -365,9 +607,6 @@ docker build \
 *** file
 #+begin_src dockerfile :tangle ./musl/nodejs/Dockerfile
 FROM tgbugs/musl:updated
-
-RUN \
-echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/99-cmake
 
 ARG ARCHIVE
 
@@ -395,9 +634,6 @@ docker build \
 FROM tgbugs/musl:updated
 
 ARG ARCHIVE
-
-RUN \
-echo 'media-libs/freetype -cleartype_hinting -cleartype-hinting' >> /etc/portage/package.use/99-freetype
 
 # rebuild freetype without cleartype hinting
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -449,11 +685,6 @@ FROM tgbugs/musl:fix-fonts
 
 ARG ARCHIVE
 
-RUN \
-echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/20-xorg \
-&& echo '*/* -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind' >> /etc/portage/package.use/20-xorg \
-&& echo '*/* X' >> /etc/portage/package.use/20-xorg
-
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -1q \
     x11-base/xcb-proto \
@@ -468,10 +699,6 @@ emerge -j4 -1q \
     x11-libs/xtrans \
     x11-misc/compose-tables \
 ;  [[ -n ${ARCHIVE} ]] || rm -r /var/cache/distfiles/*
-
-# needed to ensure that -egl doesn't introduce conflicts
-RUN \
-echo 'x11-base/xorg-server minimal' >> /etc/portage/package.use/99-xorg-server
 
 VOLUME /var/cache/distfiles
 #+end_src
@@ -499,11 +726,6 @@ FROM tgbugs/musl:xorg
 
 ARG ARCHIVE
 
-RUN \
-echo 'app-editors/emacs dynamic-loading gmp json threads' >> /etc/portage/package.use/99-emacs \
-&& echo 'app-editors/emacs gui Xaw3d xft' >> /etc/portage/package.use/99-emacs-gui \
-&& echo 'app-emacs/emacs-common gui' >> /etc/portage/package.use/99-emacs-gui
-
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
    app-editors/emacs \
@@ -525,15 +747,6 @@ docker build \
 FROM tgbugs/musl:xorg
 
 ARG ARCHIVE
-
-RUN \
-echo 'media-libs/freetype harfbuzz' >> /etc/portage/package.use/99-freetype \
-&& echo 'dev-util/cmake -ncurses' >> /etc/portage/package.use/99-cmake \
-&& echo '=gnome-base/librsvg-2.40.21 **' >> /etc/portage/package.accept_keywords/librsvg \
-&& echo '<gnome-base/librsvg-2.41' >> /etc/portage/package.unmask/librsvg \
-&& echo '>=gnome-base/librsvg-2.41' >> /etc/portage/package.mask/base \
-&& echo '>x11-themes/adwaita-icon-theme-3.33' >> /etc/portage/package.mask/adwaita \
-&& echo '>=media-libs/mesa-21' >> /etc/portage/package.mask/mesa
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -1q \
@@ -1071,9 +1284,6 @@ RUN \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && emaint sync --repo tgbugs-overlay
 
-RUN \
-echo 'dev-db/blazegraph-bin' >> /etc/portage/package.accept_keywords/blazegraph
-
 ARG ARCHIVE
 ARG ACCT_GROUP_BLAZEGRAPH_ID=834
 ARG ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
@@ -1109,14 +1319,6 @@ FROM tgbugs/musl:icedtea
 
 COPY --from=pm / /
 # COPY --from=ict / /
-
-RUN \
-eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
-&& emaint sync --repo tgbugs-overlay
-
-RUN \
-echo 'dev-java/scigraph-bin' >> /etc/portage/package.accept_keywords/scigraph \
-&& echo 'x11-base/xorg-server xvfb # scigraph' >> /etc/portage/package.use/99-xorg-server
 
 ARG ARCHIVE
 ARG ACCT_GROUP_SCIGRAPH_ID=835
@@ -1277,10 +1479,6 @@ ARG ARCHIVE
 ARG AUID=1000
 ARG USER_NAME=apinatuser
 
-RUN \
-echo 'net-libs/zeromq drafts' >> /etc/portage/package.use/99-zeromq \
-&& echo 'app-misc/yq' >> /etc/portage/package.accept_keywords/yq
-
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
    app-arch/zip \
@@ -1410,10 +1608,6 @@ RUN \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && emaint sync --repo tgbugs-overlay
 
-RUN \
-echo 'dev-scheme/racket cs bc cgc jit' >> /etc/portage/package.use/99-racket \
-&& echo 'dev-scheme/racket' >> /etc/portage/package.accept_keywords/racket
-
 ARG ARCHIVE
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -1481,9 +1675,6 @@ docker build \
 FROM tgbugs/musl:racket
 
 ARG ARCHIVE
-
-RUN \
-echo '>=media-gfx/imagemagick-7' >> /etc/portage/package.mask/imagemagick
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
