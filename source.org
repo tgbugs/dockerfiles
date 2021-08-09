@@ -65,6 +65,8 @@ To prepare a fresh cycle of images.
 # docker pull gentoo/portage:latest
 
 # TODO if portage changed ...
+# docker rm local-portage-snap
+# docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
 # docker rm local-repos-snap
 # docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
 pushd ~/git/dockerfiles
@@ -88,7 +90,7 @@ local QPKGX
       <<&musl-run-updated-quickpkg>> || return $?;
 
       <<&musl-build-package-builder-nox>> || return $?;
-      # <<&musl-build-binrepos-nox>> || return $?;
+      <<&musl-build-binpkg-only-nox>> || return $?;
 
       # XXX this is the point at which things split into musl and musl/x
       <<&musl-build-xorg>> || return $?;
@@ -97,7 +99,7 @@ local QPKGX
       <<&musl-run-xorg-quickpkg>> || return $?;
 
       <<&musl-build-package-builder>> || return $?;
-      # <<&musl-build-binrepos>> || return $?;
+      <<&musl-build-binpkg-only>> || return $?;
 }
 run
 # package host
@@ -275,15 +277,16 @@ Useful to keep these out of file:/var/lib/portage/world so that individual
 docker files can just =ADD= their world file and then =emerge @world=. It
 also makes it much easier for the package builder to operate based on world files.
 #+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/packages
-dev-vcs/git
-app-eselect/eselect-repository
+*dev-vcs/git
+*app-eselect/eselect-repository
 #+end_src
 **** parent
 #+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/parent
 gentoo:default/linux/amd64/17.0/musl/hardened
 #+end_src
 **** make.defaults
-#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/make.defaults
+# FIXME for some reason this does not actually disable all the flags
+#+begin_src conf :tangle ./musl/profile/local/profiles/tgbugs/musl/make.defaults :tangle no
 VIDEO_CARDS=""
 #+end_src
 **** mask
@@ -531,9 +534,8 @@ docker run \
 
 *** build
 # FIXME --network host is ok for now, but we should probably try to
-# switch to using --ssh or something I think this may be ok though
-# because it is only needed during the earliest phases of bootstrap
-# and then not used again afterward
+# switch to using --ssh or something since it is needed for building
+# all binpkg-only images
 #+name: &musl-build-eselect-repository
 #+begin_src bash
 docker build \
@@ -611,15 +613,12 @@ FROM tgbugs/musl:eselect-repository
 
 # exclude gcc during first update since it is slow, it will be updated when running remerge.Dockerfile
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN @world \
+emerge -j4 -q -uDN @system @world \
    --getbinpkg \
    --keep-going \
-   --exclude sys-devel/gcc \
    --exclude sys-process/procps \
 || echo "something failed to build" \
 <<&archive-or-rm>>
-
-VOLUME /var/cache/distfiles
 #+end_src
 
 #+name: &musl/updated-remerge
@@ -634,8 +633,6 @@ emerge -j4 -q -uDN @world \
    --keep-going \
    --exclude sys-process/procps \
 <<&archive-or-rm>>
-
-VOLUME /var/cache/distfiles
 #+end_src
 
 *** build
@@ -739,7 +736,8 @@ eselect profile set local:tgbugs/musl/x
 # FIXME I think we have to update binhosts here
 
 RUN \
-echo '*/* X' >> /etc/portage/package.use/20-xorg
+echo '*/* X' >> /etc/portage/package.use/20-xorg \
+&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/20-xorg
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @world \
@@ -748,8 +746,11 @@ emerge -j4 -q -uDN @world \
    --exclude sys-process/procps \
 <<&archive-or-rm>>
 
-# FIXME TODO install freetype here without harfbuzz to avoid the circular dependency
-
+# install freetype without harfbuzz to avoid the circular dependency
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+USE=-harfbuzz emerge -1q --getbinpkg \
+   media-libs/freetype \
+<<&archive-or-rm>>
 #+end_src
 ** package-builder
 *** populate 0
@@ -781,9 +782,8 @@ echo docker run \
 tgbugs/musl:package-builder \
 $@
 }
-# --buildpkgonly -j4 -q --keep-going
-# --nodeps # potentially useful
 #+end_src
+
 
 #+begin_src bash
 build_package sh -c "USE=-harfbuzz emerge -1q freetype"
@@ -791,12 +791,99 @@ build_package sh -c "USE=-harfbuzz emerge -1q freetype"
 build_package sh -c "emerge -1q freetype"
 #+end_src
 
+# TODO it is almost certainly worth keeping these containers around
+# and stashing them because they can be used to build more packages
+# without having to do a full reinstall, which still takes awhile
+#+begin_src bash
+# --nodeps # potentially useful
+
+cat ./musl/package-builder/world | xargs \
+docker run \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+--rm \
+tgbugs/musl:package-builder \
+emerge --color=y -j4 -q --keep-going
+
+# too many issues, just merge and get on with it
+# the lack of separation between build time dependencies and runtime is quite annoying
+# that or the dependency trees are even worse than I thought
+# emerge --color=y -j4 -q --keep-going --onlydeps
+# emerge --color=y -j4 -q --keep-going --buildpkgonly
+#+end_src
+# --binpkg-respect-use=n freetype/harfbuzz circularity issues sigh devs
+
+#+name: world-package-build-x
+#+begin_src conf :noweb yes :tangle ./musl/package-builder/world
+<<world-package-builder>>
+x11-base/xorg-server
+x11-libs/gtk+
+media-libs/freetype
+media-libs/fontconfig
+media-fonts/dejavu
+app-editors/gvim
+dev-java/icedtea-bin::musl
+dev-scheme/racket
+#+end_src
+
+# FIXME there is some issue with some indirection between virtual/jdk and icedtea-bin
+#+begin_src conf
+dev-db/blazegraph-bin
+dev-java/scigraph-bin
+#+end_src
+
+*** build
+#+name: &musl-build-package-builder
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:package-builder \
+--file musl/package-builder/Dockerfile .
+#+end_src
+
+*** file
+# TODO distcc
+#+name: &musl-package-builder-common
+#+begin_src dockerfile
+
+RUN \
+echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg"' >> /etc/portage/make.conf
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/package-builder/Dockerfile
+FROM tgbugs/musl:xorg
+<<&musl-package-builder-common>>
+#+end_src
+** package-builder-nox
+*** populate 0
+#+name: &musl-run-updated-quickpkg
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/musl:/var/cache/binpkgs \
+--rm \
+tgbugs/musl:updated \
+quickpkg "*/*" --include-config y
+#+end_src
+*** run
+#+begin_src bash
+cat ./musl/package-builder-nox/world | xargs \
+docker run \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+--rm \
+tgbugs/musl:package-builder-nox \
+emerge --color=y -j4 -q --keep-going
+#+end_src
+
 If there is a new package that one of your images needs add it here.
 Yes, there are going to be issues with keywording that are likely going
 to require updates to the profile followed by a rebuild here. I can't quite
 remember whether binpkgs check use flags.
-#+name: builder-portage-world
-#+begin_src conf
+#+name: world-package-builder
+#+begin_src conf :tangle ./musl/package-builder-nox/world
 app-portage/eix
 sys-devel/gdb::musl
 dev-libs/libconfig
@@ -823,55 +910,6 @@ media-gfx/imagemagick
 # FIXME dev-java/icedtea-bin::musl headless-awt means we have to make the nox profile explicit
 # similar issue for dev-scheme/racket minimal
 
-#+name: builder-portage-world-x
-#+begin_src conf
-x11-base/xorg-server
-x11-libs/gtk+
-media-libs/freetype
-media-libs/fontconfig
-media-fonts/dejavu
-app-editors/gvim
-dev-java/icedtea-bin::musl
-dev-db/blazegraph-bin
-dev-java/scigraph-bin
-dev-scheme/racket
-#+end_src
-
-*** build
-#+name: &musl-build-package-builder
-#+begin_src bash
-docker build \
---tag tgbugs/musl:package-builder \
---file musl/package-builder/Dockerfile .
-#+end_src
-
-*** file
-#+name: &musl-package-builder-common
-#+begin_src dockerfile
-
-RUN \
-echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
-&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg"' >> /etc/portage/make.conf
-
-VOLUME /var/cache/binpkgs
-#+end_src
-
-#+begin_src dockerfile :tangle ./musl/package-builder/Dockerfile
-FROM tgbugs/musl:xorg
-<<&musl-package-builder-common>>
-#+end_src
-** package-builder-nox
-*** populate 0
-#+name: &musl-run-updated-quickpkg
-#+begin_src bash
-docker run \
---volumes-from local-repos-snap \
--v ~/files/binpkgs/musl:/var/cache/binpkgs \
---rm \
-tgbugs/musl:updated \
-quickpkg "*/*" --include-config y
-#+end_src
-
 *** build
 #+name: &musl-build-package-builder-nox
 #+begin_src bash
@@ -888,6 +926,45 @@ FROM tgbugs/musl:updated
 #+end_src
 
 ** package-binhost
+** binpkg-only
+*** run
+*** build
+#+name: &musl-build-binpkg-only
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:binpkg-only \
+--file musl/binpkg-only/Dockerfile .
+#+end_src
+
+*** file
+#+name: &musl-binpkg-only-common
+#+begin_src dockerfile
+
+RUN \
+echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkgonly --getbinpkgonly"' >> /etc/portage/make.conf
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/binpkg-only/Dockerfile
+FROM tgbugs/musl:xorg
+<<&musl-binpkg-only-common>>
+#+end_src
+
+** binpkg-only-nox
+*** run
+*** build
+#+name: &musl-build-binpkg-only-nox
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:binpkg-only-nox \
+--file musl/binpkg-only-nox/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/binpkg-only-nox/Dockerfile
+FROM tgbugs/musl:updated
+<<&musl-binpkg-only-common>>
+#+end_src
+
 ** fix fonts
 Many other packages pull in freetype, so we have to deal with the
 issue before anything else.
@@ -922,8 +999,6 @@ eselect fontconfig disable 10-hinting-slight.conf \
    10-no-sub-pixel.conf \
    57-dejavu-sans.conf \
    57-dejavu-sans-mono.conf
-
-VOLUME /var/cache/distfiles
 #+end_src
 
 Only enabling dejavu sans and disabling any and all hinting matters.
@@ -938,6 +1013,13 @@ some default that is enabled so there winds up being a difference
 between there being no reference to a feature and a reference to it to
 explicitly disable it. Sigh.
 
+** debug
+*** world
+#+name: world-debug
+#+begin_src conf
+app-portage/eix
+sys-devel/gdb::musl
+#+end_src
 ** emacs
 Emacs using the athena 3d toolkit to avoid pulling in gtk.
 *** run
@@ -948,27 +1030,39 @@ docker run \
 -it tgbugs/musl:emacs
 #+end_src
 
-*** build
+debug run
 #+begin_src bash
-docker build \
+docker run \
+--net host \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=${DISPLAY} \
+--rm \
+-it \
+tgbugs/musl:emacs
+#+end_src
+
+*** build
+#+begin_src screen :noweb yes :session org-session
+<<&docker-build>>
 --tag tgbugs/musl:emacs \
---file musl/emacs/Dockerfile .
+--file musl/emacs/Dockerfile musl/emacs
 #+end_src
 
 *** file
 #+begin_src dockerfile :tangle ./musl/emacs/Dockerfile
-FROM tgbugs/musl:xorg
-
-ARG ARCHIVE
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
-   app-editors/emacs \
-<<&archive-or-rm>>
-
-VOLUME /var/cache/distfiles
+<<&build-world>>
 #+end_src
 
+*** world
+#+name: world-emacs
+#+begin_src conf :tangle ./musl/emacs/world
+dev-libs/libvterm
+app-editors/emacs
+#+end_src
 ** gtk-no-rust
 *** build
 #+begin_src bash
@@ -987,8 +1081,6 @@ RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/d
 emerge -j4 -1q \
    x11-libs/gtk+ \
 <<&archive-or-rm>>
-
-VOLUME /var/cache/distfiles
 #+end_src
 
 ** icedtea
@@ -1018,8 +1110,6 @@ RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/d
 emerge -j4 -q \
    dev-java/icedtea-bin::musl \
 <<&archive-or-rm>>
-
-VOLUME /var/cache/distfiles
 #+end_src
 
 *** legacy
@@ -1067,8 +1157,6 @@ pushd /var/cache/distfiles \
 && popd \
 && emerge -j4 -q dev-java/icedtea-bin::local \
 <<&archive-or-rm>>
-
-VOLUME /var/cache/distfiles
 #+end_src
 
 # export failure=$(docker ps -lq)
@@ -1131,8 +1219,6 @@ emerge -j4 -q \
 RUN \
 groupadd -g ${NUID} ${USER_NAME} \
 && useradd -m -k /etc/skel -u ${NUID} -g ${NUID} -d /home/${USER_NAME} ${USER_NAME}
-
-VOLUME /var/cache/distfiles
 
 # the rest is run as the neurondm user
 USER $USER_NAME
@@ -1522,8 +1608,6 @@ ARG ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q blazegraph-bin \
 <<&archive-or-rm>>
-
-VOLUME /var/db/distfiles
 #+end_src
 
 ** scigraph
@@ -1578,8 +1662,6 @@ emerge -j4 -q scigraph-bin --onlydeps \
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q scigraph-bin \
 <<&archive-or-rm>>
-
-VOLUME /var/db/distfiles
 #+end_src
 
 ** kg-base
@@ -1597,33 +1679,24 @@ docker run \
 #+end_src
 
 *** build
-#+begin_src bash
-docker build \
+#+begin_src screen :noweb yes :session org-session
+<<&docker-build>>
 --tag tgbugs/musl:kg-base \
---file musl/kg-base/Dockerfile .
+--file musl/kg-base/Dockerfile musl/kg-base
 #+end_src
 
 *** file
 #+name: &musl/kg-base
 #+begin_src dockerfile :tangle ./musl/kg-base/Dockerfile
-#FROM tgbugs/musl:blazegraph AS blaze
-#FROM tgbugs/musl:scigraph AS scig
-#FROM tgbugs/musl:emacs AS em
-FROM tgbugs/musl:updated
+<<&build-world>>
+#+end_src
 
-# FIXME /var/lib/portage/world issues
-
-COPY --from=tgbugs/musl:blazegraph / /
-COPY --from=tgbugs/musl:scigraph / /
-COPY --from=tgbugs/musl:emacs / /
-
-#COPY --from=blaze / /
-#COPY --from=scig / /
-#COPY --from=em / /
-
-ARG ARCHIVE
-
-VOLUME /var/db/distfiles
+*** world
+#+name: world-kg-base
+#+begin_src conf :noweb yes :tangle ./musl/kg-base/world
+dev-db/blazegraph-bin
+dev-java/scigraph-bin
+<<world-emacs>>
 #+end_src
 
 ** kg-user
@@ -1793,8 +1866,6 @@ pushd git \
 && popd
 
 ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
-
-VOLUME /var/cache/distfiles
 #+end_src
 
 ** racket
@@ -1847,8 +1918,6 @@ emerge -q racket \
 
 RUN \
 eselect racket set cs
-
-VOLUME /var/db/distfiles
 #+end_src
 ** racket-user
 *** run
@@ -1911,8 +1980,6 @@ emerge -j4 -q \
    app-text/poppler \
    dev-libs/libconfig \
 <<&archive-or-rm>>
-
-VOLUME /var/db/distfiles
 #+end_src
 
 ** dynapad-user
@@ -2159,9 +2226,34 @@ DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 
 #+end_src
 * utils :noexport:
+#+name: &docker-build
+#+begin_src bash
+docker build \
+--network host \
+--add-host local.binhost:127.0.0.1 \
+#+end_src
+
+#+name: &build-world
+#+begin_src dockerfile
+FROM tgbugs/musl:binpkg-only
+
+ARG ARCHIVE
+
+ADD world /var/lib/portage/world
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+cat /var/lib/portage/world | xargs emerge -j4 -q -uDN \
+<<&archive-or-rm>>
+#+end_src
+
 #+name: &archive-or-rm
 #+begin_src dockerfile
-;  [[ -n ${ARCHIVE} ]] || { rm -r /var/cache/distfiles/* > /dev/null 2>&1; rm -r /var/cache/binpkgs/* > /dev/null 2>&1; } || true
+;  export CODE=$? \
+;  echo CODE $CODE \
+;  [[ -n ${ARCHIVE} ]] \
+|| { rm -r /var/cache/distfiles/* > /dev/null 2>&1 \
+   ; rm -r /var/cache/binpkgs/* > /dev/null 2>&1; } \
+;  exit $CODE
 #+end_src
 * Bootstrap :noexport:
 
