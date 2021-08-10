@@ -52,7 +52,7 @@ dependent images in order.
 
 
 Run package host
-#+begin_src bash
+#+begin_src screen
 # mkdir -p ~/files/binpkgs/musl
 # mkdir -p ~/files/binpkgs/musl-x
 pushd ~/files/binpkgs
@@ -104,6 +104,8 @@ local QPKGX
 
       <<&musl-build-package-builder>> || return $?;
       <<&musl-build-binpkg-only>> || return $?;
+
+# TODO build any new packages
 
 # image builds
 <<&musl-build-kg-release>>
@@ -355,6 +357,9 @@ sys-devel/gdb -nls -python
 net-libs/zeromq drafts
 
 dev-scheme/racket cs bc cgc jit
+
+# graphviz
+media-libs/gd truetype fontconfig
 #+end_src
 **** use.mask
 #+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/use.mask
@@ -902,6 +907,19 @@ build_package sh -c "emerge -1q freetype"
 # TODO it is almost certainly worth keeping these containers around
 # and stashing them because they can be used to build more packages
 # without having to do a full reinstall, which still takes awhile
+
+# TODO figure out how to properly archive distfiles and binpkgs
+
+# FIXME there is a nasty issue here with composability for use flag
+# changes in the profile, in all likelihood we would be better off
+# maintaining a stack layers on the builder to update the use flags
+# independent of the profile until we we know that we have to do a
+# full rebuild, simply because rebuilding build images from scratch
+# every time is still slow and adding new packages will almost
+# inevitably reveal issues that require such use changes many should
+# go in the profile because we know that we are always going to need
+# those in the future, it should be fairly straight forward to create
+# a /var/db/docker-profile -> /etc/portage translator for the builder
 #+begin_src bash
 # --nodeps # potentially useful
 
@@ -913,8 +931,10 @@ docker run \
 --volumes-from local-repos-snap \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
+--entrypoint "" \
 tgbugs/musl:package-builder-snap \
 emerge --color=y -j4 -q --keep-going
+
 docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
 
 # to debug issues
@@ -932,20 +952,6 @@ tgbugs/musl:package-builder-snap
 # emerge --color=y -j4 -q --keep-going --buildpkgonly
 #+end_src
 # --binpkg-respect-use=n freetype/harfbuzz circularity issues sigh devs
-
-*** world
-#+name: world-package-builder
-#+begin_src conf :noweb yes :tangle ./musl/package-builder/world
-<<world-package-builder-nox>>
-<<world-kg-release>>
-<<world-kg-dev>>
-x11-base/xorg-server
-x11-libs/gtk+
-media-libs/freetype
-media-libs/fontconfig
-media-fonts/dejavu
-app-editors/gvim
-#+end_src
 
 *** build
 #+name: &musl-build-package-builder
@@ -971,6 +977,20 @@ echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
 FROM tgbugs/musl:xorg
 <<&musl-package-builder-common>>
 #+end_src
+*** world
+#+name: world-package-builder
+#+begin_src conf :noweb yes :tangle ./musl/package-builder/world
+<<world-package-builder-nox>>
+<<world-kg-release>>
+<<world-kg-dev>>
+x11-base/xorg-server
+x11-libs/gtk+
+media-libs/freetype
+media-libs/fontconfig
+media-fonts/dejavu
+app-editors/gvim
+#+end_src
+
 ** package-builder-nox
 *** populate 0
 #+name: &musl-run-updated-quickpkg
@@ -1004,10 +1024,29 @@ remember whether binpkgs check use flags.
 <<world-emacs>>
 <<world-dynapad-base>>
 <<world-python>>
+<<world-schemes>>
 #+end_src
-# dev-lisp/sbcl  # requires a crossdev environment for this to work
-# dev-lisp/clozurecl
-# dev-lisp/clisp
+
+# requires a crossdev environment for this to work
+#+name: world-lisp
+#+begin_src conf
+dev-lisp/sbcl
+dev-lisp/clozurecl
+dev-lisp/clisp
+#+end_src
+
+#+name: world-schemes
+#+begin_src conf
+dev-scheme/chicken
+dev-scheme/guile
+dev-scheme/gambit
+#+end_src
+# TODO build Chez from the Racket repo for unencumbered boot files
+#+name: world-xemacs
+#+begin_src conf
+app-editors/xemacs
+app-xemacs/xemacs-packages-all
+#+end_src
 
 *** build
 #+name: &musl-build-package-builder-nox
@@ -1825,6 +1864,7 @@ dev-libs/nss
 dev-java/icedtea-bin::musl
 dev-db/blazegraph-bin
 dev-java/scigraph-bin
+media-gfx/graphviz
 #+end_src
 
 ** kg-release-user
@@ -1916,6 +1956,15 @@ eselect racket set cs
 #+end_src
 
 ** kg-dev-user
+# FIXME somehow msising blazegraph user?
+*** run
+#+begin_src screen
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:kg-dev-user
+#+end_src
+
 *** build
 #+name: &musl-build-kg-dev-user
 #+begin_src screen :noweb yes
@@ -1943,30 +1992,22 @@ RUN \
 emacs --batch --quick --eval "(progn (url-handler-mode 1) (find-file \"${INIT_URL}\") (eval-buffer))"
 
 RUN \
-ln -s ~/.emacs.d/reval/cache/*/*-ow.el ~/.emacs.d/ow.el \
-&& ln -s ~/.emacs.d/reval/cache/*/*-reval.el ~/.emacs.d/reval.el \
-&& ln -s ~/.emacs.d/reval/cache/*/*-init-content.el ~/.emacs.d/init-content.el \
-&& echo "(load (concat user-emacs-directory \"ow.el\"))" >> ~/.emacs.d/init.el \
-&& echo "(load (concat user-emacs-directory \"reval.el\"))" >> ~/.emacs.d/init.el \
-&& echo "(load (concat user-emacs-directory \"init-content.el\"))" >> ~/.emacs.d/init.el
+pushd ~/.emacs.d \
+&& ln -s reval/cache/*/*-ow.el ow.el \
+&& ln -s reval/cache/*/*-reval.el reval.el \
+&& ln -s reval/cache/*/*-init-content.el init-content.el \
+&& echo "(load (expand-file-name \"ow.el\" user-emacs-directory))" >> init.el \
+&& echo "(load (expand-file-name \"reval.el\" user-emacs-directory))" >> init.el \
+&& echo "(load (expand-file-name \"init-content.el\" user-emacs-directory))" >> init.el \
+&& popd
 
 RUN \
 mkdir ~/git
 
-RUN \
-pushd git \
-&&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
-&&     pushd open-physiology-viewer \
-&&         git fetch origin pull/99/head:pr-99 \
-&&         git checkout pr-99 \
-&&         npm install \
-&&         pushd wrapper \
-&&             npm install \
-&&         popd \
-&&         npm run build \
-&&     popd \
-&& popd \
-&& ln -s ~/git/open-physiology-viewer/wrapper/bin/converter.js ~/.local/bin/apinat-converter
+# FIXME that is going to need to go in .bashrc or something
+ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
+
+# FIXME break these into their own images to avoid serial dependencies
 
 RUN \
 pushd git \
@@ -1982,7 +2023,8 @@ pushd git \
 &&             python setup.py --release || true \
 &&         popd \
 &&     popd \
-&& popd
+&& popd \
+&& rm -r ~/.cache/pip
 
 RUN \
 pushd git \
@@ -1990,10 +2032,12 @@ pushd git \
 &&     pushd sparc-curation \
 &&         pip install --user -e . \
 &&     popd \
-&& popd
+&& popd \
+&& rm -r ~/.cache/pip
 
 RUN \
-pip install --user git+https://github.com/rdflib/rdflib-jsonld.git
+pip install --user git+https://github.com/rdflib/rdflib-jsonld.git \
+&& rm -r ~/.cache/pip
 
 RUN \
 pushd git \
@@ -2001,7 +2045,26 @@ pushd git \
 &&     pushd idlib \
 &&         pip install --user -e . \
 &&     popd \
-&& popd
+&& popd \
+&& rm -r ~/.cache/pip
+
+RUN \
+pushd git \
+&&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
+&&     pushd open-physiology-viewer \
+&&         git fetch origin pull/99/head:pr-99 \
+&&         git checkout pr-99 \
+&&         npm install \
+&&         pushd wrapper \
+&&             npm install \
+&&         popd \
+&&         npm run build \
+&&         rm -r ./node_modules \
+&&         rm -r ./wrapper/node_modules \
+&&     popd \
+&& popd \
+&& ln -s ~/git/open-physiology-viewer/wrapper/bin/converter.js ~/.local/bin/apinat-converter \
+&& rm -r ~/.npm/_cacache
 
 FROM tgbugs/musl:kg-dev
 
@@ -2009,12 +2072,15 @@ COPY --from=builder /build /
 
 <<&musl-file-user-base>>
 
+USER 0
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
 ENTRYPOINT \
-/etc/init.d/scigraph start && \
-/etc/init.d/blazegraph start && \
-su user -
+rc-status \
+;  touch /run/openrc/softlevel \
+;  /etc/init.d/scigraph start \
+;  /etc/init.d/blazegraph start \
+;  su user -
 #+end_src
 ** racket
 *** build
