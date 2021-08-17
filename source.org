@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--prp-1\.1; orgstrap-block-checksum: c7cdde86afa872b74438254451b1945f7bce60efa3e30a94dbda03d1c39a4112; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--prp-1\.1; orgstrap-block-checksum: 7fd8fcdcf55c3d61cc086dae064e4c4c2a52dd296f57e97923dd15699e509f26; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -8,16 +8,16 @@
 #+property: header-args:dockerfile :noweb yes :mkdirp yes :comments link
 #+property: header-args:screen :session org-session :cmd sh
 
-#+name: shebang
-#+begin_src bash
-{ __p=$(mktemp -d); touch ${__p}/=; chmod +x ${__p}/=; __op=$PATH; PATH=${__p}:$PATH;} > ${null="/dev/null"}
+#+name: orgstrap-shebang
+#+begin_src bash :eval never :results none :exports none
+{ __p=$(mktemp -d);touch ${__p}/=;chmod +x ${__p}/=;__op=$PATH;PATH=${__p}:$PATH;} > ${null="/dev/null"}
 $file= $MyInvocation.MyCommand.Source
 $ErrorActionPreference= "silentlycontinue"
 file=$0
 args=$@
 $ErrorActionPreference= "Continue"
-{ PATH=$__op; rm ${__p}/=; rmdir ${__p}; } > $null
-emacs -batch -no-site-file -load ~/.emacs.d/orgstrap-developer-checksums.el -load ~/.emacs.d/orgstrap-batch-helper.el -visit "${file}" -- $args
+{ PATH=$__op;rm ${__p}/=;rmdir ${__p};} > $null
+emacs -batch -no-site-file -eval "(let (vc-follow-symlinks) (defun orgstrap--confirm-eval (l _) (not (memq (intern l) '(elisp emacs-lisp)))) (let ((file (pop argv)) enable-local-variables) (find-file-literally file) (end-of-line) (when (eq (char-before) ?\^m) (let ((coding-system-for-read 'utf-8)) (revert-buffer nil t t)))) (let ((enable-local-eval t) (enable-local-variables :all) (major-mode 'org-mode)) (require 'org) (org-set-regexps-and-options) (hack-local-variables)))" "${file}" -- $args
 exit
 <# powershell open
 #+end_src
@@ -65,14 +65,19 @@ To prepare a fresh cycle of images.
 #docker pull gentoo/stage3:amd64-musl-hardened
 
 #docker pull gentoo/portage:latest
-# docker rm local-portage-snap
-# docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
+#docker rm local-portage-snap
+#docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
 
 pushd ~/git/dockerfiles
+[ -d ./docker-profile ] && rm -r ./docker-profile
+[ -d ./gnu ] && rm -r ./gnu
 [ -d ./musl ] && rm -r ./musl
 [ -d ./repos ] && rm -r ./repos
 ./source.org --tangle  # TODO --tangle does nothing right now because the behavior is default
-function run () {
+function run-gnu () {
+echo TODO
+}
+function run-musl () {
 local REPOS
 local QPKG
 local QPKGX
@@ -84,8 +89,8 @@ local QPKGX
   <<&musl-build-eselect-repo>> || return $?;
     [ -z $REPOS ] || { \
     <<&repos-build-repos>> || return $?;
-    # docker rm local-repos-snap
-    # docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
+    docker rm local-repos-snap || return $?;
+    docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
     }
     <<&musl-build-updated>> || return $?;
       <<&musl-build-updated-user>> || return $?;
@@ -113,7 +118,7 @@ local QPKGX
 <<&musl-build-kg-dev>>
 <<&musl-build-kg-dev-user>>
 }
-run
+run-musl
 # package host
 # build a bunch of packages
 popd
@@ -185,43 +190,8 @@ add the user and group to the system and then copy that minimal
 user stuff in, most of the time there isn't any fancy installation
 that needed to be done, and we could just copy the user directory
 when building from scratch
-* repos
-Overlays can take up quite a bit of space so it is better to mount
-them the same way we mount the gentoo repo during build so that we can
-keep the images a bit slimmer. We can publish the build images
-independently, and it is also worth noting that from a reproducibility
-perspective the exact ebuilds are stored in file:/var/db/pkg/.
-*** build
-#+name: &repos-build-repos
-#+begin_src bash
-docker build \
---tag tgbugs/repos:latest \
---file repos/Dockerfile .
-#+end_src
-*** file
-#+begin_src dockerfile :tangle ./repos/Dockerfile
-FROM tgbugs/musl:eselect-repo as builder
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emaint sync --repo musl
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emaint sync --repo tgbugs-overlay
-
-FROM busybox:latest
-
-WORKDIR /
-COPY --from=builder /var/db/repos /var/db/repos
-COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
-CMD /bin/true
-VOLUME /var/db/repos
-#+end_src
-* musl
-Pushes to https://hub.docker.com/r/tgbugs/musl. \\
-Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
-Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
-and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
-** profile
+* docker-profile
+** base
 The right way to do this is to create two custom profiles on top of musl-hardened.
 
 https://wiki.gentoo.org/wiki/Profile_(Portage)#custom
@@ -232,15 +202,15 @@ configurations that are easier to keep in a single location.
 # the images from scratch which we often have to do anyway, though some
 # packages may not be affect by profile changes
 *** build
-#+name: &musl-build-profile
+#+name: &docker-profile-build-base
 #+begin_src screen
 docker build \
---tag tgbugs/musl:profile \
---file musl/profile/Dockerfile musl/profile
+--tag tgbugs/docker-profile:base \
+--file docker-profile/base/Dockerfile docker-profile/base
 #+end_src
 
 *** file
-#+begin_src dockerfile :noweb yes :tangle ./musl/profile/Dockerfile
+#+begin_src dockerfile :noweb yes :tangle ./docker-profile/base/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -248,7 +218,6 @@ WORKDIR /build
 # we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
 ADD docker-profile var/db/docker-profile
 ADD docker-profile.conf etc/portage/repos.conf/docker-profile.conf
-ADD musl.conf etc/portage/binrepos.conf/musl.conf
 
 FROM scratch
 
@@ -258,30 +227,26 @@ COPY --from=builder /build /
 
 *** etc
 **** repos.conf
-#+begin_src conf :tangle ./musl/profile/docker-profile.conf
+#+begin_src conf :tangle ./docker-profile/base/docker-profile.conf
 [docker-profile]
 location = /var/db/docker-profile
 #+end_src
-
-**** binrepos.conf
-#+begin_src conf :noweb yes :tangle ./musl/profile/musl.conf
-[tgbugs-musl]
-priority = 100
-sync-uri = http://local.binhost:8089/musl
-#+end_src
-
 *** profiles
-#+begin_src conf :tangle ./musl/profile/docker-profile/metadata/layout.conf
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/metadata/layout.conf
 masters = gentoo
 profile-formats = portage-2
 #+end_src
 
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/repo_name
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/repo_name
 docker-profile
 #+end_src
 
 # NOTE that tgbugs/musl/x is listed here but not populated until later
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/profiles.desc
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/profiles.desc
+amd64 tgbugs        dev
+amd64 tgbugs/x      dev
+amd64 tgbugs/gnu    dev
+amd64 tgbugs/gnu/x  dev
 amd64 tgbugs/musl   dev
 amd64 tgbugs/musl/x dev
 #+end_src
@@ -289,21 +254,17 @@ amd64 tgbugs/musl/x dev
 Useful to keep these out of file:/var/lib/portage/world so that individual
 docker files can just =ADD= their world file and then =emerge @world=. It
 also makes it much easier for the package builder to operate based on world files.
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/packages
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/packages
 *dev-vcs/git
 *app-eselect/eselect-repository
 #+end_src
-**** parent
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/parent
-gentoo:default/linux/amd64/17.0/musl/hardened
-#+end_src
 **** make.defaults
 # FIXME for some reason this does not actually disable all the flags
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/make.defaults :tangle no
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/make.defaults :tangle no
 VIDEO_CARDS=""
 #+end_src
 **** mask
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/package.mask
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.mask
 # insurance
 dev-lang/rust
 dev-lang/rust-bin
@@ -317,12 +278,12 @@ dev-lang/rust-bin
 >=media-gfx/imagemagick-7
 #+end_src
 **** unmask
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/package.unmask
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.unmask
 # gtknor
 <gnome-base/librsvg-2.41
 #+end_src
 **** accept_keywords
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/package.accept_keywords
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.accept_keywords
 dev-python/pipenv ~amd64
 app-misc/yq ~amd64
 
@@ -334,11 +295,16 @@ dev-scheme/racket ~amd64
 # gtknor
 <gnome-base/librsvg-2.41 **
 
+# sbcl
+dev-lisp/asdf ~amd64
+dev-lisp/uiop ~amd64
+dev-lisp/sbcl ~amd64
+
 # tgbugs-overlay python # XXX if we introduct pypy3 this is going to be a mess
 # dev-python/pyontutils ~amd64
 #+end_src
 **** package.use
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/package.use
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use
 # musl performance
 # ,*/* jemalloc # FIXME not sure how to enable the positive use flag
 
@@ -362,7 +328,7 @@ dev-scheme/racket cs bc cgc jit
 media-libs/gd truetype fontconfig
 #+end_src
 **** use.mask
-#+begin_src conf :tangle ./musl/profile/docker-profile/profiles/tgbugs/musl/use.mask
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/use.mask
 # reduce deps
 perl
 gtk
@@ -379,45 +345,68 @@ vala
 introspection
 elogind
 #+end_src
-** profile-x
-*** build
-#+name: &musl-build-profile-x
-#+begin_src screen
-docker build \
---tag tgbugs/musl:profile-x \
---file musl/profile-x/Dockerfile musl/profile-x
-#+end_src
-
-*** file
-#+begin_src dockerfile :noweb yes :tangle ./musl/profile-x/Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-ADD docker-profile var/db/docker-profile
-ADD musl-x.conf etc/portage/binrepos.conf/musl-x.conf
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
-
-*** etc
-**** binrepos.conf
-#+begin_src conf :tangle ./musl/profile-x/musl-x.conf
-[tgbugs-musl-x]
-priority = 200
-sync-uri = http://local.binhost:8089/musl-x
-#+end_src
-
-*** profiles
-**** parent
-#+begin_src conf :tangle ./musl/profile-x/docker-profile/profiles/tgbugs/musl/x/parent
+**** x/
+intentionally empty
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/x/parent
 ..
 #+end_src
+**** nox/
+intentionally empty
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/nox/parent
+..
+#+end_src
+**** gnu/
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/gnu/parent
+gentoo:default/linux/amd64/17.1/hardened
+..
+#+end_src
+**** gnu/x/
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/gnu/x/parent
+..
+../../x
+#+end_src
+**** gnu/nox/
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/gnu/nox/parent
+..
+../../nox
+#+end_src
+**** musl/
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/parent
+gentoo:default/linux/amd64/17.0/musl/hardened
+..
+#+end_src
+**** musl/x/
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/x/parent
+..
+../../x
+#+end_src
+**** musl/nox/
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/nox/parent
+..
+../../nox
+#+end_src
+** x
+*** profiles
+**** parent
+#+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/parent
+..
+#+end_src
+**** packages
+#+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/packages
+*media-fonts/dejavu
+*media-libs/fontconfig
+*media-libs/freetype
+#+end_src
 **** package.use
-#+begin_src conf :tangle ./musl/profile-x/docker-profile/profiles/tgbugs/musl/x/package.use
+#+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.use
 # ,*/* X # FIXME it seems that wildcards are not allowed in here so for now has to be done later
 
 media-libs/freetype harfbuzz
@@ -438,27 +427,28 @@ x11-base/xorg-server xvfb
 
 **** mask
 The media-libs/mesa-21.1 set fails to build even with all the use flags set correctly.
-#+begin_src conf :tangle ./musl/profile-x/docker-profile/profiles/tgbugs/musl/x/package.mask
+#+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.mask
 <media-libs/mesa-21.2
 #+end_src
 **** accept_keywords
 needed as a stop gap until there is a stable version >=media-libs/mesa-21.2
-#+begin_src conf :tangle ./musl/profile-x/docker-profile/profiles/tgbugs/musl/x/package.accept_keywords
+#+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.accept_keywords
 =x11-libs/libdrm-2.4.107 ~amd64
 =media-libs/mesa-21.2.0 ~amd64
+=app-emacs/vterm-0.0.1_pre20210618 ~amd64
 #+end_src
-** profile-nox
+** nox
 Explicit nox profile.
 *** build
 #+name: &musl-build-profile-nox
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:profile-nox \
---file musl/profile-nox/Dockerfile musl/profile-nox
+--file docker-profile/nox/Dockerfile docker-profile/nox
 #+end_src
 
 *** file
-#+begin_src dockerfile :noweb yes :tangle ./musl/profile-nox/Dockerfile
+#+begin_src dockerfile :noweb yes :tangle ./docker-profile/nox/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -473,13 +463,115 @@ COPY --from=builder /build /
 
 *** profiles
 **** parent
-#+begin_src conf :tangle ./musl/profile-nox/docker-profile/profiles/tgbugs/musl/nox/parent
+#+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/parent
 ..
 #+end_src
 
 **** package.use
-#+begin_src conf :tangle ./musl/profile-nox/docker-profile/profiles/tgbugs/musl/nox/package.use
+#+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/package.use
 dev-java/icedtea headless-awt
+#+end_src
+
+* repos
+Overlays can take up quite a bit of space so it is better to mount
+them the same way we mount the gentoo repo during build so that we can
+keep the images a bit slimmer. We can publish the build images
+independently, and it is also worth noting that from a reproducibility
+perspective the exact ebuilds are stored in file:/var/db/pkg/.
+*** build
+#+name: &repos-build-repos
+#+begin_src bash
+docker build \
+--tag tgbugs/repos:latest \
+--file repos/Dockerfile .
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./repos/Dockerfile
+FROM tgbugs/musl:eselect-repo as builder
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+   emaint sync --repo musl \
+&& emaint sync --repo lisp \
+&& emaint sync --repo tgbugs-overlay \
+&& rm -r /var/db/repos/lisp/dev-scheme/racket
+
+FROM busybox:latest
+
+WORKDIR /
+COPY --from=builder /var/db/repos /var/db/repos
+COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
+CMD /bin/true
+VOLUME /var/db/repos
+#+end_src
+* musl
+Pushes to https://hub.docker.com/r/tgbugs/musl. \\
+Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
+Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
+and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
+** profile
+TODO use =static-libs=?
+*** build
+#+name: &musl-build-profile
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:profile \
+--file musl/profile/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :noweb yes :tangle ./musl/profile/Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+# we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
+ADD docker-profile/base/docker-profile var/db/docker-profile
+ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
+ADD musl/profile/musl.conf etc/portage/binrepos.conf/musl.conf
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+
+*** etc
+**** binrepos.conf
+#+begin_src conf :noweb yes :tangle ./musl/profile/musl.conf
+[tgbugs-musl]
+priority = 100
+sync-uri = http://local.binhost:8089/musl
+#+end_src
+** profile-x
+*** build
+#+name: &musl-build-profile-x
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:profile-x \
+--file musl/profile-x/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :noweb yes :tangle ./musl/profile-x/Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+ADD docker-profile/x/docker-profile var/db/docker-profile
+ADD musl/profile-x/musl-x.conf etc/portage/binrepos.conf/musl-x.conf
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+
+*** etc
+**** binrepos.conf
+#+begin_src conf :tangle ./musl/profile-x/musl-x.conf
+[tgbugs-musl-x]
+priority = 200
+sync-uri = http://local.binhost:8089/musl-x
 #+end_src
 
 ** user
@@ -631,11 +723,29 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/eselect-repo/Dockerfile
 FROM gentoo/stage3:amd64-musl-hardened
 
-ARG ARCHIVE
-ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
+<<&gentoo-file-eselect-repo-common-1>>
 
 COPY --from=tgbugs/musl:profile / /
 
+<<&gentoo-file-eselect-repo-common-2>>
+
+RUN \
+eselect profile set docker-profile:tgbugs/musl
+
+<<&gentoo-file-eselect-repo-common-3>>
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+eselect repository enable musl
+#+end_src
+
+#+name: &gentoo-file-eselect-repo-common-1
+#+begin_src dockerfile
+ARG ARCHIVE
+ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
+#+end_src
+
+#+name: &gentoo-file-eselect-repo-common-2
+#+begin_src dockerfile
 RUN \
 mkdir /etc/portage/package.accept_keywords \
 ;  mkdir /etc/portage/package.env \
@@ -644,10 +754,10 @@ mkdir /etc/portage/package.accept_keywords \
 ;  mkdir /etc/portage/package.use \
 ;  mkdir /etc/portage/repos.conf \
 || true
+#+end_src
 
-RUN \
-eselect profile set docker-profile:tgbugs/musl
-
+#+name: &gentoo-file-eselect-repo-common-3
+#+begin_src dockerfile
 RUN \
 echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
 && [[ -z ${PYTHON_TARGETS} ]] || \
@@ -662,10 +772,8 @@ emerge -j4 -q \
 <<&archive-or-rm>>
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-eselect repository enable musl
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git
+eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+&& eselect repository enable lisp
 #+end_src
 # TODO should we be adding the mount points here as well or is that not necessary?
 
@@ -842,22 +950,6 @@ emerge -j4 -q -uDN @world \
    --exclude sys-process/procps \
 <<&archive-or-rm>>
 
-# install freetype without harfbuzz to avoid the circular dependency
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-USE=-harfbuzz emerge -1q \
-   --getbinpkg \
-   media-libs/freetype \
-<<&archive-or-rm>>
-
-# fontconfig is also a mess so we roll it in here
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -1q \
-   --getbinpkg \
-   media-libs/freetype \
-   media-libs/fontconfig \
-   media-fonts/dejavu \
-<<&archive-or-rm>>
-
 RUN \
 eselect fontconfig disable 10-hinting-slight.conf \
 && eselect fontconfig enable \
@@ -929,19 +1021,18 @@ docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
 cat ./musl/package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
---entrypoint "" \
 tgbugs/musl:package-builder-snap \
-emerge --color=y -j4 -q --keep-going
+emerge --color=y -j4 -q --keep-going -uDN
 
-docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
 
 # to debug issues
 docker run \
 --volumes-from local-repos-snap \
 --rm \
---entrypoint /bin/bash \
 -it \
 tgbugs/musl:package-builder-snap
 
@@ -951,21 +1042,19 @@ tgbugs/musl:package-builder-snap
 # emerge --color=y -j4 -q --keep-going --onlydeps
 # emerge --color=y -j4 -q --keep-going --buildpkgonly
 #+end_src
-# --binpkg-respect-use=n freetype/harfbuzz circularity issues sigh devs
 
 *** build
 #+name: &musl-build-package-builder
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:package-builder \
---file musl/package-builder/Dockerfile .
+--file musl/package-builder/Dockerfile musl/package-builder
 #+end_src
 
 *** file
 # TODO distcc
 #+name: &musl-package-builder-common
 #+begin_src dockerfile
-
 COPY --from=tgbugs/musl:portage-maven / /
 
 RUN \
@@ -975,20 +1064,88 @@ echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
 
 #+begin_src dockerfile :tangle ./musl/package-builder/Dockerfile
 FROM tgbugs/musl:xorg
+
+ADD layout.conf /var/db/crossdev/metadata/layout.conf
+ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
+ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
+
 <<&musl-package-builder-common>>
 #+end_src
+
+*** sbcl bootstrap
+sbcl bootstrapping workaround
+#+begin_src ebuild :tangle ./musl/package-builder/sbcl.env
+src_unpack() {
+	unpack ${A}
+	[ -d /sbcl ] && {
+		cp -r /sbcl sbcl-binary || die;
+		cp -a sbcl-*-*/run-sbcl.sh sbcl-binary/ || die;
+	} ||
+	mv sbcl-*-* sbcl-binary || die
+	cd "${S}"
+}
+#+end_src
+*** crossdev
+In order to fix
+#+begin_example
+ * Missing digest for '/var/db/docker-profile/cross-x86_64-pc-linux-gnu/binutils/binutils-2.34-r2.ebuild'
+ * Missing digest for '/var/db/docker-profile/cross-x86_64-pc-linux-gnu/binutils/binutils-2.33.1-r1.ebuild'
+#+end_example
+
+This works around the fact that musl uses thin manifests.  See
+https://wiki.gentoo.org/wiki/Custom_ebuild_repository#Crossdev.
+#+begin_src conf :tangle ./musl/package-builder/layout.conf
+masters = gentoo
+thin-manifests = true
+#+end_src
+
+#+begin_src conf :tangle ./musl/package-builder/crossdev.conf
+[crossdev]
+location = /var/db/crossdev
+priority = 10
+masters = gentoo
+auto-sync = no
+#+end_src
+
+But even with that fix there is an issue with linking the core runtime libs.
+#+begin_example
+/usr/libexec/gcc/x86_64-pc-linux-gnu/ld: cannot find crti.o: No such file or directory
+#+end_example
+
+For reasons I do not fully understand we have to use the gentoo repo
+as the source for the gcc ebuild, the two are virtually identical, so
+maybe the toolchain eclass is silently different? Unknown.
+#+begin_src bash
+crossdev --stage4 --stable --target x86_64-pc-linux-gnu --ov-gcc /var/db/repos/gentoo
+#+end_src
+
+At this point we can attempt to emerge sbcl, but =src_config= will fail.
+#+begin_src bash
+x86_64-pc-linux-gnu-emerge -q -j4 sbcl
+#+end_src
+
+As a result, I reworked the profile so that it can support whatever
+libc we want and do the cross build from gnu to musl since there are
+distributed sbcl-binaries for gnu but not for musl. The way that
+multiple libcs are implemented in gentoo right now seems to add
+significant maintenance overhead due to ebuild duplication.
+
 *** world
 #+name: world-package-builder
 #+begin_src conf :noweb yes :tangle ./musl/package-builder/world
 <<world-package-builder-nox>>
 <<world-kg-release>>
 <<world-kg-dev>>
+sys-devel/crossdev
 x11-base/xorg-server
 x11-libs/gtk+
+app-editors/gvim
+#+end_src
+
+#+begin_src conf
 media-libs/freetype
 media-libs/fontconfig
 media-fonts/dejavu
-app-editors/gvim
 #+end_src
 
 ** package-builder-nox
@@ -1025,6 +1182,7 @@ remember whether binpkgs check use flags.
 <<world-dynapad-base>>
 <<world-python>>
 <<world-schemes>>
+dev-lisp/sbcl
 #+end_src
 
 # requires a crossdev environment for this to work
@@ -1159,17 +1317,29 @@ app-editors/vim
 app-portage/eix
 sys-devel/gdb::musl
 #+end_src
-** python
+** testing-python
 Python testing.
 *** world
 #+name: world-python
-#+begin_src conf
+#+begin_src conf :tangle ./musl/testing-python/world
 dev-lang/python:3.6
 dev-lang/python:3.7
 dev-lang/python:3.8
 dev-lang/python:3.9
 dev-python/pipenv
 dev-python/pip
+#+end_src
+** testing-emacs
+Emacs testing.
+*** world
+#+begin_src conf :tangle ./musl/testing-emacs/world
+app-editors/emacs:18
+app-editors/emacs:23
+app-editors/emacs:24
+app-editors/emacs:25
+app-editors/emacs:26
+app-editors/emacs:27
+app-editors/emacs:28-vcs
 #+end_src
 ** emacs
 Emacs using the athena 3d toolkit to avoid pulling in gtk.
@@ -1224,9 +1394,10 @@ Error relocating /usr/lib/libXdmcp.so.6: arc4random_buf: symbol not found
 # FIXME I think something in the emacs ebuild is broken because sometimes it fails to pull in libbsd???
 #+name: world-emacs
 #+begin_src conf :tangle ./musl/emacs/world
-dev-libs/libvterm
+app-emacs/vterm
 app-editors/emacs
 #+end_src
+
 ** gtk-no-rust
 *** build
 #+begin_src bash
@@ -2301,6 +2472,226 @@ pushd ~/git/dynapad
     racocgc make apps/uberapp/uberapp.rkt
 #+end_src
 
+* gnu
+may not need this if we can use crossdev to build glibc sbcl on musl that that seems a stretch
+** profile
+*** build
+#+name: &gnu-build-profile
+#+begin_src screen
+docker build \
+--tag tgbugs/gnu:profile \
+--file gnu/profile/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :noweb yes :tangle ./gnu/profile/Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+# we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
+ADD docker-profile/base/docker-profile var/db/docker-profile
+ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
+ADD gnu/profile/gnu.conf etc/portage/binrepos.conf/gnu.conf
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+
+*** etc
+**** binrepos.conf
+#+begin_src conf :noweb yes :tangle ./gnu/profile/gnu.conf
+[tgbugs-gnu]
+priority = 100
+sync-uri = http://local.binhost:8089/gnu
+#+end_src
+** eselect-repo
+*** build
+#+name: &gnu-build-eselect-repo
+#+begin_src screen
+docker build \
+--tag tgbugs/gnu:eselect-repo \
+--network host \
+--add-host local.binhost:127.0.0.1 \
+--file gnu/eselect-repo/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./gnu/eselect-repo/Dockerfile
+FROM gentoo/stage3:hardened
+
+<<&gentoo-file-eselect-repo-common-1>>
+
+COPY --from=tgbugs/gnu:profile / /
+
+<<&gentoo-file-eselect-repo-common-2>>
+
+RUN \
+eselect profile set docker-profile:tgbugs/gnu
+
+<<&gentoo-file-eselect-repo-common-3>>
+#+end_src
+
+** sbcl-cross
+*** run
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/gnu:sbcl-cross
+#+end_src
+
+Test that the cross compiled version is working as expected.
+#+begin_src bash
+docker run \
+-it tgbugs/gnu:sbcl-cross \
+/usr/x86_64-pc-linux-musl/usr/bin/sbcl --core /usr/x86_64-pc-linux-musl/usr/lib/sbcl/sbcl.core
+#+end_src
+*** build
+#+begin_src screen
+docker build \
+--tag tgbugs/gnu:sbcl-cross \
+--network host \
+--add-host local.binhost:127.0.0.1 \
+--file gnu/sbcl-cross/Dockerfile gnu/sbcl-cross
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./gnu/sbcl-cross/Dockerfile
+FROM tgbugs/gnu:eselect-repo
+
+#emerge -j4 -q -uDN \  # yeahno
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q \
+   --getbinpkg \
+   --keep-going \
+   sys-devel/crossdev \
+<<&archive-or-rm>>
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge --usepkg --getbinpkgonly \
+   cross-x86_64-pc-linux-musl/musl \
+   cross-x86_64-pc-linux-musl/linux-headers \
+   cross-x86_64-pc-linux-musl/gcc \
+   cross-x86_64-pc-linux-musl/binutils \
+;  crossdev --stable --target x86_64-pc-linux-musl --stage4 \
+<<&archive-or-rm>>
+
+# sbcl crossdev build looks in the wrong place for asdf and uiop
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q \
+   --getbinpkg \
+   --keep-going \
+   dev-lisp/asdf \
+   dev-lisp/uiop \
+   dev-lisp/sbcl \
+<<&archive-or-rm>>
+
+ADD alt-ld.patch /etc/portage/patches/dev-lisp/sbcl/alt-ld.patch
+ADD alt-ld.patch /usr/x86_64-pc-linux-musl/etc/portage/patches/dev-lisp/sbcl/alt-ld.patch
+ADD 99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+x86_64-pc-linux-musl-emerge -j4 -q \
+   --getbinpkg \
+   --keep-going \
+   sys-libs/musl \
+   sys-libs/zlib \
+<<&archive-or-rm>>
+
+RUN \
+ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+x86_64-pc-linux-musl-emerge -j4 -q \
+   dev-lisp/asdf \
+   dev-lisp/uiop \
+   dev-lisp/sbcl \
+<<&archive-or-rm>>
+#+end_src
+
+Until we can figure out how to get the cross build to link this
+correctly we leave it out.  We don't really need it since this build
+is only for a bootstrapping sbcl on musl. There are native ways to do
+this inside of the sbcl toolset itself, but for now this is easier.
+# */* static-libs static
+#+begin_src conf :tangle ./gnu/sbcl-cross/99-sbcl
+dev-lisp/sbcl -zlib  # crossdev compile reference errors
+#+end_src
+
+#+begin_src diff :tangle ./gnu/sbcl-cross/alt-ld.patch
+diff --git a/make-target-contrib.sh b/make-target-contrib.sh
+index 217b5b2e0..45406f506 100755
+--- a/make-target-contrib.sh
++++ b/make-target-contrib.sh
+@@ -29,8 +29,12 @@ if [ -z "$CC" ]; then
+     fi
+ fi
+ 
++if [ -z "${LD}" ]; then
++    LD=ld
++fi
++
+ unset EXTRA_CFLAGS # avoid any potential interference 
+-export CC LANG LC_ALL
++export CC LD LANG LC_ALL
+ 
+ # Load our build configuration
+ . output/build-config
+diff --git a/src/runtime/GNUmakefile b/src/runtime/GNUmakefile
+index 0543c1244..284755e5c 100644
+--- a/src/runtime/GNUmakefile
++++ b/src/runtime/GNUmakefile
+@@ -24,7 +24,6 @@ SBCL_PAXCTL ?= :
+ LINKFLAGS += -g
+ DEPEND_FLAGS = -MM
+ GREP = grep
+-LD = ld
+ 
+ # By default, don't make and use a library, just use the object files.
+ LIBSBCL = $(OBJS)
+#+end_src
+
+#+begin_src bash
+git clone https://github.com/sbcl/sbcl.git
+pushd sbcl
+git remote add daewok https://github.com/daewok/sbcl.git
+git fetch daewok
+git checkout daewok/static-executable
+#+end_src
+
+** musl/cross/sbcl
+*** build
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:cross-sbcl \
+--file musl/cross/sbcl/Dockerfile musl/cross/sbcl
+
+docker rm cross-sbcl
+docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/cross/sbcl/Dockerfile
+FROM busybox:latest
+
+WORKDIR /
+
+COPY --from=tgbugs/gnu:sbcl-cross /usr/x86_64-pc-linux-musl/usr/lib/sbcl /sbcl
+COPY --from=tgbugs/gnu:sbcl-cross /usr/x86_64-pc-linux-musl/usr/bin/sbcl /sbcl/src/runtime/sbcl
+
+RUN \
+mkdir -p /sbcl/obj/sbcl-home \
+&& ln -s /sbcl/contrib /sbcl/obj/sbcl-home/contrib \
+&& mkdir -p /sbcl/output \
+&& mv /sbcl/sbcl.core /sbcl/output/
+
+VOLUME /sbcl
+#+end_src
+
 * other
 ** ubuntu-genera-base
 *** file
@@ -2493,11 +2884,15 @@ cat /var/lib/portage/world | xargs emerge -j4 -q -uDN \
     (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
       "Stub to avoid comment-start issues"
       (set (make-local-variable 'comment-start) "#")))
+  (let (enable-local-eval)
+    ;; this pattern is required when tangling to avoid infinite loops
+    (revert-buffer nil t nil)
+    (setq-local find-file-literally nil))
   (org-babel-tangle))
 #+end_src
 
 ** Local Variables :ARCHIVE:
 # close powershell comment #>
 # Local Variables:
-# eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((actual (org-version)) (need orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not need) (string< need actual) (string= need actual) (error "Your Org is too old! %s < %s" actual need))) (defun orgstrap-norm-func--prp-1\.1 (body) (let (print-quoted print-length print-level) (prin1-to-string (read (concat "(progn\n" body "\n)"))))) (unless (boundp 'orgstrap-norm-func) (defvar orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap--confirm-eval-minimal (lang body) (not (and (member lang '("elisp" "emacs-lisp")) (eq orgstrap-block-checksum (intern (secure-hash orgstrap-cypher (orgstrap-norm body))))))) (unless (fboundp 'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-minimal)) (let ((enable-local-eval nil)) (vc-refresh-state)) (let ((ocbe org-confirm-babel-evaluate) (obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (setq-local org-confirm-babel-evaluate ocbe) (org-set-startup-visibility)) (warn "No orgstrap block."))))
+# eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((actual (org-version)) (need orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not need) (string< need actual) (string= need actual) (error "Your Org is too old! %s < %s" actual need))) (defun orgstrap-norm-func--prp-1\.1 (body) (let (print-quoted print-length print-level) (prin1-to-string (read (concat "(progn\n" body "\n)"))))) (unless (boundp 'orgstrap-norm-func) (defvar orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap-org-src-coderef-regexp (_fmt &optional label) (let ((fmt org-coderef-label-format)) (format "\\([:blank:]*\\(%s\\)[:blank:]*\\)$" (replace-regexp-in-string "%s" (if label (regexp-quote label) "\\([-a-zA-Z0-9_][-a-zA-Z0-9_ ]*\\)") (regexp-quote fmt) nil t)))) (unless (fboundp #'org-src-coderef-regexp) (defalias 'org-src-coderef-regexp #'orgstrap-org-src-coderef-regexp)) (defun orgstrap--expand-body (info) (let ((coderef (nth 6 info)) (expand (if (org-babel-noweb-p (nth 2 info) :eval) (org-babel-expand-noweb-references info) (nth 1 info)))) (if (not coderef) expand (replace-regexp-in-string (org-src-coderef-regexp coderef) "" expand nil nil 1)))) (defun orgstrap--confirm-eval-portable (lang _body) (not (and (member lang '("elisp" "emacs-lisp")) (let* ((body (orgstrap--expand-body (org-babel-get-src-block-info))) (body-normalized (orgstrap-norm body)) (content-checksum (intern (secure-hash orgstrap-cypher body-normalized)))) (eq orgstrap-block-checksum content-checksum))))) (unless (fboundp #'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-portable)) (let (enable-local-eval) (vc-find-file-hook)) (let ((ocbe org-confirm-babel-evaluate) (obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (setq-local org-confirm-babel-evaluate ocbe) (org-set-startup-visibility)) (warn "No orgstrap block."))))
 # End:
