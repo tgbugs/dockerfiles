@@ -4,9 +4,9 @@
 
 #+property: header-args :eval no-export
 #+property: header-args:bash :var BUILDKIT_PROGRESS="plain"
-#+property: header-args:conf :mkdirp yes
+#+property: header-args:conf :mkdirp yes :noweb yes
 #+property: header-args:dockerfile :noweb yes :mkdirp yes :comments link
-#+property: header-args:screen :session org-session :cmd sh
+#+property: header-args:screen :session org-session :cmd sh :noweb yes
 
 #+name: orgstrap-shebang
 #+begin_src bash :eval never :results none :exports none
@@ -41,18 +41,12 @@ enabled in the client.
 #+end_src
 
 * Ops
-#+begin_src bash
-docker pull gentoo/stage3:amd64-musl-hardened
-docker pull gentoo/portage
-docker create -v /usr/portage --name local-portage-snap gentoo/portage:latest /bin/true
-#+end_src
-
 If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
 
-
 Run package host
 #+begin_src screen
+# mkdir -p ~/files/binpkgs/gnu
 # mkdir -p ~/files/binpkgs/musl
 # mkdir -p ~/files/binpkgs/musl-x
 pushd ~/files/binpkgs
@@ -61,7 +55,7 @@ python -m http.server 8089 --bind 127.0.0.1
 
 To prepare a fresh cycle of images.
 #+name: workflow
-#+begin_src screen :noweb yes
+#+begin_src screen
 #docker pull gentoo/stage3:amd64-musl-hardened
 
 #docker pull gentoo/portage:latest
@@ -113,10 +107,34 @@ local QPKGX
 # TODO build any new packages
 
 # image builds
-<<&musl-build-kg-release>>
-<<&musl-build-kg-release-user>>
-<<&musl-build-kg-dev>>
-<<&musl-build-kg-dev-user>>
+
+## emacs
+<<&musl-build-emacs>> || return $?;  # XXX fail on stale profile is very confusing
+
+## kg
+<<&musl-build-kg-release>> || return $?;
+<<&musl-build-kg-release-user>> || return $?;
+<<&musl-build-kg-dev>> || return $?;
+<<&musl-build-kg-dev-user>> || return $?;
+
+## sbcl
+<<&musl-build-sbcl>> || return $?;
+<<&musl-build-sbcl-user>> || return $?;
+
+## racket
+<<&musl-build-racket>> || return $?;
+<<&musl-build-racket-user>> || return $?;
+
+## dynapad
+<<&musl-build-dynapad-base>> || return $?;
+<<&musl-build-dynapad-user>> || return $?;
+#<<&musl-build-dynapad>> || return $?; # needs to be done by hand
+
+## NIF-ontology
+<<&musl-build-icedtea>> || return $?;
+<<&musl-build-protege>> || return $?;
+<<&musl-build-NIF-ontology>> || return $?;
+
 }
 run-musl
 # package host
@@ -127,7 +145,7 @@ popd
 # I am an idiot, the repos image is being build incorrectly and pulls
 # in the local images so it overrides. DUH.
 
-#+begin_src screen :noweb yes
+#+begin_src screen
 <<&musl-run-updated-user>>
 #+end_src
 
@@ -210,7 +228,7 @@ docker build \
 #+end_src
 
 *** file
-#+begin_src dockerfile :noweb yes :tangle ./docker-profile/base/Dockerfile
+#+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -294,6 +312,9 @@ dev-scheme/racket ~amd64
 
 # gtknor
 <gnome-base/librsvg-2.41 **
+
+# emacs
+app-emacs/vterm ~amd64
 
 # sbcl
 dev-lisp/asdf ~amd64
@@ -435,7 +456,6 @@ needed as a stop gap until there is a stable version >=media-libs/mesa-21.2
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.accept_keywords
 =x11-libs/libdrm-2.4.107 ~amd64
 =media-libs/mesa-21.2.0 ~amd64
-=app-emacs/vterm-0.0.1_pre20210618 ~amd64
 #+end_src
 ** nox
 Explicit nox profile.
@@ -448,7 +468,7 @@ docker build \
 #+end_src
 
 *** file
-#+begin_src dockerfile :noweb yes :tangle ./docker-profile/nox/Dockerfile
+#+begin_src dockerfile :tangle ./docker-profile/nox/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -519,7 +539,7 @@ docker build \
 #+end_src
 
 *** file
-#+begin_src dockerfile :noweb yes :tangle ./musl/profile/Dockerfile
+#+begin_src dockerfile :tangle ./musl/profile/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -537,7 +557,7 @@ COPY --from=builder /build /
 
 *** etc
 **** binrepos.conf
-#+begin_src conf :noweb yes :tangle ./musl/profile/musl.conf
+#+begin_src conf :tangle ./musl/profile/musl.conf
 [tgbugs-musl]
 priority = 100
 sync-uri = http://local.binhost:8089/musl
@@ -552,7 +572,7 @@ docker build \
 #+end_src
 
 *** file
-#+begin_src dockerfile :noweb yes :tangle ./musl/profile-x/Dockerfile
+#+begin_src dockerfile :tangle ./musl/profile-x/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -599,7 +619,7 @@ Should be +followed+ preceded? by a =COPY --from= that was built by
 layering on top of the image we build below.
 
 #+name: &musl-file-user-base
-#+begin_src dockerfile :noweb yes
+#+begin_src dockerfile
 ARG UID=1000
 ARG USER_NAME=user
 
@@ -631,7 +651,7 @@ RUN \
 chown -R ${UID}:${UID} home/${USER_NAME}
 #+end_src
 
-#+begin_src dockerfile :noweb yes :tangle ./musl/user/Dockerfile
+#+begin_src dockerfile :tangle ./musl/user/Dockerfile
 FROM gentoo/stage3:amd64-musl-hardened as builder
 
 <<&musl-user-skel-common>>
@@ -674,7 +694,7 @@ chown -R 250:250 var/lib/portage \
 && chown -R 250:250 var/tmp/portage
 #+end_src
 
-#+begin_src dockerfile :noweb yes :tangle ./musl/portage-maven/Dockerfile
+#+begin_src dockerfile :tangle ./musl/portage-maven/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -707,15 +727,10 @@ docker run -it tgbugs/musl:eselect-repo
 #+end_src
 
 *** build
-# FIXME --network host is ok for now, but we should probably try to
-# switch to using --ssh or something since it is needed for building
-# all binpkg-only images
 #+name: &musl-build-eselect-repo
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:eselect-repo \
---network host \
---add-host local.binhost:127.0.0.1 \
 --file musl/eselect-repo/Dockerfile .
 #+end_src
 
@@ -957,6 +972,23 @@ eselect fontconfig disable 10-hinting-slight.conf \
    57-dejavu-sans.conf \
    57-dejavu-sans-mono.conf
 #+end_src
+
+The issues with freetype hinting are partially dealt with in the
+profile because so many packages pull in freetype, we have to deal
+with the issue globally. We deal with some lingering issues here.
+
+Only enabling dejavu sans and disabling any and all hinting matters.
+There isn't a way to disable antialiasing using the gentoo fontconfig
+and even if you do the disabled hinting engine has different and ugly
+behavior compared to =-cleartype-hinting= so not sure what is going on
+for even further insanity if you enable =10-hinting-none.conf= OR
+=10-unhinted.conf= *YOU WILL GET HINTING !?!?!??! WAT!?* or at least
+maybe AA is enabled which does not maybe ANY sense. Probably there is
+some logic which is that in order to disable some feature there is
+some default that is enabled so there winds up being a difference
+between there being no reference to a feature and a reference to it to
+explicitly disable it. Sigh.
+
 ** package-builder
 *** populate 0
 Yes it is kind of annoying to fully split the packages here when many of them don't actually
@@ -1132,7 +1164,7 @@ significant maintenance overhead due to ebuild duplication.
 
 *** world
 #+name: world-package-builder
-#+begin_src conf :noweb yes :tangle ./musl/package-builder/world
+#+begin_src conf :tangle ./musl/package-builder/world
 <<world-package-builder-nox>>
 <<world-kg-release>>
 <<world-kg-dev>>
@@ -1176,7 +1208,7 @@ Yes, there are going to be issues with keywording that are likely going
 to require updates to the profile followed by a rebuild here. I can't quite
 remember whether binpkgs check use flags.
 #+name: world-package-builder-nox
-#+begin_src conf :noweb yes :tangle ./musl/package-builder-nox/world
+#+begin_src conf :tangle ./musl/package-builder-nox/world
 <<world-debug>>
 <<world-emacs>>
 <<world-dynapad-base>>
@@ -1261,54 +1293,6 @@ FROM tgbugs/musl:updated
 <<&musl-binpkg-only-common>>
 #+end_src
 
-** fix fonts
-Many other packages pull in freetype, so we have to deal with the
-issue before anything else.
-*** build
-#+begin_src bash
-docker build \
---tag tgbugs/musl:fix-fonts \
---file musl/fix-fonts/Dockerfile .
-#+end_src
-
-*** file
-#+name: &fix-fonts
-#+begin_src dockerfile :tangle ./musl/fix-fonts/Dockerfile
-FROM tgbugs/musl:updated
-
-ARG ARCHIVE
-
-# rebuild freetype without cleartype hinting
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -1q media-libs/freetype \
-<<&archive-or-rm>>
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
-   fontconfig \
-   media-fonts/dejavu \
-<<&archive-or-rm>>
-
-RUN \
-eselect fontconfig disable 10-hinting-slight.conf \
-&& eselect fontconfig enable \
-   10-no-sub-pixel.conf \
-   57-dejavu-sans.conf \
-   57-dejavu-sans-mono.conf
-#+end_src
-
-Only enabling dejavu sans and disabling any and all hinting matters.
-There isn't a way to disable antialiasing using the gentoo fontconfig
-and even if you do the disabled hinting engine has different and ugly
-behavior compared to =-cleartype-hinting= so not sure what is going on
-for even further insanity if you enable =10-hinting-none.conf= OR
-=10-unhinted.conf= *YOU WILL GET HINTING !?!?!??! WAT!?* or at least
-maybe AA is enabled which does not maybe ANY sense. Probably there is
-some logic which is that in order to disable some feature there is
-some default that is enabled so there winds up being a difference
-between there being no reference to a feature and a reference to it to
-explicitly disable it. Sigh.
-
 ** debug
 *** world
 #+name: world-debug
@@ -1375,7 +1359,8 @@ Error relocating /usr/lib/libXdmcp.so.6: arc4random_buf: symbol not found
 #+end_example
 
 *** build
-#+begin_src screen :noweb yes
+#+name: &musl-build-emacs
+#+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:emacs \
 --file musl/emacs/Dockerfile musl/emacs
@@ -1398,55 +1383,25 @@ app-emacs/vterm
 app-editors/emacs
 #+end_src
 
-** gtk-no-rust
-*** build
-#+begin_src bash
-docker build \
---tag tgbugs/musl:gtk-no-rust \
---file musl/gtk-no-rust/Dockerfile .
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./musl/gtk-no-rust/Dockerfile
-FROM tgbugs/musl:xorg
-
-ARG ARCHIVE
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -1q \
-   x11-libs/gtk+ \
-<<&archive-or-rm>>
-#+end_src
-
 ** icedtea
 *** build
-#+begin_src bash
-docker build \
+#+name: &musl-build-icedtea
+#+begin_src screen
+<<&docker-build>>
 --tag tgbugs/musl:icedtea \
---file musl/icedtea/Dockerfile .
+--file musl/icedtea/Dockerfile musl/icedtea
 #+end_src
 
 *** file
 #+begin_src dockerfile :tangle ./musl/icedtea/Dockerfile
-FROM tgbugs/musl:xorg
-
-ARG ARCHIVE
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q nss \
-<<&archive-or-rm>>
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q --onlydeps \
-   dev-java/icedtea-bin::musl \
-<<&archive-or-rm>>
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
-   dev-java/icedtea-bin::musl \
-<<&archive-or-rm>>
+<<&build-world>>
 #+end_src
-
+*** world
+#+name: world-icedtea
+#+begin_src conf :tangle ./musl/icedtea/world
+dev-libs/nss
+dev-java/icedtea-bin::musl
+#+end_src
 *** legacy
 The musl overlay installs icedtea-bin correctly now so this is thankfully no longer needed.
 #+name: &musl/icedtea/legacy
@@ -1508,11 +1463,12 @@ docker run \
 #+end_src
 
 *** build
-#+begin_src bash
-docker build \
+#+name: &musl-build-protege
+#+begin_src screen
+<<&docker-build>>
 --tag tgbugs/musl:protege \
---build-arg NUID=${UID} \
---file musl/protege/Dockerfile .
+--build-arg UID=${UID} \
+--file musl/protege/Dockerfile musl/protege
 #+end_src
 
 Due to the fact that protege needs X11 running in order to create
@@ -1532,31 +1488,30 @@ docker run \
 docker commit $(docker ps -lq) tgbugs/musl:protege
 #+end_src
 
+*** world
+#+name: world-protege
+#+begin_src conf :tangle ./musl/protege/world
+<<world-icedtea>>
+dev-python/pip
+#+end_src
 *** file
 We install pip during this step because any builds that =FROM
 tgbugs/musl:protege= default to =protegeuser=.
 # TODO FIXME we should be able to install protege as root
 #+name: &musl/protege
 #+begin_src dockerfile :tangle ./musl/protege/Dockerfile
-FROM tgbugs/musl:icedtea
+FROM tgbugs/musl:icedtea as builder
 
 ARG ARCHIVE
-ARG NUID=11741
-ARG USER_NAME=protegeuser
 ARG PROTEGE_VERSION="5.5.0"
 
-# phase one build environment
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
-   dev-python/pip \
-<<&archive-or-rm>>
+<<&musl-user-skel-common>>
 
-RUN \
-groupadd -g ${NUID} ${USER_NAME} \
-&& useradd -m -k /etc/skel -u ${NUID} -g ${NUID} -d /home/${USER_NAME} ${USER_NAME}
+USER ${USER_NAME}
 
-# the rest is run as the neurondm user
-USER $USER_NAME
+ARG HOME=/build/home/${USER_NAME}
+
+WORKDIR $HOME
 
 # phase two protege and reasoners
 ARG URL_PROTEGE="https://github.com/protegeproject/protege-distribution/releases/download/v5.5.0/Protege-5.5.0-linux.tar.gz"
@@ -1588,8 +1543,6 @@ cd ~/ \
 && popd \
 && rm Protege-${PROTEGE_VERSION}-linux.tar.gz
 
-ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
-
 # paths to preferences files
 ARG PATH_CFU_1=_\!\&\!\!\`g\"\>\!\&@\!\[@\"\(\!%\`\!\|w\"@\!\&\)\!\[@\"\'\!%\`\!\`g\"\&\!%4\!@w\"\&\!\&:=
 ARG PATH_CFU_2=_\!\'%\!c\!\"w\!\'w\!a@\"j\!\'%\!d\!\"p\!\'8\!bg\"f\!\(\!\!cg\"l\!\'\}\!~@\"y\!\'\`\!bg\"j\!\'\`\!cw==
@@ -1611,7 +1564,13 @@ pushd ~/ \
 && echo '</map>' >> ".java/.userPrefs/${PATH_CFU}/prefs.xml" \
 && popd
 
-WORKDIR /home/${USER_NAME}
+FROM tgbugs/musl:icedtea
+
+<<&build-world-common>>
+
+COPY --from=builder /build /
+
+<<&musl-file-user-base>>
 #+end_src
 
 Sadly this approach does not work because protege dies before the
@@ -1657,6 +1616,7 @@ docker run \
 
 *** build
 # TODO progress prints to stderr
+#+name: &musl-build-NIF-ontology
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:NIF-Ontology \
@@ -1925,8 +1885,8 @@ touch /run/openrc/softlevel
 #+end_src
 
 *** build
-#+begin_src bash
-docker build \
+#+begin_src screen
+<<&docker-build>>
 --tag tgbugs/musl:blazegraph \
 --file musl/blazegraph/Dockerfile .
 #+end_src
@@ -1955,8 +1915,8 @@ docker run \
 #+end_src
 
 *** build
-#+begin_src bash
-docker build \
+#+begin_src screen
+<<&docker-build>>
 --tag tgbugs/musl:scigraph \
 --file musl/scigraph/Dockerfile .
 #+end_src
@@ -2015,24 +1975,26 @@ docker run \
 
 *** build
 #+name: &musl-build-kg-release
-#+begin_src screen :noweb yes
+#+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:kg-release \
 --file musl/kg-release/Dockerfile musl/kg-release
 #+end_src
 
 *** file
+# when deriving from multiple parent worlds docker does not compose
+# well at all, so we have to pick a primary world line so to speak
 #+name: &musl/kg-release
 #+begin_src dockerfile :tangle ./musl/kg-release/Dockerfile
+FROM tgbugs/musl:emacs
 <<&build-world>>
 #+end_src
 
 *** world
 #+name: world-kg-release
-#+begin_src conf :noweb yes :tangle ./musl/kg-release/world
+#+begin_src conf :tangle ./musl/kg-release/world
 <<world-emacs>>
-dev-libs/nss
-dev-java/icedtea-bin::musl
+<<world-icedtea>>
 dev-db/blazegraph-bin
 dev-java/scigraph-bin
 media-gfx/graphviz
@@ -2096,7 +2058,7 @@ echo TODO secrets, apinat build and more!
 
 *** build
 #+name: &musl-build-kg-dev
-#+begin_src screen :noweb yes
+#+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:kg-dev \
 --build-arg UID=${UID} \
@@ -2105,7 +2067,7 @@ echo TODO secrets, apinat build and more!
 
 *** world
 #+name: world-kg-dev
-#+begin_src conf :noweb yes :tangle ./musl/kg-dev/world
+#+begin_src conf :tangle ./musl/kg-dev/world
 <<world-kg-release>>
 dev-scheme/racket
 net-libs/nodejs
@@ -2119,8 +2081,7 @@ dev-python/pyzmq
 #+name: &musl/kg-dev
 #+begin_src dockerfile :tangle ./musl/kg-dev/Dockerfile
 FROM tgbugs/musl:kg-release
-
-<<&build-world>>
+<<&build-world-common>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 eselect racket set cs
@@ -2138,7 +2099,7 @@ docker run \
 
 *** build
 #+name: &musl-build-kg-dev-user
-#+begin_src screen :noweb yes
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:kg-dev-user \
 --build-arg UID=${UID} \
@@ -2253,12 +2214,62 @@ rc-status \
 ;  /etc/init.d/blazegraph start \
 ;  su user -
 #+end_src
-** racket
+** sbcl
 *** build
+#+name: &musl-build-sbcl
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:sbcl \
+--file musl/sbcl/Dockerfile musl/sbcl
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./musl/sbcl/Dockerfile
+FROM tgbugs/musl:emacs
+<<&build-world-common>>
+#+end_src
+*** world
+#+name: world-sbcl
+#+begin_src conf :tangle ./musl/sbcl/world
+<<world-emacs>>
+dev-lisp/uiop
+dev-lisp/asdf
+dev-lisp/sbcl
+#+end_src
+** sbcl-user
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:sbcl-user
+#+end_src
+
+*** build
+#+name: &musl-build-sbcl-user
 #+begin_src bash
 docker build \
+--tag tgbugs/musl:sbcl-user \
+--build-arg UID=${UID} \
+--file musl/sbcl-user/Dockerfile .
+#+end_src
+
+*** file
+# TODO emacs setup etc.
+#+begin_src dockerfile :tangle ./musl/sbcl-user/Dockerfile
+FROM tgbugs/musl:sbcl
+
+COPY --from=tgbugs/musl:user / /
+
+<<&musl-file-user-base>>
+#+end_src
+
+** racket
+*** build
+#+name: &musl-build-racket
+#+begin_src screen
+<<&docker-build>>
 --tag tgbugs/musl:racket \
---file musl/racket/Dockerfile .
+--file musl/racket/Dockerfile musl/racket
 #+end_src
 
 Build debug workflow.
@@ -2284,25 +2295,18 @@ docker run \
 *** file
 #+name: &musl/racket
 #+begin_src dockerfile :tangle ./musl/racket/Dockerfile
-FROM tgbugs/musl:gtk-no-rust AS gtk-nor
-FROM tgbugs/musl:emacs AS em
-FROM tgbugs/musl:updated
+FROM tgbugs/musl:emacs
+<<&build-world-common>>
 
-COPY --from=gtk-nor / /
-COPY --from=em / /
-
-ARG ARCHIVE
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q racket --onlydeps \
-<<&archive-or-rm>>
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -q racket \
-<<&archive-or-rm>>
-
-RUN \
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 eselect racket set cs
+#+end_src
+
+*** world
+#+name: world-racket
+#+begin_src conf :tangle ./musl/racket/world
+<<world-emacs>>
+dev-scheme/racket
 #+end_src
 ** racket-user
 *** run
@@ -2318,10 +2322,11 @@ docker run \
 #+end_src
 
 *** build
+#+name: &musl-build-racket-user
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:racket-user \
---build-arg RUID=${UID} \
+--build-arg UID=${UID} \
 --file musl/racket-user/Dockerfile .
 #+end_src
 
@@ -2330,52 +2335,43 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/racket-user/Dockerfile
 FROM tgbugs/musl:racket
 
-ARG RUID=1000
-ARG USER_NAME=rackuser
+COPY --from=tgbugs/musl:user / /
 
-RUN \
-groupadd -g ${RUID} ${USER_NAME} \
-&& useradd -m -k /etc/skel -u ${RUID} -g ${RUID} -d /home/${USER_NAME} ${USER_NAME}
-
-USER $USER_NAME
-
-WORKDIR /home/${USER_NAME}
+<<&musl-file-user-base>>
 #+end_src
 
 ** dynapad-base
 *** build
-#+begin_src bash
-docker build \
+#+name: &musl-build-dynapad-base
+#+begin_src screen
+<<&docker-build>>
 --tag tgbugs/musl:dynapad-base \
---file musl/dynapad-base/Dockerfile .
+--file musl/dynapad-base/Dockerfile musl/dynapad-base
 #+end_src
+*** file
+#+name: &musl/dynapad-base
+#+begin_src dockerfile :tangle ./musl/dynapad-base/Dockerfile
+FROM tgbugs/musl:racket
+<<&build-world-common>>
+#+end_src
+
 *** world
 #+name: world-dynapad-base
-#+begin_src conf
+#+begin_src conf :tangle ./musl/dynapad-base/world
+<<world-racket>>
 dev-libs/libconfig
 sys-libs/db
 dev-lang/tk
 media-gfx/imagemagick
 app-text/poppler
 #+end_src
-*** file
-#+name: &musl/dynapad-base
-#+begin_src dockerfile :tangle ./musl/dynapad-base/Dockerfile
-FROM tgbugs/musl:racket
-
-ARG ARCHIVE
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
-<<&archive-or-rm>>
-#+end_src
-
 ** dynapad-user
 *** build
+#+name: &musl-build-dynapad-user
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:dynapad-user \
---build-arg DUID=${UID} \
+--build-arg UID=${UID} \
 --file musl/dynapad-user/Dockerfile .
 #+end_src
 
@@ -2384,16 +2380,9 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/dynapad-user/Dockerfile
 FROM tgbugs/musl:dynapad-base
 
-ARG DUID=1000
-ARG USER_NAME=dynapad
+COPY --from=tgbugs/musl:user / /
 
-RUN \
-groupadd -g ${DUID} ${USER_NAME} \
-&& useradd -m -k /etc/skel -u ${DUID} -g ${DUID} -d /home/${USER_NAME} ${USER_NAME}
-
-USER $USER_NAME
-
-WORKDIR /home/${USER_NAME}
+<<&musl-file-user-base>>
 #+end_src
 
 ** dynapad
@@ -2484,7 +2473,7 @@ docker build \
 #+end_src
 
 *** file
-#+begin_src dockerfile :noweb yes :tangle ./gnu/profile/Dockerfile
+#+begin_src dockerfile :tangle ./gnu/profile/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -2502,7 +2491,7 @@ COPY --from=builder /build /
 
 *** etc
 **** binrepos.conf
-#+begin_src conf :noweb yes :tangle ./gnu/profile/gnu.conf
+#+begin_src conf :tangle ./gnu/profile/gnu.conf
 [tgbugs-gnu]
 priority = 100
 sync-uri = http://local.binhost:8089/gnu
@@ -2834,6 +2823,9 @@ DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 
 #+end_src
 * utils :noexport:
+# FIXME --network host is ok for now, but we should probably try to
+# switch to using --ssh or something since it is needed for building
+# all binpkg-only images
 #+name: &docker-build
 #+begin_src bash
 docker build \
