@@ -169,7 +169,7 @@ This consideration suggests that the layers of docker images, while
 useful, are fundamentally at odds with composability when there are
 files inside images that track state (e.g. =/var/lib/portage/world=).
 
-** TODO condense use flags
+** DONE condense use flags
 At the moment we keep use flags with packages and try to keep them
 mostly orthogonal to each other. However, at a certain point it is
 going to be easier to maintain a single shared use flag image that
@@ -1105,13 +1105,30 @@ ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 #+end_src
 
 *** sbcl bootstrap
-sbcl bootstrapping workaround
+The gentoo ebuilds for sbcl retrieve an existing binary for bootstrapping.
+Due to the fact that the current EAPI (?) is not libc aware for precompiled
+binaries we would have to create and maintain a binary for the musl overlay.
+Modifying =src_unpack= is a more expedient solution.
 #+begin_src ebuild :tangle ./musl/package-builder/sbcl.env
 src_unpack() {
 	unpack ${A}
 	[ -d /sbcl ] && {
+		einfo "Using /sbcl for bootstrap"
 		cp -r /sbcl sbcl-binary || die;
-		cp -a sbcl-*-*/run-sbcl.sh sbcl-binary/ || die;
+		cp -a ${S}/run-sbcl.sh sbcl-binary/ || die;
+	} ||
+	command -v sbcl && {
+		einfo "Using local sbcl found at $(command -v sbcl) for bootstrap"
+		local bin_core_home;
+		IFS=',' read -r -a bin_core_home <<< $(sbcl --noinform --no-sysinit --no-userinit --eval \
+		'(progn (format t "~a,~a,~a" sb-ext:*runtime-pathname* sb-ext:*core-pathname* (sb-int:sbcl-homedir-pathname)))' --quit) || die;
+		mkdir -p sbcl-binary/src/runtime || die;
+		mkdir -p sbcl-binary/output || die;
+		mkdir -p sbcl-binary/obj/sbcl-home || die;
+		cp -a ${bin_core_home[0]} sbcl-binary/src/runtime/ || die;
+		cp -a ${bin_core_home[1]} sbcl-binary/output/ || die;
+		cp -a ${bin_core_home[2]}/contrib sbcl-binary/obj/sbcl-home/contrib || die;
+		cp -a ${S}/run-sbcl.sh sbcl-binary/ || die;
 	} ||
 	mv sbcl-*-* sbcl-binary || die
 	cd "${S}"
@@ -2676,7 +2693,7 @@ RUN \
 mkdir -p /sbcl/obj/sbcl-home \
 && ln -s /sbcl/contrib /sbcl/obj/sbcl-home/contrib \
 && mkdir -p /sbcl/output \
-&& mv /sbcl/sbcl.core /sbcl/output/
+&& ln -s /sbcl/sbcl.core /sbcl/output/sbcl.core
 
 VOLUME /sbcl
 #+end_src
