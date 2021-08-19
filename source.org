@@ -500,10 +500,10 @@ independently, and it is also worth noting that from a reproducibility
 perspective the exact ebuilds are stored in file:/var/db/pkg/.
 *** build
 #+name: &repos-build-repos
-#+begin_src bash
+#+begin_src screen
 docker build \
 --tag tgbugs/repos:latest \
---file repos/Dockerfile .
+--file repos/Dockerfile repos
 #+end_src
 *** file
 #+begin_src dockerfile :tangle ./repos/Dockerfile
@@ -599,7 +599,7 @@ sync-uri = http://local.binhost:8089/musl-x
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:user \
---file musl/user/Dockerfile .
+--file musl/user/Dockerfile musl/user
 #+end_src
 
 # FIXME this is sufficient to create the default set of files and directories for the user
@@ -731,7 +731,7 @@ docker run -it tgbugs/musl:eselect-repo
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:eselect-repo \
---file musl/eselect-repo/Dockerfile .
+--file musl/eselect-repo/Dockerfile musl/eselect-repo
 #+end_src
 
 *** file
@@ -847,14 +847,14 @@ docker build \
 --tag tgbugs/musl:updated \
 --network host \
 --add-host local.binhost:127.0.0.1 \
---file musl/updated/Dockerfile .
+--file musl/updated/Dockerfile musl/updated
 #+end_src
 
 *** rebuild
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:updated-remerge \
---file musl/updated/remerge.Dockerfile .
+--file musl/updated/remerge.Dockerfile musl/updated
 
 # check that everything works as expected (and that there were changes at all)
 docker run -it tgbugs/musl:updated-remerge
@@ -887,7 +887,7 @@ docker run -it tgbugs/musl:updated-user
 docker build \
 --tag tgbugs/musl:updated-user \
 --build-arg UID=${UID} \
---file musl/updated-user/Dockerfile .
+--file musl/updated-user/Dockerfile musl/updated-user
 #+end_src
 
 *** file
@@ -933,7 +933,7 @@ docker build \
 --tag tgbugs/musl:xorg \
 --network host \
 --add-host local.binhost:127.0.0.1 \
---file musl/xorg/Dockerfile .
+--file musl/xorg/Dockerfile musl/xorg
 #+end_src
 
 *** file
@@ -1059,6 +1059,20 @@ docker run \
 tgbugs/musl:package-builder-snap \
 emerge --color=y -j4 -q --keep-going -uDN
 
+# you can add single packages to build after -uDN for testing
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-it tgbugs/musl:package-builder-snap \
+emerge --color=y -j4 -q --keep-going --usepkg=n \
+dev-lisp/sbcl
+
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
 
 # to debug issues
@@ -1076,6 +1090,8 @@ tgbugs/musl:package-builder-snap
 #+end_src
 
 *** build
+# FIXME cp -r is a hack for the time being, patches should be source more sanely
+# cp -r patches/ musl/package-builder/
 #+name: &musl-build-package-builder
 #+begin_src screen
 docker build \
@@ -1085,6 +1101,7 @@ docker build \
 
 *** file
 # TODO distcc
+# COPY patches /etc/portage/patches
 #+name: &musl-package-builder-common
 #+begin_src dockerfile
 COPY --from=tgbugs/musl:portage-maven / /
@@ -1116,7 +1133,7 @@ src_unpack() {
 		einfo "Using /sbcl for bootstrap"
 		cp -r /sbcl sbcl-binary || die;
 		cp -a ${S}/run-sbcl.sh sbcl-binary/ || die;
-	} ||
+	} || {
 	command -v sbcl && {
 		einfo "Using local sbcl found at $(command -v sbcl) for bootstrap"
 		local bin_core_home;
@@ -1129,7 +1146,7 @@ src_unpack() {
 		cp -a ${bin_core_home[1]} sbcl-binary/output/ || die;
 		cp -a ${bin_core_home[2]}/contrib sbcl-binary/obj/sbcl-home/contrib || die;
 		cp -a ${S}/run-sbcl.sh sbcl-binary/ || die;
-	} ||
+	} } ||
 	mv sbcl-*-* sbcl-binary || die
 	cd "${S}"
 }
@@ -1260,7 +1277,7 @@ app-xemacs/xemacs-packages-all
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:package-builder-nox \
---file musl/package-builder-nox/Dockerfile .
+--file musl/package-builder-nox/Dockerfile musl/package-builder-nox
 #+end_src
 
 *** file
@@ -1278,7 +1295,7 @@ FROM tgbugs/musl:updated
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:binpkg-only \
---file musl/binpkg-only/Dockerfile .
+--file musl/binpkg-only/Dockerfile musl/binpkg-only
 #+end_src
 
 *** file
@@ -1301,7 +1318,7 @@ FROM tgbugs/musl:xorg
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:binpkg-only-nox \
---file musl/binpkg-only-nox/Dockerfile .
+--file musl/binpkg-only-nox/Dockerfile musl/binpkg-only-nox
 #+end_src
 
 *** file
@@ -1637,7 +1654,7 @@ docker run \
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:NIF-Ontology \
---file musl/NIF-Ontology/Dockerfile .
+--file musl/NIF-Ontology/Dockerfile musl/NIF-Ontology
 #+end_src
 
 *** file
@@ -1686,7 +1703,7 @@ protege
 docker build \
 --tag tgbugs/musl:neurondm \
 --build-arg ONTOLOGY_GITREF=neurons \
---file musl/neurondm/Dockerfile .
+--file musl/neurondm/Dockerfile musl/neurondm
 #+end_src
 
 *** file
@@ -1768,7 +1785,7 @@ a number of warning dialogues, this is normal.
 docker build \
 --tag tgbugs/musl:npo-1.0 \
 --build-arg ONTOLOGY_GITREF=npo-1.0 \
---file musl/neurondm/Dockerfile .
+--file musl/neurondm/Dockerfile musl/neurondm
 #+end_src
 
 ** npo-1.0-neurondm-build
@@ -1790,7 +1807,7 @@ docker build \
 --build-arg NEURONS_BRANCH=npo-1.0 \
 --build-arg NUID=${UID} \
 --secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
---file musl/npo-1.0-neurondm-build/Dockerfile .
+--file musl/npo-1.0-neurondm-build/Dockerfile musl/npo-1.0-neurondm-build
 #+end_src
 
 Build using an alternate SciGraph API endpoint.
@@ -1802,7 +1819,7 @@ docker build \
 --build-arg NUID=${UID} \
 --build-arg SCIGRAPH_API=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api"))') \
 --secret id=scigraph-api-key,src=<(echo) \
---file musl/npo-1.0-neurondm-build/Dockerfile .
+--file musl/npo-1.0-neurondm-build/Dockerfile musl/npo-1.0-neurondm-build
 #+end_src
 # --build-arg SCIGRAPH_API=http://192.168.1.207:9000/scigraph \
 
@@ -1844,7 +1861,7 @@ docker build \
 --tag tgbugs/musl:neurondm-build \
 --build-arg NUID=${UID} \
 --secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
---file musl/neurondm-build/Dockerfile .
+--file musl/neurondm-build/Dockerfile musl/neurondm-build
 #+end_src
 
 Build using an alternate SciGraph API endpoint.
@@ -1855,7 +1872,7 @@ docker build \
 --build-arg NUID=${UID} \
 --build-arg SCIGRAPH_API=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api"))') \
 --secret id=scigraph-api-key,src=<(echo) \
---file musl/neurondm-build/Dockerfile .
+--file musl/neurondm-build/Dockerfile musl/neurondm-build
 #+end_src
 
 *** file
@@ -1905,7 +1922,7 @@ touch /run/openrc/softlevel
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:blazegraph \
---file musl/blazegraph/Dockerfile .
+--file musl/blazegraph/Dockerfile musl/blazegraph
 #+end_src
 
 *** file
@@ -1935,7 +1952,7 @@ docker run \
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:scigraph \
---file musl/scigraph/Dockerfile .
+--file musl/scigraph/Dockerfile musl/scigraph
 #+end_src
 
 *** file
@@ -2032,7 +2049,7 @@ docker run \
 docker build \
 --tag tgbugs/musl:kg-release-user \
 --build-arg KUID=${UID} \
---file musl/kg-release-user/Dockerfile .
+--file musl/kg-release-user/Dockerfile musl/kg-release-user
 #+end_src
 
 *** file
@@ -2263,11 +2280,11 @@ docker run \
 
 *** build
 #+name: &musl-build-sbcl-user
-#+begin_src bash
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:sbcl-user \
 --build-arg UID=${UID} \
---file musl/sbcl-user/Dockerfile .
+--file musl/sbcl-user/Dockerfile musl/sbcl-user
 #+end_src
 
 *** file
@@ -2344,7 +2361,7 @@ docker run \
 docker build \
 --tag tgbugs/musl:racket-user \
 --build-arg UID=${UID} \
---file musl/racket-user/Dockerfile .
+--file musl/racket-user/Dockerfile musl/racket-user
 #+end_src
 
 *** file
@@ -2389,7 +2406,7 @@ app-text/poppler
 docker build \
 --tag tgbugs/musl:dynapad-user \
 --build-arg UID=${UID} \
---file musl/dynapad-user/Dockerfile .
+--file musl/dynapad-user/Dockerfile musl/dynapad-user
 #+end_src
 
 *** file
@@ -2521,7 +2538,7 @@ docker build \
 --tag tgbugs/gnu:eselect-repo \
 --network host \
 --add-host local.binhost:127.0.0.1 \
---file gnu/eselect-repo/Dockerfile .
+--file gnu/eselect-repo/Dockerfile gnu/eselect-repo
 #+end_src
 
 *** file
@@ -2727,7 +2744,7 @@ iputils-ping
 #+begin_src bash
 docker build \
 --tag tgbugs/other:ubuntu-genera-base \
---file other/ubuntu-genera-base/Dockerfile .
+--file other/ubuntu-genera-base/Dockerfile other/ubuntu-genera-base
 #+end_src
 
 ** genera
