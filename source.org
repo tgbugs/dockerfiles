@@ -49,6 +49,8 @@ Run package host
 # mkdir -p ~/files/binpkgs/gnu
 # mkdir -p ~/files/binpkgs/musl
 # mkdir -p ~/files/binpkgs/musl-x
+# mkdir -p ~/files/binpkgs/musl-static-x
+# FIXME this should be run if it isn't up
 pushd ~/files/binpkgs
 python -m http.server 8089 --bind 127.0.0.1
 #+end_src
@@ -73,23 +75,26 @@ echo TODO
 }
 function run-musl () {
 local REPOS
+# TODO set QPKG below based on whether any new packages were actually built
 local QPKG
 local QPKGX
+local QPKGSX
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
 <<&musl-build-profile>> || return $?;
 <<&musl-build-profile-x>> || return $?;
 <<&musl-build-profile-nox>> || return $?;
+<<&musl-build-profile-static-x>> || return $?;
   <<&musl-build-eselect-repo>> || return $?;
-    [ -z $REPOS ] || { \
+    [ -z $REPOS ] || {
     <<&repos-build-repos>> || return $?;
-    docker rm local-repos-snap || return $?;
+    docker rm local-repos-snap; # ok if this fails due to the repo not existing
     docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
     }
     <<&musl-build-updated>> || return $?;
       <<&musl-build-updated-user>> || return $?;
       # FIXME quickpkg should not repackage
-      [ -z $QPKG ] || \
+      [ -z $QPKG ] ||
       <<&musl-run-updated-quickpkg>> || return $?;
 
       <<&musl-build-package-builder-nox>> || return $?;
@@ -98,11 +103,20 @@ local QPKGX
       # XXX this is the point at which things split into musl and musl/x
       <<&musl-build-xorg>> || return $?;
       # FIXME quickpkg should not repackage
-      [ -z $QPKGX ] || \
+      [ -z $QPKGX ] ||
       <<&musl-run-xorg-quickpkg>> || return $?;
 
       <<&musl-build-package-builder>> || return $?;
       <<&musl-build-binpkg-only>> || return $?;
+
+      # XXX split to musl/static/x
+      <<&musl-build-static-xorg>> || return $?;
+      [ -z $QPKGSX ] ||
+      <<&musl-run-static-xorg-quickpkg>> || return $?;
+
+      <<&musl-build-static-package-builder>> || return $?;
+      <<&musl-build-static-binpkg-only>> || return $?;
+
 
 # TODO build any new packages
 
@@ -181,7 +195,7 @@ across all images. Granular control is nice from a learning and
 minimal specification point of view, but from an engineering an
 maintenance point of view it is simpler to unify the individual image
 environments into a single file.
-** TODO create an image to build packages
+** DONE create an image to build packages
 Rebuilding images is wasteful when nothing has changed, and packages
 and install properly to maintain the correct state of the image. While
 =COPY --from= works, it mangles things like =/var/lib/portage/world=,
@@ -261,12 +275,14 @@ docker-profile
 
 # NOTE that tgbugs/musl/x is listed here but not populated until later
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/profiles.desc
-amd64 tgbugs        dev
-amd64 tgbugs/x      dev
-amd64 tgbugs/gnu    dev
-amd64 tgbugs/gnu/x  dev
-amd64 tgbugs/musl   dev
-amd64 tgbugs/musl/x dev
+amd64 tgbugs               dev
+amd64 tgbugs/x             dev
+amd64 tgbugs/gnu           dev
+amd64 tgbugs/gnu/x         dev
+amd64 tgbugs/musl          dev
+amd64 tgbugs/musl/x        dev
+amd64 tgbugs/musl/static   dev
+amd64 tgbugs/musl/static/x dev
 #+end_src
 **** packages
 Useful to keep these out of file:/var/lib/portage/world so that individual
@@ -307,6 +323,7 @@ app-misc/yq ~amd64
 
 # tgbugs-overlay
 dev-db/blazegraph-bin ~amd64
+dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
 dev-scheme/racket ~amd64
 
@@ -414,6 +431,69 @@ gentoo:default/linux/amd64/17.0/musl/hardened
 ..
 ../../nox
 #+end_src
+**** musl/static
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/static/parent
+..
+#+end_src
+**** musl/static/x
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/static/x/parent
+..
+../../../x
+#+end_src
+**** musl/static/nox
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/static/nox/parent
+..
+../../../nox
+#+end_src
+** static
+*** profiles
+***** make.defaults
+We only set =static-libs= not =static= because =static= statically
+links the executable which we rarely want, in which case a positive
+static use flag should be added below, rather than turning off nearly
+every instance of =static= that we encounter.
+#+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/make.defaults
+USE="static-libs"
+#+end_src
+***** package.use
+#+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/package.use :tangle no
+# don't build openssh with static libs because it conflicts with the
+# pie use flag for hardened which cannot be unset
+net-misc/openssh -static
+
+# bzip2 is completely broken if compiled with either of these use flags ???
+# that is, it will compile but will leave the system unable to compress anything
+app-arch/bzip2 -static
+
+# trying to build with static causes a configure error due to container projections
+# building with security=insecure supposedly can work around this
+# cross compile check process_vm_readv # ccc process_vm_readv
+# FIXME, further reading seems to suggest that we don't actually want static? just
+# static-libs? so going to try that
+app-arch/gzip -static
+sys-apps/debianutils -static
+sys-apps/coreutils -static
+sys-devel/patch -static
+sys-apps/findutils -static
+sys-apps/sed -static
+sys-devel/make -static
+net-misc/wget -static
+sys-apps/diffutils -static
+sys-apps/grep -static
+app-editors/nano -static
+sys-devel/flex -static
+sys-devel/bison -static
+#+end_src
+
+#+begin_src bash
+echo \
+sys-devel/bison \
+-static >> /etc/portage/package.use/sigh && \
+emerge -uDN @world
+#+end_src
 ** x
 *** profiles
 **** parent
@@ -425,6 +505,11 @@ gentoo:default/linux/amd64/17.0/musl/hardened
 *media-fonts/dejavu
 *media-libs/fontconfig
 *media-libs/freetype
+#+end_src
+**** make.defaults
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/x/make.defaults
+USE="X"
+VIDEO_CARDS="-*"
 #+end_src
 **** package.use
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.use
@@ -502,6 +587,7 @@ perspective the exact ebuilds are stored in file:/var/db/pkg/.
 #+name: &repos-build-repos
 #+begin_src screen
 docker build \
+--no-cache \
 --tag tgbugs/repos:latest \
 --file repos/Dockerfile repos
 #+end_src
@@ -592,6 +678,40 @@ COPY --from=builder /build /
 [tgbugs-musl-x]
 priority = 200
 sync-uri = http://local.binhost:8089/musl-x
+#+end_src
+
+** profile-static-x
+*** build
+#+name: &musl-build-profile-static-x
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:profile-static-x \
+--file musl/profile-x/static.Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/profile-x/static.Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+ADD docker-profile/x/docker-profile var/db/docker-profile
+ADD docker-profile/static/docker-profile var/db/docker-profile
+ADD musl/profile-x/musl-x.conf etc/portage/binrepos.conf/musl-x.conf
+ADD musl/profile-x/musl-static-x.conf etc/portage/binrepos.conf/musl-static-x.conf
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+
+*** etc
+**** binrepos.conf
+#+begin_src conf :tangle ./musl/profile-x/musl-static-x.conf
+[tgbugs-musl-static-x]
+priority = 400
+sync-uri = http://local.binhost:8089/musl-static-x
 #+end_src
 
 ** user
@@ -762,6 +882,10 @@ ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
 #+name: &gentoo-file-eselect-repo-common-2
 #+begin_src dockerfile
 RUN \
+eselect news read all \
+&& eselect news purge
+
+RUN \
 mkdir /etc/portage/package.accept_keywords \
 ;  mkdir /etc/portage/package.env \
 ;  mkdir /etc/portage/package.mask \
@@ -929,10 +1053,8 @@ tgbugs/musl:xorg
 *** build
 #+name: &musl-build-xorg
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:xorg \
---network host \
---add-host local.binhost:127.0.0.1 \
 --file musl/xorg/Dockerfile musl/xorg
 #+end_src
 
@@ -945,24 +1067,39 @@ not fully implemented yet as noted in <https://wiki.gentoo.org/wiki/
 Binary_package_guide#Pulling_packages_from_a_binary_package_host>.
 
 #+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
+ARG PROFILE_IMAGE=tgbugs/musl:profile-x
+
+FROM ${PROFILE_IMAGE} as profile_image
+
 FROM tgbugs/musl:updated
 
-COPY --from=tgbugs/musl:profile-x / /
+COPY --from=profile_image / /
+
+ARG PROFILE=docker-profile:tgbugs/musl/x
 
 RUN \
-eselect profile set docker-profile:tgbugs/musl/x
+eselect profile set $PROFILE
 
 # FIXME I think we have to update binhosts here
 
-RUN \
-echo '*/* X' >> /etc/portage/package.use/20-xorg \
-&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/20-xorg
+#RUN \
+#echo '*/* X' >> /etc/portage/package.use/20-xorg \
+#&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/20-xorg
 
+# FIXME this rebuild is bad because it results in duplication of
+# rebuilt packages between layers, probably need updated-x
+# XXX install freetype without harfbuzz first to avoid the circular dependency (sigh)
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN @world \
+# FIXME tgbugs-overlay symlinks
+ln -s /var/db/repos/gentoo /usr/portage \
+&& emerge --getbinpkgonly media-libs/freetype \
+|| USE=-harfbuzz emerge -j4 -1q \
+   media-libs/freetype \
+&& emerge -j1 -q -uDN @world \
    --getbinpkg \
-   --keep-going \
+   --binpkg-respect-use=y \
    --exclude sys-process/procps \
+   --keep-going \
 <<&archive-or-rm>>
 
 RUN \
@@ -988,6 +1125,17 @@ some logic which is that in order to disable some feature there is
 some default that is enabled so there winds up being a difference
 between there being no reference to a feature and a reference to it to
 explicitly disable it. Sigh.
+
+** static-xorg
+*** build
+#+name: &musl-build-static-xorg
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:static-xorg \
+--build-arg PROFILE='docker-profile:tgbugs/musl/static/x' \
+--build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
+--file musl/xorg/Dockerfile musl/xorg
+#+end_src
 
 ** package-builder
 *** populate 0
@@ -1050,6 +1198,9 @@ build_package sh -c "emerge -1q freetype"
 docker run tgbugs/musl:package-builder
 docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
 
+# TODO make volumes if they don't already exist
+# docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
+
 cat ./musl/package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
@@ -1106,6 +1257,11 @@ docker build \
 #+begin_src dockerfile
 COPY --from=tgbugs/musl:portage-maven / /
 
+ADD repo_name /var/db/crossdev/profiles/repo_name
+ADD layout.conf /var/db/crossdev/metadata/layout.conf
+ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
+ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
+
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
 && echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg"' >> /etc/portage/make.conf
@@ -1113,10 +1269,6 @@ echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
 
 #+begin_src dockerfile :tangle ./musl/package-builder/Dockerfile
 FROM tgbugs/musl:xorg
-
-ADD layout.conf /var/db/crossdev/metadata/layout.conf
-ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
-ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 
 <<&musl-package-builder-common>>
 #+end_src
@@ -1160,6 +1312,10 @@ In order to fix
 
 This works around the fact that musl uses thin manifests.  See
 https://wiki.gentoo.org/wiki/Custom_ebuild_repository#Crossdev.
+#+begin_src conf :tangle ./musl/package-builder/repo_name
+crossdev
+#+end_src
+
 #+begin_src conf :tangle ./musl/package-builder/layout.conf
 masters = gentoo
 thin-manifests = true
@@ -1214,6 +1370,32 @@ media-libs/fontconfig
 media-fonts/dejavu
 #+end_src
 
+** static-package-builder
+*** populate 0
+#+name: &musl-run-static-xorg-quickpkg
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+--rm \
+tgbugs/musl:static-xorg \
+quickpkg "*/*" --include-config y
+#+end_src
+
+*** build
+#+name: &musl-build-static-package-builder
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:static-package-builder \
+--file musl/package-builder/static.Dockerfile musl/package-builder
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./musl/package-builder/static.Dockerfile
+FROM tgbugs/musl:static-xorg
+
+<<&musl-package-builder-common>>
+#+end_src
+
 ** package-builder-nox
 *** populate 0
 #+name: &musl-run-updated-quickpkg
@@ -1227,7 +1409,7 @@ quickpkg "*/*" --include-config y
 #+end_src
 *** run
 #+begin_src bash
-cat ./musl/package-builder-nox/world | xargs \
+cat ./musl/package-builder/nox.world | xargs \
 docker run \
 --volumes-from local-repos-snap \
 -v ~/files/binpkgs/musl:/var/cache/binpkgs \
@@ -1242,7 +1424,7 @@ Yes, there are going to be issues with keywording that are likely going
 to require updates to the profile followed by a rebuild here. I can't quite
 remember whether binpkgs check use flags.
 #+name: world-package-builder-nox
-#+begin_src conf :tangle ./musl/package-builder-nox/world
+#+begin_src conf :tangle ./musl/package-builder/nox.world
 <<world-debug>>
 <<world-emacs>>
 <<world-dynapad-base>>
@@ -1277,11 +1459,11 @@ app-xemacs/xemacs-packages-all
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:package-builder-nox \
---file musl/package-builder-nox/Dockerfile musl/package-builder-nox
+--file musl/package-builder/nox.Dockerfile musl/package-builder
 #+end_src
 
 *** file
-#+begin_src dockerfile :tangle ./musl/package-builder-nox/Dockerfile
+#+begin_src dockerfile :tangle ./musl/package-builder/nox.Dockerfile
 FROM tgbugs/musl:updated
 
 <<&musl-package-builder-common>>
@@ -1289,7 +1471,6 @@ FROM tgbugs/musl:updated
 
 ** package-binhost
 ** binpkg-only
-*** run
 *** build
 #+name: &musl-build-binpkg-only
 #+begin_src bash
@@ -1311,18 +1492,33 @@ FROM tgbugs/musl:xorg
 <<&musl-binpkg-only-common>>
 #+end_src
 
+** static-binpkg-only
+*** build
+#+name: &musl-build-static-binpkg-only
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:static-binpkg-only \
+--file musl/binpkg-only/static.Dockerfile musl/binpkg-only
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/binpkg-only/static.Dockerfile
+FROM tgbugs/musl:static-xorg
+<<&musl-binpkg-only-common>>
+#+end_src
+
 ** binpkg-only-nox
-*** run
 *** build
 #+name: &musl-build-binpkg-only-nox
 #+begin_src bash
 docker build \
 --tag tgbugs/musl:binpkg-only-nox \
---file musl/binpkg-only-nox/Dockerfile musl/binpkg-only-nox
+--file musl/binpkg-only/nox.Dockerfile musl/binpkg-only
 #+end_src
 
 *** file
-#+begin_src dockerfile :tangle ./musl/binpkg-only-nox/Dockerfile
+# FIXME not quite right, this is the vanilla, which leaves X enabled for some things
+#+begin_src dockerfile :tangle ./musl/binpkg-only/nox.Dockerfile
 FROM tgbugs/musl:updated
 <<&musl-binpkg-only-common>>
 #+end_src
@@ -2109,6 +2305,7 @@ app-arch/zip
 app-misc/yq
 dev-python/pip
 dev-python/pyzmq
+dev-java/robot-bin
 #+end_src
 
 *** file
@@ -2258,7 +2455,7 @@ rc-status \
 #+end_src
 *** file
 #+begin_src dockerfile :tangle ./musl/sbcl/Dockerfile
-FROM tgbugs/musl:emacs
+FROM tgbugs/musl:static-binpkg-only
 <<&build-world-common>>
 #+end_src
 *** world
