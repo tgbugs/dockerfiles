@@ -1199,6 +1199,7 @@ docker run tgbugs/musl:package-builder
 docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
 
 # TODO make volumes if they don't already exist
+# docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
 # docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 
 cat ./musl/package-builder/world | xargs \
@@ -1222,6 +1223,9 @@ docker run \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -it tgbugs/musl:package-builder-snap \
 emerge --color=y -j4 -q --keep-going --usepkg=n \
+@live-rebuild
+
+app-misc/screen
 dev-lisp/sbcl
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
@@ -1381,7 +1385,24 @@ docker run \
 tgbugs/musl:static-xorg \
 quickpkg "*/*" --include-config y
 #+end_src
+*** run
+#+begin_src bash
+docker run tgbugs/musl:static-package-builder
+docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 
+cat ./musl/package-builder/world | xargs \
+docker run \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+tgbugs/musl:static-package-builder-snap \
+emerge --color=y -j4 -q --keep-going -uDN
+
+docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+#+end_src
+# FIXME racket failing with mkostemp failures during raco make or
+# something !? what the fuck?  how was this not caught before ?!
 *** build
 #+name: &musl-build-static-package-builder
 #+begin_src screen
@@ -2286,6 +2307,17 @@ docker run \
 echo TODO secrets, apinat build and more!
 #+end_src
 
+debug
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+--network host \
+--add-host local.binhost:127.0.0.1 \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:kg-dev
+#+end_src
+
 *** build
 #+name: &musl-build-kg-dev
 #+begin_src screen
@@ -2299,6 +2331,7 @@ echo TODO secrets, apinat build and more!
 #+name: world-kg-dev
 #+begin_src conf :tangle ./musl/kg-dev/world
 <<world-kg-release>>
+app-misc/screen
 dev-scheme/racket
 net-libs/nodejs
 app-arch/zip
@@ -2323,6 +2356,7 @@ eselect racket set cs
 *** run
 #+begin_src screen
 docker run \
+-v /var/lib/blazegraph:/tmp/blazegraph \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:kg-dev-user
@@ -2335,6 +2369,24 @@ docker build \
 --tag tgbugs/musl:kg-dev-user \
 --build-arg UID=${UID} \
 --file musl/kg-dev-user/Dockerfile musl/kg-dev-user
+#+end_src
+
+*** entrypoint
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-dev-user/entrypoint.sh
+if [ -d /tmp/blazegraph ]; then
+    cp /tmp/blazegraph/blazegraph.jnl /var/lib/blazegraph/
+    cp /tmp/blazegraph/prefixes.conf /var/lib/blazegraph/
+    chown -R blazegraph:blazegraph /var/lib/blazegraph
+fi
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/scigraph start
+/etc/init.d/blazegraph start
+# screen ? or just emacs
+su user -c 'emacs -visit ~/git/sparc-curation/docs/queries.org'
+echo you have left the user shell, run '`su user`' to get another shell
+/bin/bash
 #+end_src
 
 *** file
@@ -2371,6 +2423,24 @@ mkdir ~/git
 ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 # FIXME break these into their own images to avoid serial dependencies
+
+RUN \
+pushd git \
+&&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
+&&     pushd open-physiology-viewer \
+&&         git fetch origin pull/99/head:pr-99 \
+&&         git checkout pr-99 \
+&&         npm install \
+&&         pushd wrapper \
+&&             npm install \
+&&         popd \
+&&         npm run build \
+&&         rm -r ./node_modules \
+&&         rm -r ./wrapper/node_modules \
+&&     popd \
+&& popd \
+&& ln -s ~/git/open-physiology-viewer/wrapper/bin/converter.js ~/.local/bin/apinat-converter \
+&& rm -r ~/.npm/_cacache
 
 RUN \
 pushd git \
@@ -2412,38 +2482,32 @@ pushd git \
 && rm -r ~/.cache/pip
 
 RUN \
-pushd git \
-&&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
-&&     pushd open-physiology-viewer \
-&&         git fetch origin pull/99/head:pr-99 \
-&&         git checkout pr-99 \
-&&         npm install \
-&&         pushd wrapper \
-&&             npm install \
-&&         popd \
-&&         npm run build \
-&&         rm -r ./node_modules \
-&&         rm -r ./wrapper/node_modules \
-&&     popd \
-&& popd \
-&& ln -s ~/git/open-physiology-viewer/wrapper/bin/converter.js ~/.local/bin/apinat-converter \
-&& rm -r ~/.npm/_cacache
+pip install --user jupyter jupyter-core \
+&& rm -r ~/.cache/pip
+
+RUN \
+./git/sparc-curation/docs/apinatomy.org
+
+RUN \
+./git/sparc-curation/docs/queries.org
 
 FROM tgbugs/musl:kg-dev
 
 COPY --from=builder /build /
 
+ADD entrypoint.sh /etc/entrypoint.sh
+
 <<&musl-file-user-base>>
 
 USER 0
+
+RUN \
+usermod -a -G blazegraph user \
+;  usermod -a -G scigraph user
+
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
-ENTRYPOINT \
-rc-status \
-;  touch /run/openrc/softlevel \
-;  /etc/init.d/scigraph start \
-;  /etc/init.d/blazegraph start \
-;  su user -
+ENTRYPOINT /etc/entrypoint.sh
 #+end_src
 ** sbcl
 *** build
