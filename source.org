@@ -2395,6 +2395,15 @@ media-gfx/graphviz
 *** run
 #+begin_src bash
 docker run \
+--volumes-from sparc-sckan-data \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:kg-release-user
+#+end_src
+
+#+begin_src bash
+docker run \
+-v /var/lib/blazegraph:/var/lib/blazegraph \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:kg-release-user
@@ -2402,28 +2411,102 @@ docker run \
 
 *** build
 #+name: &musl-build-kg-release-user
-#+begin_src bash
+#+begin_src screen
+pushd ./musl/kg-release-user
+curl -O https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/queries.org
+curl -O https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/sckan.org
+curl -O https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/sckan-tutorial.org
+chmod +x ./queries.org
+popd
+
 docker build \
 --tag tgbugs/musl:kg-release-user \
---build-arg KUID=${UID} \
+--build-arg UID=${UID} \
 --file musl/kg-release-user/Dockerfile musl/kg-release-user
+#+end_src
+
+*** entrypoint
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-release-user/entrypoint.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/scigraph start
+/etc/init.d/blazegraph start
+# screen ? or just emacs
+su user -c 'emacs -visit ~/queries.org'
+echo you have left the user shell, run '`su user`' to get another shell
+/bin/bash
 #+end_src
 
 *** file
 #+name: &musl/kg-release-user
 #+begin_src dockerfile :tangle ./musl/kg-release-user/Dockerfile
-FROM tgbugs/musl:kg-release
+FROM tgbugs/musl:kg-release as builder
 
-ARG KUID=1000
-ARG USER_NAME=kguser
+<<&musl-user-skel-common>>
+
+USER ${USER_NAME}
+
+ARG HOME=/build/home/${USER_NAME}
+
+WORKDIR $HOME
+
+ADD queries.org queries.org
+ADD sckan.org sckan.org
+ADD sckan-tutorial.org sckan-tutorial.org
+
+# TODO add checksums to known safe
 
 RUN \
-groupadd -g ${KUID} ${USER_NAME} \
-&& useradd -m -k /etc/skel -u ${KUID} -g ${KUID} -d /home/${USER_NAME} ${USER_NAME}
+./queries.org
 
-USER $USER_NAME
+FROM tgbugs/musl:kg-dev
 
-WORKDIR /home/${USER_NAME}
+COPY --from=builder /build /
+
+ADD entrypoint.sh /etc/entrypoint.sh
+
+<<&musl-file-user-base>>
+
+USER 0
+
+RUN \
+usermod -a -G blazegraph user \
+;  usermod -a -G scigraph user
+
+# TODO when running this you will have to set the right mounts
+# unless you bake a new kg-dev-with-data release
+ENTRYPOINT /etc/entrypoint.sh
+#+end_src
+
+** kg-data
+*** container
+# TODO FIXME naming etc
+#+begin_src bash
+docker container inspect sparc-sckan-data > /dev/null || \
+docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sparc-sckan-data tgbugs/sckan:latest /bin/true
+#+end_src
+*** build
+# FIXME this probably doesn't fall under musl
+# it probably falls somewhere else
+# TODO release snapshots for these images
+#+name: &musl-build-kg-data
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:kg-data \
+--build-arg UID=${UID} \
+--file musl/kg-data/Dockerfile musl/kg-dev-user
+#+end_src
+
+*** file
+#+begin_src dockerfile
+FROM busybox:latest as builder
+WORKDIR /build
+
+# FIXME user and group
+
+FROM scratch
+COPY --from=builder /build /
 #+end_src
 
 ** kg-dev
@@ -2494,9 +2577,18 @@ eselect racket set cs
 ** kg-dev-user
 # FIXME somehow msising blazegraph user?
 *** run
+# TODO -v /var/lib/scigraph:/var/lib/scigraph \
 #+begin_src screen
 docker run \
--v /var/lib/blazegraph:/tmp/blazegraph \
+--volumes-from sparc-sckan-data \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:kg-dev-user
+#+end_src
+
+#+begin_src screen
+docker run \
+-v /var/lib/blazegraph:/var/lib/blazegraph \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:kg-dev-user
@@ -2512,13 +2604,16 @@ docker build \
 #+end_src
 
 *** entrypoint
-#+header: :shebang "#!/usr/bin/env sh"
-#+begin_src bash :tangle ./musl/kg-dev-user/entrypoint.sh :mkdirp yes
+#+begin_src bash
 if [ -d /tmp/blazegraph ]; then
     cp /tmp/blazegraph/blazegraph.jnl /var/lib/blazegraph/
     cp /tmp/blazegraph/prefixes.conf /var/lib/blazegraph/
     chown -R blazegraph:blazegraph /var/lib/blazegraph
 fi
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-dev-user/entrypoint.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
@@ -2630,6 +2725,8 @@ RUN \
 
 RUN \
 ./git/sparc-curation/docs/queries.org
+
+# TODO embed orgstrap checksums for queries.org etc
 
 FROM tgbugs/musl:kg-dev
 
