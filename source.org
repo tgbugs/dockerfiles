@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--prp-1\.1; orgstrap-block-checksum: 7fd8fcdcf55c3d61cc086dae064e4c4c2a52dd296f57e97923dd15699e509f26; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--prp-1\.1; orgstrap-block-checksum: e260a3ed98153a851097513b6db9ba959320b3e0214dfbf224cda5480979cf73; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -40,45 +40,92 @@ enabled in the client.
 {"experimental": "enabled"}
 #+end_src
 
+** Package host
+Prepare package host folders. The server will be started automatically
+below if it is not already up.
+#+begin_src screen
+mkdir -p ~/files/binpkgs/gnu
+mkdir -p ~/files/binpkgs/musl
+mkdir -p ~/files/binpkgs/musl-x
+mkdir -p ~/files/binpkgs/musl-static-x
+#+end_src
+
 * Ops
 If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
 
-Run package host
-#+begin_src screen
-# mkdir -p ~/files/binpkgs/gnu
-# mkdir -p ~/files/binpkgs/musl
-# mkdir -p ~/files/binpkgs/musl-x
-# mkdir -p ~/files/binpkgs/musl-static-x
-# FIXME this should be run if it isn't up
-pushd ~/files/binpkgs
-python -m http.server 8089 --bind 127.0.0.1
-#+end_src
-
 To prepare a fresh cycle of images.
 #+name: workflow
 #+begin_src screen
-#docker pull gentoo/stage3:amd64-musl-hardened
+<<&workflow-funs>>
 
-#docker pull gentoo/portage:latest
-#docker rm local-portage-snap
-#docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
-
+unset _refresh _repos _repackage _resnap
+_refresh=
+_repos=
+_repackage=
+_resnap=
+package-server
+pull
 pushd ~/git/dockerfiles
+tangle &&
+run-musl
+# package host
+# build a bunch of packages
+popd
+#+end_src
+# reminder that closing parens must be on separate lines or terminate with ;
+# XXX ob-screen doesn't support :var right now
+# #+header: :var _refresh=(or workflow-refresh) _repos=(or workflow-refresh workflow-repos)
+#+name: &workflow-funs
+#+begin_src screen
+function package-server () {
+curl --fail --head http://localhost:8089/musl/Packages || {
+    pushd ~/files/binpkgs
+    python -m http.server 8089 --bind 127.0.0.1
+    popd
+}
+}
+
+function pull () {
+if [ -n "${_refresh}" ]; then
+    docker pull gentoo/stage3:amd64-musl-hardened
+fi
+
+if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
+    docker pull gentoo/portage:latest
+    docker rm local-portage-snap
+    docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
+fi
+}
+
+function tangle () {
 [ -d ./docker-profile ] && rm -r ./docker-profile
 [ -d ./gnu ] && rm -r ./gnu
 [ -d ./musl ] && rm -r ./musl
 [ -d ./repos ] && rm -r ./repos
 ./source.org --tangle  # TODO --tangle does nothing right now because the behavior is default
+return $?
+}
+
 function run-gnu () {
 echo TODO
 }
+
+<<&container-check>>
+
+<<&builder-resnap>>
+
+<<&builder-world>>
+
+<<&builder-arb>>
+
 function run-musl () {
-local REPOS
+local REPOS="${_repos}"
 # TODO set QPKG below based on whether any new packages were actually built
-local QPKG
-local QPKGX
-local QPKGSX
+local QPKG="${_repackage}"
+local QPKGX="${_repackage}"
+local QPKGSX="${_repackage}"
+local RESNAP="${_resnap}"
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
 <<&musl-build-profile>> || return $?;
@@ -88,7 +135,8 @@ local QPKGSX
   <<&musl-build-eselect-repo>> || return $?;
     [ -z $REPOS ] || {
     <<&repos-build-repos>> || return $?;
-    docker rm local-repos-snap; # ok if this fails due to the repo not existing
+    docker container inspect local-repos-snap > /dev/null &&
+    docker rm local-repos-snap;
     docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
     }
     <<&musl-build-updated>> || return $?;
@@ -119,6 +167,8 @@ local QPKGSX
 
 
 # TODO build any new packages
+[ -z $RESNAP ] || builder-resnap
+builder-world
 
 # image builds
 
@@ -150,10 +200,6 @@ local QPKGSX
 <<&musl-build-NIF-ontology>> || return $?;
 
 }
-run-musl
-# package host
-# build a bunch of packages
-popd
 #+end_src
 
 # I am an idiot, the repos image is being build incorrectly and pulls
@@ -293,10 +339,41 @@ also makes it much easier for the package builder to operate based on world file
 *app-eselect/eselect-repository
 #+end_src
 **** make.defaults
-# FIXME for some reason this does not actually disable all the flags
-#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/make.defaults :tangle no
-VIDEO_CARDS=""
+See warning about https://wiki.gentoo.org/wiki/Localization/Guide#LINGUAS.
+We are safe here because this base profile is shared between all our
+systems and because we do not redistribute the binary packages.
+
+We restrict =LINGUAS= here to reduce the size of the images that are
+produced.  Larger images with localization enabled can be produced by
+removing the restriction, but are not included by default. This
+approach is likely better than using =INSTALL_MASK=.
+
+# USE="-doc"
+# LINGUAS="en"
+# FIXME for some reason empty video cards does not actually disable all the flags
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/make.defaults
+INSTALL_MASK="/usr/share/locale
+-/usr/share/locale/en
+-/usr/share/locale/en@boldquot
+-/usr/share/locale/en@quot
+-/usr/share/locale/en@shaw
+-/usr/share/locale/en_US"
+
+VIDEO_CARDS="-*"
+
+ACCT_GROUP_BLAZEGRAPH_ID=834
+ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
+
+ACCT_GROUP_SCIGRAPH_ID=835
+ACCT_USER_SCIGRAPH_ID="${ACCT_GROUP_SCIGRAPH_ID}"
+
+EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
+EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
 #+end_src
+
+# FIXME the ACCT_ and EGIT_OVERRIDE_ should probably be in env, but we rebuild
+# this profile so frequently I think putting it in make.defaults is probably ok
+
 **** mask
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.mask
 # insurance
@@ -458,7 +535,7 @@ every instance of =static= that we encounter.
 #+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/make.defaults
 USE="static-libs"
 #+end_src
-***** package.use
+***** package.use :ARCHIVE:
 #+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/package.use :tangle no
 # don't build openssh with static libs because it conflicts with the
 # pie use flag for hardened which cannot be unset
@@ -601,11 +678,22 @@ RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/d
 && emaint sync --repo tgbugs-overlay \
 && rm -r /var/db/repos/lisp/dev-scheme/racket
 
+# emergency backup
+ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
+ARG TMCH=34581ad0f14b5898abfb8d0a7ad89d560270a2e5
+RUN \
+mkdir -p /usr/local/portage/dev-java/icedtea-bin \
+&& pushd /usr/local/portage/dev-java/icedtea-bin \
+&& ln -s /var/db/repos/musl/dev-java/icedtea-bin/files \
+&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/icedtea-bin-3.18.0.ebuild" \
+&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/Manifest"
+
 FROM busybox:latest
 
 WORKDIR /
 COPY --from=builder /var/db/repos /var/db/repos
 COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
+COPY --from=builder /usr/local/portage /usr/local/portage
 CMD /bin/true
 VOLUME /var/db/repos
 #+end_src
@@ -798,7 +886,7 @@ https://api.gentoo.org/uid-gid.txt
 https://wiki.gentoo.org/wiki/Project:Quality_Assurance/UID_GID_Assignment].
 
 #+name: &portage-maven-settings
-#+begin_src xml :tangle ./musl/portage-maven/settings.xml :mkdirp t
+#+begin_src xml :tangle ./musl/portage-maven/settings.xml :mkdirp yes
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
@@ -1144,6 +1232,17 @@ change, but I don't have an easy way to detect when it is safe to symlink a nox 
 the X build, though I think we can create a processes that would check the packages and to
 see whether they have identical metadata and then remove one and symlink the other ....
 
+
+A brief note on various =bindist= warnings that may appear during this step.
+
+For =openssh= and =openssl=, the issue is related to various patents on ECC and RC5.
+As far as I can tell from https://en.wikipedia.org/wiki/ECC_patents and the reference
+in https://en.wikipedia.org/wiki/RC5, these patents have all expired, so redistribution
+of packages compiled with =-bindist= is not an issue.
+
+For =freetype= it seems that most of the patents https://freetype.org/patents.html
+have expired as well. The latest ebuild in the tree has removed bindist entirely.
+
 # it is safe to use --include-config here becauseit is done before any modifications are made
 # FIXME TODO need a way to ignore existing exact matches unless we override
 #+name: &musl-run-xorg-quickpkg
@@ -1192,16 +1291,31 @@ build_package sh -c "emerge -1q freetype"
 # go in the profile because we know that we are always going to need
 # those in the future, it should be fairly straight forward to create
 # a /var/db/docker-profile -> /etc/portage translator for the builder
-#+begin_src bash
-# --nodeps # potentially useful
 
+#+name: &builder-resnap
+#+begin_src bash
+function builder-resnap () {
 docker run tgbugs/musl:package-builder
 docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
+}
+#+end_src
 
-# TODO make volumes if they don't already exist
-# docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
-# docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
+#+name: &container-check
+#+begin_src bash
+function container-check () {
+docker container inspect local-repos-snap > /dev/null || \
+docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
 
+# FIXME need to check that the cross image exists sigh make
+docker container inspect cross-sbcl > /dev/null || \
+docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
+}
+#+end_src
+
+#+name: &builder-world
+#+begin_src bash
+function builder-world () {
+container-check
 cat ./musl/package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
@@ -1209,26 +1323,38 @@ docker run \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 tgbugs/musl:package-builder-snap \
-emerge --color=y -j4 -q --keep-going -uDN
-
-# you can add single packages to build after -uDN for testing
+emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+}
+#+end_src
 
+#+name: &builder-arb
+#+begin_src bash
+function builder-arb () {
+container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
--it tgbugs/musl:package-builder-snap \
-emerge --color=y -j4 -q --keep-going --usepkg=n \
+tgbugs/musl:package-builder-snap \
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+${@}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+}
+#+end_src
+
+#+begin_src bash
+# --nodeps # potentially useful
+
 @live-rebuild
 
 app-misc/screen
 dev-lisp/sbcl
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
 
 # to debug issues
 docker run \
@@ -1359,6 +1485,11 @@ significant maintenance overhead due to ebuild duplication.
 *** world
 #+name: world-package-builder
 #+begin_src conf :tangle ./musl/package-builder/world
+<<ident((dedupe-lines "world-package-builder-dupes"))>>
+#+end_src
+
+#+name: world-package-builder-dupes
+#+begin_src conf
 <<world-package-builder-nox>>
 <<world-kg-release>>
 <<world-kg-dev>>
@@ -1648,13 +1779,22 @@ app-editors/emacs
 <<&build-world>>
 #+end_src
 *** world
+# FIXME BROKEN
+#+name: world-icedtea-broken
+#+begin_src conf :tangle ./musl/icedtea/world :tangle no
+dev-java/icedtea-bin::musl
+#+end_src
+
+Backup.
 #+name: world-icedtea
 #+begin_src conf :tangle ./musl/icedtea/world
 dev-libs/nss
-dev-java/icedtea-bin::musl
+dev-java/icedtea-bin::local
 #+end_src
+
 *** legacy
-The musl overlay installs icedtea-bin correctly now so this is thankfully no longer needed.
+The musl overlay installs icedtea-bin correctly now so this is
++thankfully no longer needed+ only needed periodically.
 #+name: &musl/icedtea/legacy
 #+begin_src dockerfile :tangle ./musl/icedtea/legacy.Dockerfile
 FROM tgbugs/musl:xorg
@@ -2373,7 +2513,7 @@ docker build \
 
 *** entrypoint
 #+header: :shebang "#!/usr/bin/env sh"
-#+begin_src bash :tangle ./musl/kg-dev-user/entrypoint.sh
+#+begin_src bash :tangle ./musl/kg-dev-user/entrypoint.sh :mkdirp yes
 if [ -d /tmp/blazegraph ]; then
     cp /tmp/blazegraph/blazegraph.jnl /var/lib/blazegraph/
     cp /tmp/blazegraph/prefixes.conf /var/lib/blazegraph/
@@ -3165,6 +3305,33 @@ cat /var/lib/portage/world | xargs emerge -j4 -q -uDN \
 
 #+name: orgstrap
 #+begin_src elisp :results none :lexical yes
+(defvar-local workflow-refresh nil)
+(defvar-local workflow-repos nil)
+
+(defun fix-ocbe ()
+  "it would seem that blanking `enable-local-eval' resets this"
+  (setq-local
+   org-confirm-babel-evaluate
+   (lambda (lang body)
+     (not (and (member lang '("elisp" "emacs-lisp"))
+               (string= body "value"))))))
+
+(defun dedupe-lines (blockname)
+  (let* ((info (save-excursion
+                 (org-save-outline-visibility 'use-markers
+                   (let ((obs (org-babel-find-named-block blockname)))
+                     (if obs (goto-char obs)
+                       (error "No block named %s" blockname)))
+                   (org-babel-get-src-block-info))))
+         (body (org-babel--expand-body info)))
+    (string-join (sort (cl-remove-duplicates
+                        (split-string body "\n")
+                        :test #'string=)
+                       #'string<)
+                 "\n")))
+
+(fix-ocbe)
+
 (when noninteractive
   (setq args nil)
   (unless (fboundp #'dockerfile-mode)
@@ -3175,11 +3342,18 @@ cat /var/lib/portage/world | xargs emerge -j4 -q -uDN \
     ;; this pattern is required when tangling to avoid infinite loops
     (revert-buffer nil t nil)
     (setq-local find-file-literally nil))
+  (fix-ocbe)
   (org-babel-tangle))
+#+end_src
+
+Helper block to make it easier to use elisp functions as noweb inputs.
+#+name: ident
+#+begin_src elisp :var value=""
+value
 #+end_src
 
 ** Local Variables :ARCHIVE:
 # close powershell comment #>
 # Local Variables:
-# eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((actual (org-version)) (need orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not need) (string< need actual) (string= need actual) (error "Your Org is too old! %s < %s" actual need))) (defun orgstrap-norm-func--prp-1\.1 (body) (let (print-quoted print-length print-level) (prin1-to-string (read (concat "(progn\n" body "\n)"))))) (unless (boundp 'orgstrap-norm-func) (defvar orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap-org-src-coderef-regexp (_fmt &optional label) (let ((fmt org-coderef-label-format)) (format "\\([:blank:]*\\(%s\\)[:blank:]*\\)$" (replace-regexp-in-string "%s" (if label (regexp-quote label) "\\([-a-zA-Z0-9_][-a-zA-Z0-9_ ]*\\)") (regexp-quote fmt) nil t)))) (unless (fboundp #'org-src-coderef-regexp) (defalias 'org-src-coderef-regexp #'orgstrap-org-src-coderef-regexp)) (defun orgstrap--expand-body (info) (let ((coderef (nth 6 info)) (expand (if (org-babel-noweb-p (nth 2 info) :eval) (org-babel-expand-noweb-references info) (nth 1 info)))) (if (not coderef) expand (replace-regexp-in-string (org-src-coderef-regexp coderef) "" expand nil nil 1)))) (defun orgstrap--confirm-eval-portable (lang _body) (not (and (member lang '("elisp" "emacs-lisp")) (let* ((body (orgstrap--expand-body (org-babel-get-src-block-info))) (body-normalized (orgstrap-norm body)) (content-checksum (intern (secure-hash orgstrap-cypher body-normalized)))) (eq orgstrap-block-checksum content-checksum))))) (unless (fboundp #'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-portable)) (let (enable-local-eval) (vc-find-file-hook)) (let ((ocbe org-confirm-babel-evaluate) (obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (setq-local org-confirm-babel-evaluate ocbe) (org-set-startup-visibility)) (warn "No orgstrap block."))))
+# eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((actual (org-version)) (need orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not need) (string< need actual) (string= need actual) (error "Your Org is too old! %s < %s" actual need))) (defun orgstrap-norm-func--prp-1\.1 (body) (let (print-quoted print-length print-level) (prin1-to-string (read (concat "(progn\n" body "\n)"))))) (unless (boundp 'orgstrap-norm-func) (defvar orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap-org-src-coderef-regexp (_fmt &optional label) (let ((fmt org-coderef-label-format)) (format "\\([:blank:]*\\(%s\\)[:blank:]*\\)$" (replace-regexp-in-string "%s" (if label (regexp-quote label) "\\([-a-zA-Z0-9_][-a-zA-Z0-9_ ]*\\)") (regexp-quote fmt) nil t)))) (unless (fboundp #'org-src-coderef-regexp) (defalias 'org-src-coderef-regexp #'orgstrap-org-src-coderef-regexp)) (defun orgstrap--expand-body (info) (let ((coderef (nth 6 info)) (expand (if (org-babel-noweb-p (nth 2 info) :eval) (org-babel-expand-noweb-references info) (nth 1 info)))) (if (not coderef) expand (replace-regexp-in-string (org-src-coderef-regexp coderef) "" expand nil nil 1)))) (defun orgstrap--confirm-eval-portable (lang _body) (not (and (member lang '("elisp" "emacs-lisp")) (let* ((body (orgstrap--expand-body (org-babel-get-src-block-info))) (body-normalized (orgstrap-norm body)) (content-checksum (intern (secure-hash orgstrap-cypher body-normalized)))) (eq orgstrap-block-checksum content-checksum))))) (unless (fboundp #'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-portable)) (let (enable-local-eval) (vc-find-file-hook)) (let ((obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (org-set-startup-visibility)) (warn "No orgstrap block."))))
 # End:
