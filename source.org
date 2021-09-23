@@ -2393,15 +2393,15 @@ media-gfx/graphviz
 
 ** kg-release-user
 *** run
-#+begin_src bash
+#+begin_src screen
 docker run \
---volumes-from sparc-sckan-data \
+--volumes-from sckan-data \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:kg-release-user
 #+end_src
 
-#+begin_src bash
+#+begin_src screen
 docker run \
 -v /var/lib/blazegraph:/var/lib/blazegraph \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
@@ -2413,12 +2413,23 @@ docker run \
 #+name: &musl-build-kg-release-user
 #+begin_src screen
 pushd ./musl/kg-release-user
-curl -O https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/queries.org
-curl -O https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/sckan.org
-curl -O https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/sckan-tutorial.org
+rm queries.org sckan.org sckan-tutorial.org
+_docsf="https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/"
+_docsfsc="${_docsf}sckan/"
+curl -O ${_docsf}queries.org
+curl -O ${_docsfsc}welcome.org
+curl -O ${_docsfsc}tutorial.org
+curl -O ${_docsfsc}overview.org
+curl -O ${_docsfsc}examples.org
+curl -O ${_docsfsc}scratch.org
 chmod +x ./queries.org
 popd
 
+<<&musl-build-kg-release-user-min>>
+#+end_src
+
+#+name: &musl-build-kg-release-user-min
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:kg-release-user \
 --build-arg UID=${UID} \
@@ -2426,14 +2437,18 @@ docker build \
 #+end_src
 
 *** entrypoint
+# FIXME autokill vterm on exit if we do this
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./musl/kg-release-user/entrypoint.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
-# screen ? or just emacs
-su user -c 'emacs -visit ~/queries.org'
+su user -c 'emacs -f vterm -visit ~/welcome.org'
+#+end_src
+
+# no longer needed now that we set the root password and have vterm
+#+begin_src bash :exports none
 echo you have left the user shell, run '`su user`' to get another shell
 /bin/bash
 #+end_src
@@ -2445,15 +2460,21 @@ FROM tgbugs/musl:kg-release as builder
 
 <<&musl-user-skel-common>>
 
-USER ${USER_NAME}
-
 ARG HOME=/build/home/${USER_NAME}
 
 WORKDIR $HOME
 
 ADD queries.org queries.org
-ADD sckan.org sckan.org
-ADD sckan-tutorial.org sckan-tutorial.org
+ADD welcome.org welcome.org
+ADD tutorial.org tutorial.org
+ADD overview.org overview.org
+ADD examples.org examples.org
+ADD scratch.org scratch.org
+
+RUN \
+chown ${UID}:${UID} *.org
+
+USER ${USER_NAME}
 
 # TODO add checksums to known safe
 
@@ -2472,41 +2493,15 @@ USER 0
 
 RUN \
 usermod -a -G blazegraph user \
-;  usermod -a -G scigraph user
+;  usermod -a -G scigraph user \
+;  usermod -a -G wheel user
+
+RUN \
+echo 'root:sparcsckan' | chpasswd
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
 ENTRYPOINT /etc/entrypoint.sh
-#+end_src
-
-** kg-data
-*** container
-# TODO FIXME naming etc
-#+begin_src bash
-docker container inspect sparc-sckan-data > /dev/null || \
-docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sparc-sckan-data tgbugs/sckan:latest /bin/true
-#+end_src
-*** build
-# FIXME this probably doesn't fall under musl
-# it probably falls somewhere else
-# TODO release snapshots for these images
-#+name: &musl-build-kg-data
-#+begin_src screen
-docker build \
---tag tgbugs/musl:kg-data \
---build-arg UID=${UID} \
---file musl/kg-data/Dockerfile musl/kg-dev-user
-#+end_src
-
-*** file
-#+begin_src dockerfile
-FROM busybox:latest as builder
-WORKDIR /build
-
-# FIXME user and group
-
-FROM scratch
-COPY --from=builder /build /
 #+end_src
 
 ** kg-dev
@@ -2580,7 +2575,7 @@ eselect racket set cs
 # TODO -v /var/lib/scigraph:/var/lib/scigraph \
 #+begin_src screen
 docker run \
---volumes-from sparc-sckan-data \
+--volumes-from sckan-data \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:kg-dev-user
@@ -3354,6 +3349,69 @@ DISPLAY=:0.0; Xephyr -br -reset -terminate -ac -noreset -screen 1280x1024 :3 &
 DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 
 #+end_src
+* sckan
+** v0
+*** container
+#+begin_src bash
+docker container inspect sckan-data > /dev/null && \
+docker rm sckan-data
+docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
+#+end_src
+*** build
+# FIXME this probably doesn't fall under musl
+# it probably falls somewhere else
+# TODO release snapshots for these images
+#+name: &musl-build-kg-data
+#+begin_src screen
+mkdir -p ./sckan/v0/blazegraph
+mkdir -p ./sckan/v0/scigraph
+pushd ./sckan/v0
+rsync -a /var/lib/blazegraph/blazegraph.jnl blazegraph/
+rsync -a /var/lib/blazegraph/prefixes.conf blazegraph/
+#rsync /tmp/scigraph-build/sparc-sckan/ scigraph/  # SOON TM
+# FIXME EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
+#rsync aws-scigraph-data-scigraph:sparc-data-graph-20210830T154445.zip /tmp/
+    pushd scigraph/
+    [ -d sparc-data-graph-20210830T154445 ] || {
+    cp /tmp/sparc-data-graph-20210830T154445.zip .
+    unzip sparc-data-graph-20210830T154445.zip
+    ln -s /var/lib/scigraph/sparc-data-graph-20210830T154445 graph
+    rm sparc-data-graph-20210830T154445.zip
+    }
+    popd
+~/git/pyontutils/nifstd/scigraph/bin/run-build-services-sparc
+cp /tmp/scigraph-build/sparc/services.yaml scigraph/
+cp /tmp/scigraph-build/sparc/$(head -n 1 scigraph/services.yaml | cut -b3-) scigraph/
+popd
+
+docker build \
+--tag tgbugs/sckan:latest \
+--build-arg UID=${UID} \
+--file sckan/v0/Dockerfile sckan/v0
+#+end_src
+
+*** file
+# TODO have a version of this that does the builds itself instead of just copying everything in
+#+begin_src dockerfile :tangle ./sckan/v0/Dockerfile
+FROM busybox:latest as builder
+WORKDIR /build
+
+ADD blazegraph/ /build/var/lib/blazegraph
+ADD scigraph/ /build/var/lib/scigraph
+
+RUN \
+chown -R 834:834 /build/var/lib/blazegraph \
+;  chown -R 835:835 /build/var/lib/scigraph
+
+# /build/sckan/ this could include the provenance data, but I think we should probably leave it out?
+# TODO also consider splitting blazegraph and scigraph volume images
+
+# FIXME user and group
+
+FROM scratch
+COPY --from=builder /build /
+#+end_src
+
 * utils :noexport:
 # FIXME --network host is ok for now, but we should probably try to
 # switch to using --ssh or something since it is needed for building
