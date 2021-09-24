@@ -589,6 +589,8 @@ USE="X"
 VIDEO_CARDS="-*"
 #+end_src
 **** package.use
+# we might consider including svg and libxml2 because they are already pulled in by racket and some other components
+# app-editors/emacs libxml2 svg
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.use
 # ,*/* X # FIXME it seems that wildcards are not allowed in here so for now has to be done later
 
@@ -1789,6 +1791,8 @@ Backup.
 #+name: world-icedtea
 #+begin_src conf :tangle ./musl/icedtea/world
 dev-libs/nss
+x11-libs/libXcomposite
+x11-libs/libXtst
 dev-java/icedtea-bin::local
 #+end_src
 
@@ -2401,14 +2405,6 @@ docker run \
 -it tgbugs/musl:kg-release-user
 #+end_src
 
-#+begin_src screen
-docker run \
--v /var/lib/blazegraph:/var/lib/blazegraph \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:kg-release-user
-#+end_src
-
 *** build
 #+name: &musl-build-kg-release-user
 #+begin_src screen
@@ -2437,14 +2433,14 @@ docker build \
 #+end_src
 
 *** entrypoint
-# FIXME autokill vterm on exit if we do this
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./musl/kg-release-user/entrypoint.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
+/etc/init.d/scigraph start  # FIXME temp hack around permissions issue related to bad redirect is fixed in repos
 /etc/init.d/blazegraph start
-su user -c 'emacs -f vterm -visit ~/welcome.org'
+su user -c 'emacs -visit ~/welcome.org'
 #+end_src
 
 # no longer needed now that we set the root password and have vterm
@@ -2481,7 +2477,7 @@ USER ${USER_NAME}
 RUN \
 ./queries.org
 
-FROM tgbugs/musl:kg-dev
+FROM tgbugs/musl:kg-release
 
 COPY --from=builder /build /
 
