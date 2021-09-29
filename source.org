@@ -79,6 +79,8 @@ popd
 #+name: &workflow-funs
 #+begin_src screen
 function package-server () {
+# FIXME needs to run in another terminal, container, or daemon
+# but for now it blocks other commands which is ok
 curl --fail --head http://localhost:8089/musl/Packages || {
     pushd ~/files/binpkgs
     python -m http.server 8089 --bind 127.0.0.1
@@ -169,6 +171,8 @@ local RESNAP="${_resnap}"
 # TODO build any new packages
 [ -z $RESNAP ] || builder-resnap
 builder-world
+# TODO smart-live-rebuild
+builder-arb @live-rebuild
 
 # image builds
 
@@ -1495,6 +1499,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-package-builder-nox>>
 <<world-kg-release>>
 <<world-kg-dev>>
+app-portage/smart-live-rebuild
 sys-devel/crossdev
 x11-base/xorg-server
 x11-libs/gtk+
@@ -2405,19 +2410,63 @@ docker run \
 -it tgbugs/musl:kg-release-user
 #+end_src
 
+with configuration for xdg-open forwarding
+#+begin_src screen
+docker run \
+--volumes-from sckan-data \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--add-host=host.docker.internal:host-gateway \
+-e FORWARD_URL_HOST=host.docker.internal \
+-e FORWARD_URL_PORT=59213 \
+-it tgbugs/musl:kg-release-user
+#+end_src
+
+debug with network in bridge mode
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from sckan-data \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--add-host=host.docker.internal:host-gateway \
+-e FORWARD_URL_HOST=host.docker.internal \
+-e FORWARD_URL_PORT=59213 \
+-it tgbugs/musl:kg-release-user
+#+end_src
+
+debug with host network
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from sckan-data \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--add-host=host.docker.internal:host-gateway \
+--network=host \
+-e FORWARD_URL_HOST=host.docker.internal \
+-e FORWARD_URL_PORT=59213 \
+-it tgbugs/musl:kg-release-user
+#+end_src
+
 *** build
 #+name: &musl-build-kg-release-user
 #+begin_src screen
-pushd ./musl/kg-release-user
-rm queries.org sckan.org sckan-tutorial.org
+_devel=
+_docd=(queries.org)
 _docsf="https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/"
+_sckand=(welcome.org tutorial.org overview.org examples.org scratch.org)
 _docsfsc="${_docsf}sckan/"
-curl -O ${_docsf}queries.org
-curl -O ${_docsfsc}welcome.org
-curl -O ${_docsfsc}tutorial.org
-curl -O ${_docsfsc}overview.org
-curl -O ${_docsfsc}examples.org
-curl -O ${_docsfsc}scratch.org
+pushd ./musl/kg-release-user
+rm queries.org welcome.org tutorial.org overview.org examples.org scratch.org
+if [ -n "${_devel}" ]; then
+  cp ~/git/sparc-curation/docs/sckan/*.org . ;
+else
+  for fn in ${_docd[@]};   do curl -O ${_docsf}${fn}  ; done
+  for fn in ${_sckand[@]}; do curl -O ${_docsfsc}${fn}; done
+fi
 chmod +x ./queries.org
 popd
 
@@ -2438,9 +2487,10 @@ docker build \
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
-/etc/init.d/scigraph start  # FIXME temp hack around permissions issue related to bad redirect is fixed in repos
 /etc/init.d/blazegraph start
-su user -c 'emacs -visit ~/welcome.org'
+su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/welcome.org'
+/etc/init.d/scigraph stop
+/etc/init.d/blazegraph stop
 #+end_src
 
 # no longer needed now that we set the root password and have vterm
@@ -2450,6 +2500,8 @@ echo you have left the user shell, run '`su user`' to get another shell
 #+end_src
 
 *** file
+# FIXME we should be able to stash the builder in this image
+# and reuse it without having to rerun over and over ...
 #+name: &musl/kg-release-user
 #+begin_src dockerfile :tangle ./musl/kg-release-user/Dockerfile
 FROM tgbugs/musl:kg-release as builder
@@ -2460,22 +2512,23 @@ ARG HOME=/build/home/${USER_NAME}
 
 WORKDIR $HOME
 
-ADD queries.org queries.org
-ADD welcome.org welcome.org
-ADD tutorial.org tutorial.org
-ADD overview.org overview.org
-ADD examples.org examples.org
-ADD scratch.org scratch.org
-
-RUN \
-chown ${UID}:${UID} *.org
+ADD --chown=${UID}:${UID} queries.org queries.org
 
 USER ${USER_NAME}
 
-# TODO add checksums to known safe
-
 RUN \
 ./queries.org
+
+ADD --chown=${UID}:${UID} welcome.org welcome.org
+ADD --chown=${UID}:${UID} tutorial.org tutorial.org
+ADD --chown=${UID}:${UID} overview.org overview.org
+ADD --chown=${UID}:${UID} examples.org examples.org
+ADD --chown=${UID}:${UID} scratch.org scratch.org
+
+RUN \
+emacs -batch -eval \
+"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))))" \
+$HOME/.emacs.d/init.el queries.org welcome.org examples.org scratch.org
 
 FROM tgbugs/musl:kg-release
 
@@ -2984,6 +3037,19 @@ pushd ~/git/dynapad
     racocgc make apps/uberapp/uberapp.rkt
 #+end_src
 
+** sparcur
+*** world
+#+name: world-sparcur
+#+begin_src conf
+dev-db/redis
+net-misc/rabbitmq-server
+#+end_src
+** protc
+*** world
+#+name: world-protc
+#+begin_src conf
+dev-libs/redland
+#+end_src
 * gnu
 may not need this if we can use crossdev to build glibc sbcl on musl that that seems a stretch
 ** profile
@@ -3346,63 +3412,101 @@ DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 
 #+end_src
 * sckan
-** v0
+** services
+This combines the raw (data) base image with prefixes.conf and services.yaml.
+Note that the image names for these are shifted so that they don't confuse users.
+The logic is that base + services = data, but users don't know anything about services.
+
 *** container
 #+begin_src bash
 docker container inspect sckan-data > /dev/null && \
 docker rm sckan-data
 docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
 #+end_src
+
 *** build
-# FIXME this probably doesn't fall under musl
-# it probably falls somewhere else
-# TODO release snapshots for these images
-#+name: &musl-build-kg-data
+#+name: &musl-build-sckan-services
 #+begin_src screen
-mkdir -p ./sckan/v0/blazegraph
-mkdir -p ./sckan/v0/scigraph
-pushd ./sckan/v0
-rsync -a /var/lib/blazegraph/blazegraph.jnl blazegraph/
-rsync -a /var/lib/blazegraph/prefixes.conf blazegraph/
-#rsync /tmp/scigraph-build/sparc-sckan/ scigraph/  # SOON TM
-# FIXME EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE
-#rsync aws-scigraph-data-scigraph:sparc-data-graph-20210830T154445.zip /tmp/
-    pushd scigraph/
-    [ -d sparc-data-graph-20210830T154445 ] || {
-    cp /tmp/sparc-data-graph-20210830T154445.zip .
-    unzip sparc-data-graph-20210830T154445.zip
-    ln -s /var/lib/scigraph/sparc-data-graph-20210830T154445 graph
-    rm sparc-data-graph-20210830T154445.zip
-    }
-    popd
+mkdir -p ./sckan/services/blazegraph
+
+[ -d ./sckan/services/scigraph ] && rm -r ./sckan/services/scigraph
+mkdir -p ./sckan/services/scigraph
+
+pushd ./sckan/services
+
+# blazegraph
+_sckanl="$(ls -d /tmp/build/release-*-sckan | sort -u | tail -n 1)"
+rsync -a ${_sckanl}/data/prefixes.conf blazegraph/
+
+# scigraph
 ~/git/pyontutils/nifstd/scigraph/bin/run-build-services-sparc
-cp /tmp/scigraph-build/sparc/services.yaml scigraph/
-cp /tmp/scigraph-build/sparc/$(head -n 1 scigraph/services.yaml | cut -b3-) scigraph/
+rsync -a /tmp/scigraph-build/sparc/services.yaml scigraph/
+rsync -a /tmp/scigraph-build/sparc/$(head -n 1 scigraph/services.yaml | cut -b3-) scigraph/
+
 popd
 
 docker build \
+--tag tgbugs/sckan:data-$(date --utc +%Y-%m-%dT%H%M%SZ) \
 --tag tgbugs/sckan:latest \
---build-arg UID=${UID} \
---file sckan/v0/Dockerfile sckan/v0
+--file sckan/services/Dockerfile sckan/services
 #+end_src
 
 *** file
-# TODO have a version of this that does the builds itself instead of just copying everything in
-#+begin_src dockerfile :tangle ./sckan/v0/Dockerfile
+#+begin_src dockerfile :tangle ./sckan/services/Dockerfile
 FROM busybox:latest as builder
+
 WORKDIR /build
 
-ADD blazegraph/ /build/var/lib/blazegraph
-ADD scigraph/ /build/var/lib/scigraph
+ADD --chown=834:834 blazegraph/ /build/var/lib/blazegraph
+ADD --chown=835:835 scigraph/ /build/var/lib/scigraph
 
-RUN \
-chown -R 834:834 /build/var/lib/blazegraph \
-;  chown -R 835:835 /build/var/lib/scigraph
+FROM tgbugs/sckan:base-latest
+COPY --from=builder /build /
+#+end_src
 
+** base
+*** build
+# TODO release snapshots for these images
+
+# FIXME scigraph log folder ownership is still fucked after all these years ffs
+#+name: &musl-build-sckan-base
+#+begin_src screen
+mkdir -p ./sckan/base/blazegraph
+
+[ -d ./sckan/base/scigraph ] && rm -r ./sckan/base/scigraph
+mkdir -p ./sckan/base/scigraph
+
+pushd ./sckan/base
+
+_sckanl="$(ls -d /tmp/build/release-*-sckan | sort -u | tail -n 1)"
+rsync -a ${_sckanl}/data/blazegraph.jnl blazegraph/
+
+# TODO run-load-graph-sparc-sckan
+_zip=$(realpath /tmp/scigraph-build/sparc-sckan/LATEST)
+_path="${_zip%.*}"
+_scigr="${_path##*/}"
+rsync -a ${_path} scigraph/
+ln -s /var/lib/scigraph/${_scigr} scigraph/graph
+
+popd
+
+docker build \
+--tag tgbugs/sckan:base-$(date --utc +%Y-%m-%dT%H%M%SZ) \
+--tag tgbugs/sckan:base-latest \
+--file sckan/base/Dockerfile sckan/base
+#+end_src
+
+*** file
 # /build/sckan/ this could include the provenance data, but I think we should probably leave it out?
-# TODO also consider splitting blazegraph and scigraph volume images
+# TODO also consider splitting blazegraph and scigraph volume images ?
+# TODO have a version of this that does the builds itself instead of just copying everything in
+#+begin_src dockerfile :tangle ./sckan/base/Dockerfile
+FROM busybox:latest as builder
 
-# FIXME user and group
+WORKDIR /build
+
+ADD --chown=834:834 blazegraph/ /build/var/lib/blazegraph
+ADD --chown=835:835 scigraph/ /build/var/lib/scigraph
 
 FROM scratch
 COPY --from=builder /build /
