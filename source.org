@@ -3412,6 +3412,18 @@ DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 
 #+end_src
 * sckan
+** save
+To save a gzipped archive run
+#+begin_src bash
+# first run the following to find the latest build, then
+docker image ls tgbugs/sckan:data-*
+docker save tgbugs/sckan:data-2021-09-30T232453Z | gzip > /tmp/docker-sckan-data-2021-09-30T232453Z.tar.gz
+#+end_src
+
+To restore from the archive run
+#+begin_src bash
+docker load --input sckan-data-2021-09-30T232453Z.tar.gz
+#+end_src
 ** services
 This combines the raw (data) base image with prefixes.conf and services.yaml.
 Note that the image names for these are shifted so that they don't confuse users.
