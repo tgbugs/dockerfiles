@@ -214,7 +214,7 @@ builder-arb @live-rebuild
 #+end_src
 
 * Next
-** TODO a better way
+** DONE a better way
 The primary issue here is that it really is not safe to compose after
 merge because the power and flexibility of portage happen before
 merge, and are quite state dependent after the fact. The key then is
@@ -222,7 +222,7 @@ to be able to create images that do compose well, and the only at
 the very end materialize them by installing all the packages at once.
 
 The problem is that you give up the utility of the docker layers, but
-if we are installing binary packages that have been build on a
+if we are installing binary packages that have been built on a
 separate system then we know that we won't encounter build errors.
 
 The final obstacle to full composability in this way is the issue of
@@ -1801,6 +1801,13 @@ x11-libs/libXtst
 dev-java/icedtea-bin::local
 #+end_src
 
+# note the lack of tangle
+#+name: world-icedtea-nox
+#+begin_src conf
+dev-libs/nss
+dev-java/icedtea-bin::local
+#+end_src
+
 *** legacy
 The musl overlay installs icedtea-bin correctly now so this is
 +thankfully no longer needed+ only needed periodically.
@@ -2268,20 +2275,11 @@ RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigrap
 
 ** blazegraph
 *** run
-# TODO release separate images for the data that can be mounted as a volume
 #+begin_src bash
 docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
 -v /var/lib/blazegraph:/var/lib/blazegraph \
--e DISPLAY=$DISPLAY \
 -p 9999:9999 \
 -it tgbugs/musl:blazegraph
-#+end_src
-
-#+begin_src bash
-rc-status
-touch /run/openrc/softlevel
-/etc/init.d/blazegraph start
 #+end_src
 
 *** build
@@ -2294,24 +2292,33 @@ touch /run/openrc/softlevel
 *** file
 #+name: &musl/blazegraph
 #+begin_src dockerfile :tangle ./musl/blazegraph/Dockerfile
-FROM tgbugs/musl:icedtea
+<<&build-world-nox>>
+ADD entrypoint.sh /etc/entrypoint.sh
+ENTRYPOINT /etc/entrypoint.sh
+#+end_src
 
-ARG ARCHIVE
-ARG ACCT_GROUP_BLAZEGRAPH_ID=834
-ARG ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
+*** world
+#+name: world-blazegraph
+#+begin_src conf :tangle ./musl/blazegraph/world
+<<world-icedtea-nox>>
+dev-db/blazegraph-bin
+#+end_src
 
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q blazegraph-bin \
-<<&archive-or-rm>>
+*** entrypoint
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/blazegraph/entrypoint.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+rc-service blazegraph start
 #+end_src
 
 ** scigraph
 *** run
 #+begin_src bash
 docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:scigraph
+-v /var/lib/scigraph:/var/lib/scigraph \
+-p 9000:9000 \
+tgbugs/musl:scigraph
 #+end_src
 
 *** build
@@ -2324,39 +2331,24 @@ docker run \
 *** file
 #+name: &musl/scigraph
 #+begin_src dockerfile :tangle ./musl/scigraph/Dockerfile
-FROM tgbugs/musl:portage-maven AS pm
-FROM tgbugs/musl:icedtea
+<<&build-world>>
+ADD entrypoint.sh /etc/entrypoint.sh
+ENTRYPOINT /etc/entrypoint.sh
+#+end_src
 
-COPY --from=pm / /
-# COPY --from=ict / /
+*** world
+#+name: world-scigraph
+#+begin_src conf :tangle ./musl/scigraph/world
+<<world-icedtea>>
+dev-java/scigraph-bin
+#+end_src
 
-ARG ARCHIVE
-ARG ACCT_GROUP_SCIGRAPH_ID=835
-ARG ACCT_USER_SCIGRAPH_ID="${ACCT_GROUP_SCIGRAPH_ID}"
-ARG EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
-ARG EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
-
-#&& echo '*/* -perl -llvm -egl -gles2 -gallium -dbus -vala -introspection -elogind X' >> /etc/portage/package.use/base \
-#&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/base \
-#&& echo 'x11-base/xorg-server minimal xvfb' >> /etc/portage/package.use/base \
-
-#RUN \
-#mkdir -p /var/lib/portage/home/.m2 \
-#&& echo '<settings xmlns="http://maven.apache.org/SETTINGS/1.0.0" #xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"' >> /var/lib/portage/home/.m2/settings.xml \
-#&& echo '          xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 #https://maven.apache.org/xsd/settings-1.0.0.xsd">' >> /var/lib/portage/home/.m2/settings.xml \
-#&& echo '<localRepository>/var/tmp/portage/.m2/repository</localRepository>' >> #/var/lib/portage/home/.m2/settings.xml \
-#&& echo '</settings>' >> /var/lib/portage/home/.m2/settings.xml \
-#&& chown -R portage:portage /var/lib/portage/home/.m2 \
-#&& mkdir -p /var/tmp/portage/.m2/repository \
-#&& chown -R portage:portage /var/tmp/portage/.m2
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q scigraph-bin --onlydeps \
-<<&archive-or-rm>>
-
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q scigraph-bin \
-<<&archive-or-rm>>
+*** entrypoint
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/scigraph/entrypoint.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+rc-service scigraph start
 #+end_src
 
 ** kg-release
@@ -2457,12 +2449,12 @@ docker run \
 _devel=
 _docd=(queries.org)
 _docsf="https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/"
-_sckand=(welcome.org tutorial.org overview.org examples.org scratch.org)
+_sckand=(welcome.org tutorial.org overview.org examples.org scratch.org README.org)
 _docsfsc="${_docsf}sckan/"
 pushd ./musl/kg-release-user
 rm queries.org welcome.org tutorial.org overview.org examples.org scratch.org
 if [ -n "${_devel}" ]; then
-  cp ~/git/sparc-curation/docs/sckan/*.org . ;
+  cp -aL ~/git/sparc-curation/docs/sckan/*.org . ;
 else
   for fn in ${_docd[@]};   do curl -O ${_docsf}${fn}  ; done
   for fn in ${_sckand[@]}; do curl -O ${_docsfsc}${fn}; done
@@ -2481,7 +2473,8 @@ docker build \
 --file musl/kg-release-user/Dockerfile musl/kg-release-user
 #+end_src
 
-*** entrypoint
+*** entrypoints
+Default interactive entrypoint.
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./musl/kg-release-user/entrypoint.sh :mkdirp yes
 rc-status
@@ -2493,12 +2486,14 @@ su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/wel
 /etc/init.d/blazegraph stop
 #+end_src
 
-# no longer needed now that we set the root password and have vterm
-#+begin_src bash :exports none
-echo you have left the user shell, run '`su user`' to get another shell
-/bin/bash
+Entrypoint to start services and run in the background.
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-release-user/services.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/scigraph start
+/etc/init.d/blazegraph start
 #+end_src
-
 *** file
 # FIXME we should be able to stash the builder in this image
 # and reuse it without having to rerun over and over ...
@@ -2524,6 +2519,7 @@ ADD --chown=${UID}:${UID} tutorial.org tutorial.org
 ADD --chown=${UID}:${UID} overview.org overview.org
 ADD --chown=${UID}:${UID} examples.org examples.org
 ADD --chown=${UID}:${UID} scratch.org scratch.org
+ADD --chown=${UID}:${UID} README.org README.org
 
 RUN \
 emacs -batch -eval \
@@ -2534,6 +2530,7 @@ FROM tgbugs/musl:kg-release
 
 COPY --from=builder /build /
 
+ADD services.sh /etc/services.sh
 ADD entrypoint.sh /etc/entrypoint.sh
 
 <<&musl-file-user-base>>
