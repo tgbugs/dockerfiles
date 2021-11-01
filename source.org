@@ -51,6 +51,7 @@ mkdir -p ~/files/binpkgs/musl-static-x
 #+end_src
 
 * Ops
+** Build
 If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
 
@@ -212,8 +213,39 @@ builder-arb @live-rebuild
 #+begin_src screen
 <<&musl-run-updated-user>>
 #+end_src
+** Push
+To push the latest cycle of images to the default remote run the
+following after checking that they work as expected.
+
+#+begin_src bash
+for _image in $(docker images --filter=reference="tgbugs/musl:*" --filter=reference="tgbugs/repos:*" --filter=since='tgbugs/musl:eselect-repo' --format "{{.Repository}}:{{.Tag}}" | grep -v snap); do
+    docker push "${_image}"
+done
+#+end_src
 
 * Next
+** TODO dind or similar for top level ops
+Docker is not homogeneous with regard to nesting containers since the
+way that we use it is a bit outside the usual use case (and because
+docker is a hack and true nesting reveals this by violating a whole
+bunch of assumptions that are baked into the implementation).
+
+As a result, a hack is required to be able to fake nesting. In this
+case the simplest approach seems to be to make the ur-host's docker
+process accessible to the top level ops container. Not truly
+homogeneous, but better than nothing. This is done by mounting the
+socket for the docker daemon when you run the top level build image.
+
+Since this is a build process security considerations are identical
+for the true host and the top level image. If we weren't running in
+the top level image we would be running on the true host directly so
+sandboxing is irrelevant.
+
+An example approach would be to run something like the following.
+#+begin_src bash
+docker run -v /var/run/docker.sock:/var/run/docker.sock tgbugs/musl:docker
+#+end_src
+
 ** DONE a better way
 The primary issue here is that it really is not safe to compose after
 merge because the power and flexibility of portage happen before
