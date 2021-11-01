@@ -1031,10 +1031,6 @@ an image building =FROM= a prior version of itself.
 #+begin_src dockerfile :tangle ./musl/updated/Dockerfile
 FROM tgbugs/musl:eselect-repo
 
-# FIXME eselect new read all probably
-# FIXME TODO --getpkg for rebootstrap during development
-
-# exclude gcc during first update since it is slow, it will be updated when running remerge.Dockerfile
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @system @world \
    --getbinpkg \
@@ -1042,20 +1038,9 @@ emerge -j4 -q -uDN @system @world \
    --exclude sys-process/procps \
 || echo "something failed to build" \
 <<&archive-or-rm>>
-#+end_src
 
-#+name: &musl/updated-remerge
-#+begin_src dockerfile :tangle ./musl/updated/remerge.Dockerfile
-FROM tgbugs/musl:updated
-
-ARG ARCHIVE
-
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN @world \
-   --getbinpkg \
-   --keep-going \
-   --exclude sys-process/procps \
-<<&archive-or-rm>>
+RUN \
+eselect gcc set $(eselect gcc list | tail -n 1 | awk '{ print $2 }')
 #+end_src
 
 *** build
