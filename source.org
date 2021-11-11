@@ -1370,6 +1370,32 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-
 }
 #+end_src
 
+There are some packages such as =dev-lang/go= and some cross compiles
+that require elevated privs in order to build otherwise they try to
+call =process_vm_readv= then die.
+
+See https://github.com/gentoo/gentoo-docker-images/issues/98 and
+https://github.com/moby/moby/issues/1916.
+
+#+name: &builder-arb-priv
+#+begin_src bash
+function builder-arb-priv () {
+container-check
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+--privileged \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+tgbugs/musl:package-builder-snap \
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+${@}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+}
+#+end_src
+
 #+begin_src bash
 # --nodeps # potentially useful
 
