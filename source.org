@@ -224,6 +224,7 @@ done
 #+end_src
 
 * Next
+** DONE catch errors in profile early
 ** TODO dind or similar for top level ops
 Docker is not homogeneous with regard to nesting containers since the
 way that we use it is a bit outside the usual use case (and because
@@ -332,6 +333,8 @@ WORKDIR /build
 # we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
 ADD docker-profile var/db/docker-profile
 ADD docker-profile.conf etc/portage/repos.conf/docker-profile.conf
+ADD package.accept_keywords etc/portage/package.accept_keywords/profile
+ADD package.mask etc/portage/package.mask/profile
 
 FROM scratch
 
@@ -344,6 +347,14 @@ COPY --from=builder /build /
 #+begin_src conf :tangle ./docker-profile/base/docker-profile.conf
 [docker-profile]
 location = /var/db/docker-profile
+#+end_src
+**** package.accept_keywords
+#+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
+dev-scheme/racket::tgbugs-overlay
+#+end_src
+**** package.mask
+#+begin_src conf :tangle ./docker-profile/base/package.mask
+dev-scheme/racket::gentoo
 #+end_src
 *** profiles
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/metadata/layout.conf
@@ -438,7 +449,7 @@ app-misc/yq ~amd64
 dev-db/blazegraph-bin ~amd64
 dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
-dev-scheme/racket ~amd64
+#dev-scheme/racket ~amd64  # profile can't restrict by repo :(
 
 # gtknor
 <gnome-base/librsvg-2.41 **
@@ -759,6 +770,8 @@ WORKDIR /build
 # we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
 ADD docker-profile/base/docker-profile var/db/docker-profile
 ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
+ADD docker-profile/base/package.accept_keywords etc/portage/package.accept_keywords/profile
+ADD docker-profile/base/package.mask etc/portage/package.mask/profile
 ADD musl/profile/musl.conf etc/portage/binrepos.conf/musl.conf
 
 FROM scratch
@@ -784,6 +797,9 @@ docker build \
 #+end_src
 
 *** file
+We do not need to include any of the files from the base profile here
+because they are already in musl:updated which this profile should be
+combined on top of.
 #+begin_src dockerfile :tangle ./musl/profile-x/Dockerfile
 FROM busybox:latest as builder
 
@@ -839,7 +855,6 @@ COPY --from=builder /build /
 priority = 400
 sync-uri = http://local.binhost:8089/musl-static-x
 #+end_src
-
 ** user
 #+name: &musl-build-user
 #+begin_src screen
@@ -1028,6 +1043,9 @@ echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
 && [[ -z ${PYTHON_TARGETS} ]] || \
    echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
 # XXX setting PORTAGE_BINHOSTS has to come later? maybe as an envar?
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+emerge --info 2>&1 | { grep Invalid\ atom && exit 1; exit 0; }
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
@@ -1395,6 +1413,24 @@ ${@}
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
 }
 #+end_src
+# dev-lang/go
+# dev-lisp/sbcl cross compile
+
+#+name: &builder-debug
+#+begin_src bash
+function builder-debug () {
+container-check
+docker run \
+--privileged \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-it tgbugs/musl:package-builder-snap
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+}
+#+end_src
 
 #+begin_src bash
 # --nodeps # potentially useful
@@ -1542,6 +1578,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-package-builder-nox>>
 <<world-kg-release>>
 <<world-kg-dev>>
+<<world-docker>>
 app-portage/smart-live-rebuild
 sys-devel/crossdev
 x11-base/xorg-server
@@ -2586,7 +2623,7 @@ usermod -a -G blazegraph user \
 ;  usermod -a -G wheel user
 
 RUN \
-echo 'root:sparcsckan' | chpasswd
+echo 'root:sparcSCKAN-2021' | chpasswd
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
