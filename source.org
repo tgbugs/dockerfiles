@@ -49,6 +49,28 @@ mkdir -p ~/files/binpkgs/musl
 mkdir -p ~/files/binpkgs/musl-x
 mkdir -p ~/files/binpkgs/musl-static-x
 #+end_src
+*** prepare all binpkg repos
+We have to prepare all the binpkg repos so that during a first build
+they have some basic metadata, otherwise trying to emerge binpkgs will
+fail with strange errors in strange ways.
+#+name: &run-quickpkg-first-time
+#+begin_src screen
+docker pull gentoo/stage3:hardened
+docker run \
+-v ~/files/binpkgs/gnu:/var/cache/binpkgs \
+--rm \
+gentoo/stage3:hardened \
+quickpkg "virtual/ssh" --include-config y;
+
+docker pull gentoo/stage3:amd64-musl-hardened
+for binrepo in {musl,musl-x,musl-static-x}; do
+docker run \
+-v ~/files/binpkgs/${binrepo}:/var/cache/binpkgs \
+--rm \
+gentoo/stage3:amd64-musl-hardened \
+quickpkg "virtual/ssh" --include-config y;
+done
+#+end_src
 
 * Ops
 ** Build
@@ -65,6 +87,7 @@ _refresh=
 _repos=
 _repackage=
 _resnap=
+_live_rebuild=
 package-server
 pull
 pushd ~/git/dockerfiles
@@ -129,6 +152,7 @@ local QPKG="${_repackage}"
 local QPKGX="${_repackage}"
 local QPKGSX="${_repackage}"
 local RESNAP="${_resnap}"
+local LIVE_REBUILD="${_live_rebuild}"
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
 <<&musl-build-profile>> || return $?;
@@ -142,67 +166,71 @@ local RESNAP="${_resnap}"
     docker rm local-repos-snap;
     docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
     }
-    <<&musl-build-updated>> || return $?;
-      <<&musl-build-updated-user>> || return $?;
+    <<&musl-build-updated>> || return $?; echo mbu;
+      <<&musl-build-updated-user>> || return $?; echo mbuu;
       # FIXME quickpkg should not repackage
       [ -z $QPKG ] ||
-      <<&musl-run-updated-quickpkg>> || return $?;
+      <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
 
-      <<&musl-build-package-builder-nox>> || return $?;
-      <<&musl-build-binpkg-only-nox>> || return $?;
+      <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
+      <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
 
       # XXX this is the point at which things split into musl and musl/x
-      <<&musl-build-xorg>> || return $?;
+      <<&musl-build-xorg>> || return $?; echo mbx;
       # FIXME quickpkg should not repackage
       [ -z $QPKGX ] ||
-      <<&musl-run-xorg-quickpkg>> || return $?;
+      <<&musl-run-xorg-quickpkg>> || return $?; echo mrxq;
 
-      <<&musl-build-package-builder>> || return $?;
-      <<&musl-build-binpkg-only>> || return $?;
+      <<&musl-build-package-builder>> || return $?; echo mbpb;
+      <<&musl-build-binpkg-only>> || return $?; echo mbpo;
 
       # XXX split to musl/static/x
-      <<&musl-build-static-xorg>> || return $?;
+      <<&musl-build-static-xorg>> || return $?; echo mbsx;
       [ -z $QPKGSX ] ||
-      <<&musl-run-static-xorg-quickpkg>> || return $?;
+      <<&musl-run-static-xorg-quickpkg>> || return $?; echo mrsxp;
 
-      <<&musl-build-static-package-builder>> || return $?;
-      <<&musl-build-static-binpkg-only>> || return $?;
+      <<&musl-build-static-package-builder>> || return $?; echo mbspb;
+      <<&musl-build-static-binpkg-only>> || return $?; echo mbsbo;
 
 
 # TODO build any new packages
 [ -z $RESNAP ] || builder-resnap
 builder-world
 # TODO smart-live-rebuild
-builder-arb @live-rebuild
+[ -z $LIVE_REBUILD ] || builder-arb @live-rebuild
+
+[ -z $RESNAP ] || static-builder-resnap
+static-builder-world  # FIXME if this is not run once at the start then something fails above
+[ -z $LIVE_REBUILD ] || static-builder-arb @live-rebuild
 
 # image builds
 
 ## emacs
-<<&musl-build-emacs>> || return $?;  # XXX fail on stale profile is very confusing
+<<&musl-build-emacs>> || return $?; echo mbe;  # XXX fail on stale profile is very confusing
 
 ## kg
-<<&musl-build-kg-release>> || return $?;
-<<&musl-build-kg-release-user>> || return $?;
-<<&musl-build-kg-dev>> || return $?;
-<<&musl-build-kg-dev-user>> || return $?;
+<<&musl-build-kg-release>> || return $?; echo mbkgr;
+<<&musl-build-kg-release-user>> || return $?; echo mbkgru;
+<<&musl-build-kg-dev>> || return $?; echo mbkgd;
+<<&musl-build-kg-dev-user>> || return $?; echo mbkgdu;
 
 ## sbcl
-<<&musl-build-sbcl>> || return $?;
-<<&musl-build-sbcl-user>> || return $?;
+<<&musl-build-sbcl>> || return $?; echo mbsbcl;
+<<&musl-build-sbcl-user>> || return $?; echo mbsbclu;
 
 ## racket
-<<&musl-build-racket>> || return $?;
-<<&musl-build-racket-user>> || return $?;
+<<&musl-build-racket>> || return $?; echo mbrac;
+<<&musl-build-racket-user>> || return $?; echo mbracu;
 
 ## dynapad
-<<&musl-build-dynapad-base>> || return $?;
-<<&musl-build-dynapad-user>> || return $?;
+<<&musl-build-dynapad-base>> || return $?; echo mbdb;
+<<&musl-build-dynapad-user>> || return $?; echo mbdbu;
 #<<&musl-build-dynapad>> || return $?; # needs to be done by hand
 
 ## NIF-ontology
-<<&musl-build-icedtea>> || return $?;
-<<&musl-build-protege>> || return $?;
-<<&musl-build-NIF-ontology>> || return $?;
+<<&musl-build-icedtea>> || return $?; echo mbi;
+<<&musl-build-protege>> || return $?; echo mbp;
+<<&musl-build-NIF-ontology>> || return $?; echo mbno;
 
 }
 #+end_src
@@ -213,6 +241,16 @@ builder-arb @live-rebuild
 #+begin_src screen
 <<&musl-run-updated-user>>
 #+end_src
+** Debug build
+Sometimes a build will fail.
+As long as you aren't using buildkit features such as mount you can
+rerun a build command with ~DOCKER_BUILDKIT=0~ prepended which will
+keep the intermediate containers around so you can attach to the last
+known good layer and try to run things yourself.
+
+Alternately, it may be a better approach to simply truncate the docker
+file directly after the last known good step
+
 ** Push
 To push the latest cycle of images to the default remote run the
 following after checking that they work as expected.
@@ -222,8 +260,11 @@ for _image in $(docker images --filter=reference="tgbugs/musl:*" --filter=refere
     docker push "${_image}"
 done
 #+end_src
-
 * Next
+** TODO update package builder image setup to accommodate /etc/portage/patches
+pypy3 is an example of one case where we need a fix, but in general
+=/etc/portage/patches= is a way to rapidly build and deploy fixes
+without having to wait for e.g. a full pull request cycle to finish.
 ** DONE catch errors in profile early
 ** TODO dind or similar for top level ops
 Docker is not homogeneous with regard to nesting containers since the
@@ -386,6 +427,8 @@ also makes it much easier for the package builder to operate based on world file
 *app-eselect/eselect-repository
 #+end_src
 **** make.defaults
+# old, we use INSTALL_MASK for simplicity
+#+begin_comment
 See warning about https://wiki.gentoo.org/wiki/Localization/Guide#LINGUAS.
 We are safe here because this base profile is shared between all our
 systems and because we do not redistribute the binary packages.
@@ -394,12 +437,14 @@ We restrict =LINGUAS= here to reduce the size of the images that are
 produced.  Larger images with localization enabled can be produced by
 removing the restriction, but are not included by default. This
 approach is likely better than using =INSTALL_MASK=.
+#+end_comment
 
 # USE="-doc"
 # LINGUAS="en"
-# FIXME for some reason empty video cards does not actually disable all the flags
+# for some reason empty video cards does not actually disable all the flags
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/make.defaults
-INSTALL_MASK="/usr/share/locale
+INSTALL_MASK="${INSTALL_MASK}
+/usr/share/locale
 -/usr/share/locale/en
 -/usr/share/locale/en@boldquot
 -/usr/share/locale/en@quot
@@ -413,6 +458,24 @@ ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
 
 ACCT_GROUP_SCIGRAPH_ID=835
 ACCT_USER_SCIGRAPH_ID="${ACCT_GROUP_SCIGRAPH_ID}"
+
+ACCT_GROUP_SPARC_ID=836
+ACCT_USER_SPARC_ID="${ACCT_GROUP_SPARC_ID}"
+
+ACCT_GROUP_PROTCUR_ID=837
+ACCT_USER_PROTCUR_ID="${ACCT_GROUP_PROTCUR_ID}"
+
+ACCT_GROUP_SCIBOT_ID=838
+ACCT_USER_SCIBOT_ID="${ACCT_GROUP_SCIBOT_ID}"
+
+ACCT_GROUP_INTERLEX_ID=839
+ACCT_USER_INTERLEX_ID="${ACCT_GROUP_INTERLEX_ID}"
+
+ACCT_GROUP_NIFSTD_TOOLS_ID=840
+ACCT_USER_NIFSTD_TOOLS_ID="${ACCT_GROUP_NIFSTD_TOOLS_ID}"
+
+ACCT_GROUP_METABASE_ID=841
+ACCT_USER_METABASE_ID="${ACCT_GROUP_METABASE_ID}"
 
 EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
 EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
@@ -461,6 +524,9 @@ app-emacs/vterm ~amd64
 dev-lisp/asdf ~amd64
 dev-lisp/uiop ~amd64
 dev-lisp/sbcl ~amd64
+
+# python packaging chaos
+dev-python/setuptools ~amd64  # TODO remove this when upstream shifts
 
 # tgbugs-overlay python # XXX if we introduct pypy3 this is going to be a mess
 # dev-python/pyontutils ~amd64
@@ -1086,8 +1152,13 @@ emerge -j4 -q -uDN @system @world \
    --getbinpkg \
    --keep-going \
    --exclude sys-process/procps \
-|| echo "something failed to build" \
+|| echo $? > /emerge-fail \
 <<&archive-or-rm>>
+
+# fail if emerge fails but for buildkit ensure that we do it in such a
+# way that we can truncate further steps and create a debug image
+RUN \
+test ! -e /emerge-fail
 
 RUN \
 eselect gcc set $(eselect gcc list | tail -n 1 | awk '{ print $2 }')
@@ -1171,7 +1242,7 @@ docker run \
 --net host \
 --add-host local.binhost:127.0.0.1 \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
@@ -1197,10 +1268,11 @@ Binary_package_guide#Pulling_packages_from_a_binary_package_host>.
 
 #+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
 ARG PROFILE_IMAGE=tgbugs/musl:profile-x
+ARG START_IMAGE=tgbugs/musl:updated
 
 FROM ${PROFILE_IMAGE} as profile_image
 
-FROM tgbugs/musl:updated
+FROM ${START_IMAGE}
 
 COPY --from=profile_image / /
 
@@ -1221,7 +1293,7 @@ eselect profile set $PROFILE
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 # FIXME tgbugs-overlay symlinks
 ln -s /var/db/repos/gentoo /usr/portage \
-&& emerge --getbinpkgonly media-libs/freetype \
+&& emerge --getbinpkgonly --binpkg-respect-use=y media-libs/freetype \
 || USE=-harfbuzz emerge -j4 -1q \
    media-libs/freetype \
 && emerge -j1 -q -uDN @world \
@@ -1229,7 +1301,11 @@ ln -s /var/db/repos/gentoo /usr/portage \
    --binpkg-respect-use=y \
    --exclude sys-process/procps \
    --keep-going \
+|| echo $? > /emerge-fail \
 <<&archive-or-rm>>
+
+RUN \
+test ! -e /emerge-fail
 
 RUN \
 eselect fontconfig disable 10-hinting-slight.conf \
@@ -1256,6 +1332,21 @@ between there being no reference to a feature and a reference to it to
 explicitly disable it. Sigh.
 
 ** static-xorg
+*** run
+debug
+#+begin_src screen
+docker run \
+--net host \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=${DISPLAY} \
+--rm \
+-it \
+tgbugs/musl:static-xorg
+#+end_src
 *** build
 #+name: &musl-build-static-xorg
 #+begin_src screen
@@ -1265,7 +1356,7 @@ explicitly disable it. Sigh.
 --build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
 --file musl/xorg/Dockerfile musl/xorg
 #+end_src
-
+# --build-arg START_IMAGE='tgbugs/musl:xorg' \
 ** package-builder
 *** populate 0
 Yes it is kind of annoying to fully split the packages here when many of them don't actually
@@ -1339,6 +1430,11 @@ function builder-resnap () {
 docker run tgbugs/musl:package-builder
 docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
 }
+# FIXME SIGH SIGH SIGH why is this easier than doing the right thing
+function static-builder-resnap () {
+docker run tgbugs/musl:static-package-builder
+docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+}
 #+end_src
 
 #+name: &container-check
@@ -1368,6 +1464,20 @@ emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
 }
+# FIXME SIGH code dupe
+function static-builder-world () {
+container-check
+cat ./musl/static-package-builder/world | xargs \
+docker run \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+tgbugs/musl:static-package-builder-snap \
+emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+}
 #+end_src
 
 #+name: &builder-arb
@@ -1385,6 +1495,21 @@ emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+}
+# XXX FIXME code dupe
+function static-builder-arb () {
+container-check
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+tgbugs/musl:static-package-builder-snap \
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+${@}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 }
 #+end_src
 
@@ -1412,6 +1537,22 @@ ${@}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
 }
+# FIXME code dupe
+function static-builder-arb-priv () {
+container-check
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+--privileged \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+tgbugs/musl:static-package-builder-snap \
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+${@}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+}
 #+end_src
 # dev-lang/go
 # dev-lisp/sbcl cross compile
@@ -1429,6 +1570,19 @@ docker run \
 -it tgbugs/musl:package-builder-snap
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+}
+# XXX FIXME code dupe
+function static-builder-debug () {
+container-check
+docker run \
+--privileged \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-it tgbugs/musl:static-package-builder-snap
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 }
 #+end_src
 
@@ -1479,7 +1633,7 @@ ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
-&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg"' >> /etc/portage/make.conf
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg --binpkg-respect-use=y"' >> /etc/portage/make.conf
 #+end_src
 
 #+begin_src dockerfile :tangle ./musl/package-builder/Dockerfile
@@ -1634,7 +1788,21 @@ FROM tgbugs/musl:static-xorg
 
 <<&musl-package-builder-common>>
 #+end_src
+*** world
+#+name: world-static-package-builder
+#+begin_src conf :tangle ./musl/static-package-builder/world
+<<world-sbcl>>
+<<world-static-sbcl-c-libs>>
+#+end_src
 
+#+name: world-static-sbcl-c-libs
+#+begin_src conf
+dev-libs/openssl
+dev-libs/gmp
+dev-libs/capstone
+dev-libs/mpfr
+dev-libs/redland
+#+end_src
 ** package-builder-nox
 *** populate 0
 #+name: &musl-run-updated-quickpkg
@@ -1719,11 +1887,17 @@ docker build \
 #+end_src
 
 *** file
+# wow parallel-install -ebuild-locks speeds things up quite a bit
+# unfortunately they break acct-group and acct-user packages
+# due to /etc/gshadow.lock contention which I think happends due
+# to the -ebuild-locks feature because setting that allows
+# unsandboxed steps to install concurrently
 #+name: &musl-binpkg-only-common
 #+begin_src dockerfile
 
 RUN \
-echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkgonly --getbinpkgonly"' >> /etc/portage/make.conf
+echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkgonly --getbinpkgonly"' >> /etc/portage/make.conf \
+&& echo 'FEATURES="${FEATURES} parallel-install -ebuild-locks"' >> /etc/portage/make.conf
 #+end_src
 
 #+begin_src dockerfile :tangle ./musl/binpkg-only/Dockerfile
@@ -1749,7 +1923,7 @@ FROM tgbugs/musl:static-xorg
 ** binpkg-only-nox
 *** build
 #+name: &musl-build-binpkg-only-nox
-#+begin_src bash
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:binpkg-only-nox \
 --file musl/binpkg-only/nox.Dockerfile musl/binpkg-only
@@ -1782,6 +1956,50 @@ dev-lang/python:3.9
 dev-python/pipenv
 dev-python/pip
 #+end_src
+** pypy3 notes
+If you load up =builder-debug= you can emerge pypy3 by adding patches
+manually, the right thing to do is to update the musl overlay build,
+but for now, if you can manage to manually build in the builder you
+will wind up with a binpkg that can be reused.
+
+https://bugs.python.org/issue21622
+https://github.com/python/cpython/pull/18380
+https://bugs.python.org/issue43112
+# AAAAAAAAAAAAAAAAAAAAAAAAAAaa
+# So yes ... my suspicion that invariance to libc is completely neglected is completely vindicated
+This patch fixes the problem
+https://git.alpinelinux.org/aports/plain/main/python3/musl-find_library.patch
+stick it in /etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
+
+https://raw.githubusercontent.com/gentoo/musl/master/dev-python/pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch
+# https://raw.githubusercontent.com/gentoo/musl/master/dev-python/pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-include-sys-time.patch
+https://github.com/gentoo/musl/issues/451#issuecomment-1017102775
+# rebuild binpkgs emerge -g n -k n package-name
+#+begin_src diff :tangle musl/profile/patches/dev-python/pypy3-3.7.3/lol.patch :mkdirp yes
+diff -r 9ef55f6fc369 pypy/module/cpyext/include/pytime.h
+--- a/pypy/module/cpyext/include/pytime.h
++++ b/pypy/module/cpyext/include/pytime.h
+@@ -2,6 +2,10 @@
+ #ifndef Py_PYTIME_H
+ #define Py_PYTIME_H
+ 
++#ifndef MS_WINDOWS
++#include <sys/time.h>
++#endif
++
+ #include <pyconfig.h> /* include for defines */
+ #include "object.h"
+ 
+#+end_src
+
+pip install --user -e . is broken for <=dev-python/setuptools-60 sigh
+
+# TODO I think this goes in the profile? or maybe along with the repos or something?
+# /etc/portage/patches is a super power for stuff like this
+#+begin_src dockerfile
+ADD musl/?/lol.patch /etc/portage/patches/dev-python/pypy3-3.7.3/lol.patch
+#+end_src
+
 ** testing-emacs
 Emacs testing.
 *** world
@@ -1793,6 +2011,7 @@ app-editors/emacs:25
 app-editors/emacs:26
 app-editors/emacs:27
 app-editors/emacs:28-vcs
+app-editors/emacs:29-vcs
 #+end_src
 ** emacs
 Emacs using the athena 3d toolkit to avoid pulling in gtk.
@@ -1878,8 +2097,11 @@ Backup.
 dev-libs/nss
 x11-libs/libXcomposite
 x11-libs/libXtst
-dev-java/icedtea-bin::local
+dev-java/icedtea-bin::musl
 #+end_src
+# back to musl since somehow my local setup is broken for the package builder
+# and the musl repo is fixed again and I managed to pull everything down this time
+# dev-java/icedtea-bin::local
 
 # note the lack of tangle
 #+name: world-icedtea-nox
@@ -2372,6 +2594,7 @@ docker run \
 *** file
 #+name: &musl/blazegraph
 #+begin_src dockerfile :tangle ./musl/blazegraph/Dockerfile
+ARG FEATURES="ebuild-lock"
 <<&build-world-nox>>
 ADD entrypoint.sh /etc/entrypoint.sh
 ENTRYPOINT /etc/entrypoint.sh
@@ -2411,6 +2634,7 @@ tgbugs/musl:scigraph
 *** file
 #+name: &musl/scigraph
 #+begin_src dockerfile :tangle ./musl/scigraph/Dockerfile
+ARG FEATURES="ebuild-lock"
 <<&build-world>>
 ADD entrypoint.sh /etc/entrypoint.sh
 ENTRYPOINT /etc/entrypoint.sh
@@ -2459,6 +2683,8 @@ docker run \
 #+name: &musl/kg-release
 #+begin_src dockerfile :tangle ./musl/kg-release/Dockerfile
 FROM tgbugs/musl:emacs
+
+ARG FEATURES="ebuild-lock"  # scigraph and blazegraph pull in acct-{user,group}
 <<&build-world>>
 #+end_src
 
@@ -2784,8 +3010,6 @@ RUN \
 pushd git \
 &&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
 &&     pushd open-physiology-viewer \
-&&         git fetch origin pull/99/head:pr-99 \
-&&         git checkout pr-99 \
 &&         npm install \
 &&         pushd wrapper \
 &&             npm install \
@@ -2822,10 +3046,6 @@ pushd git \
 &&         pip install --user -e . \
 &&     popd \
 && popd \
-&& rm -r ~/.cache/pip
-
-RUN \
-pip install --user git+https://github.com/rdflib/rdflib-jsonld.git \
 && rm -r ~/.cache/pip
 
 RUN \
