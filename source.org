@@ -44,6 +44,7 @@ enabled in the client.
 Prepare package host folders. The server will be started automatically
 below if it is not already up.
 #+begin_src screen
+mkdir -p ~/files/binpkgs/multi
 mkdir -p ~/files/binpkgs/gnu
 mkdir -p ~/files/binpkgs/musl
 mkdir -p ~/files/binpkgs/musl-x
@@ -56,12 +57,15 @@ fail with strange errors in strange ways.
 #+name: &run-quickpkg-first-time
 #+begin_src screen
 docker pull gentoo/stage3:hardened
+
+# gnu
 docker run \
 -v ~/files/binpkgs/gnu:/var/cache/binpkgs \
 --rm \
 gentoo/stage3:hardened \
 quickpkg "virtual/ssh" --include-config y;
 
+# musl*
 docker pull gentoo/stage3:amd64-musl-hardened
 for binrepo in {musl,musl-x,musl-static-x}; do
 docker run \
@@ -70,6 +74,50 @@ docker run \
 gentoo/stage3:amd64-musl-hardened \
 quickpkg "virtual/ssh" --include-config y;
 done
+
+# multi gnu
+docker run \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-e FEATURES=binpkg-multi-instance \
+--rm \
+gentoo/stage3:hardened \
+quickpkg "virtual/ssh" --include-config y;
+
+# multi musl
+docker run \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-e FEATURES=binpkg-multi-instance \
+--rm \
+gentoo/stage3:amd64-musl-hardened \
+quickpkg "virtual/ssh" --include-config y;
+#+end_src
+
+** Portage git ssh access
+Needed for live ebuilds that point to private git repos.
+Eventually this should be baked into the docker in docker top level image.
+
+You will need to generate ssh keys for the host system if they do not
+already exist, and you will need to register them with the git remote.
+
+This is similar to what we do for [[*portage-maven][portage-maven]].
+
+The default location for the portage home directory is now
+=/var/lib/portage/home/.ssh= which means that the ssh config and
+private keys can be stored there persistently and safely without
+violating the sandbox during package fetch.
+
+In the even that you have to deal with some strange legacy case you
+may want to symlink a path outside the sandbox to a path inside the
+sandbox due to the change in home directory from =/var/tmp/portage= ->
+=/var/lib/portage/home=. Inside the images we have to run
+=ln -s /var/tmp/portage/.ssh /var/lib/portage/home/.ssh=.
+
+If =/var/tmp/portage= is still the portage home folder and it is a
+ramdisk that is wiped on reboot you will want the following.
+#+begin_src bash :tangle /su::/etc/local.d/20portage-symlinks.start :tangle-mode 0755 :tangle no
+# relink .ssh across restarts
+ln -s /mnt/str/portage/.ssh /var/tmp/portage/
+chown -h portage:portage /var/tmp/portage/.ssh
 #+end_src
 
 * Ops
@@ -82,7 +130,7 @@ To prepare a fresh cycle of images.
 #+begin_src screen
 <<&workflow-funs>>
 
-unset _refresh _repos _repackage _resnap
+unset _refresh _repos _repackage _resnap _live_rebuild
 _refresh=
 _repos=
 _repackage=
@@ -144,6 +192,8 @@ echo TODO
 <<&builder-world>>
 
 <<&builder-arb>>
+
+<<&builder-debug>>
 
 function run-musl () {
 local REPOS="${_repos}"
@@ -228,9 +278,12 @@ static-builder-world  # FIXME if this is not run once at the start then somethin
 #<<&musl-build-dynapad>> || return $?; # needs to be done by hand
 
 ## NIF-ontology
-<<&musl-build-icedtea>> || return $?; echo mbi;
+<<&musl-build-icedtea>> || return $?; echo mbicdt;
 <<&musl-build-protege>> || return $?; echo mbp;
 <<&musl-build-NIF-ontology>> || return $?; echo mbno;
+
+## interlex
+<<&musl-build-interlex>> || return $?; echo mbilx;
 
 }
 #+end_src
@@ -259,6 +312,28 @@ following after checking that they work as expected.
 for _image in $(docker images --filter=reference="tgbugs/musl:*" --filter=reference="tgbugs/repos:*" --filter=since='tgbugs/musl:eselect-repo' --format "{{.Repository}}:{{.Tag}}" | grep -v snap); do
     docker push "${_image}"
 done
+#+end_src
+** Emergency quickpkg
+Sometimes you don't want to wait to get to the package builder step
+because there is some bug in between.  Ideally we should derive the
+binpkgs from the selected profile for the image, taking the image as
+the first argument and then the rest of the arguments should be. The
+other possibility might be to use the output of =emerge --info=.
+Indeed =emerge --info= lists the binary repositories along with their
+priority, and we have the names of the repo definitions above.
+Another option would be =/etc/portage/binrepos.conf/= so that we don't
+have to bother with parsing the output of the info dump.
+#+begin_src bash
+#function docker-quickpkg () {
+docker run \
+-v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+--rm \
+tgbugs/musl:static-xorg \
+quickpkg \
+media-libs/harfbuzz \
+dev-libs/glib \
+--include-config y;
+#}
 #+end_src
 * Next
 ** TODO update package builder image setup to accommodate /etc/portage/patches
@@ -391,6 +466,7 @@ location = /var/db/docker-profile
 #+end_src
 **** package.accept_keywords
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
+dev-python/*::tgbugs-overlay
 dev-scheme/racket::tgbugs-overlay
 #+end_src
 **** package.mask
@@ -442,6 +518,8 @@ approach is likely better than using =INSTALL_MASK=.
 # USE="-doc"
 # LINGUAS="en"
 # for some reason empty video cards does not actually disable all the flags
+Normally we don't set =USE== in make.conf, however there is no way to set
+global use flags in a profile without doing so.
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/make.defaults
 INSTALL_MASK="${INSTALL_MASK}
 /usr/share/locale
@@ -450,6 +528,10 @@ INSTALL_MASK="${INSTALL_MASK}
 -/usr/share/locale/en@quot
 -/usr/share/locale/en@shaw
 -/usr/share/locale/en_US"
+
+# icu is needed due to musl collation issues
+# jemalloc can improve performance re issues with musl allocator
+USE="${USE} icu jemalloc"
 
 VIDEO_CARDS="-*"
 
@@ -508,11 +590,17 @@ dev-lang/rust-bin
 dev-python/pipenv ~amd64
 app-misc/yq ~amd64
 
+# harfbuzz 3.1.2 needs freetype-2.11.1 otherwise build fails
+=media-libs/freetype-2.11.1 ~amd64
+
 # tgbugs-overlay
 dev-db/blazegraph-bin ~amd64
 dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
 #dev-scheme/racket ~amd64  # profile can't restrict by repo :(
+
+# tgbugs-overlay python
+dev-python/interlex **
 
 # gtknor
 <gnome-base/librsvg-2.41 **
@@ -527,15 +615,23 @@ dev-lisp/sbcl ~amd64
 
 # python packaging chaos
 dev-python/setuptools ~amd64  # TODO remove this when upstream shifts
-
-# tgbugs-overlay python # XXX if we introduct pypy3 this is going to be a mess
-# dev-python/pyontutils ~amd64
 #+end_src
-**** package.use
-#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use
-# musl performance
-# ,*/* jemalloc # FIXME not sure how to enable the positive use flag
+# probably have to put dev-python/*::tgbugs-overlay in /etc/portage/package.accept_keywords/profile
+# dev-python/pyontutils ~amd64
+# XXX if we introduce pypy3 this is going to be a mess
 
+# interesting issue with dev-python/interlex ** nominally being completely
+# irrelevant and orthognal to the rest of the contstraints on other images
+# that will never install it, it technically triggers a rebuild of everything
+# because we make the profile a dependency, we mitigate this by using binpkgs
+# but really we should be able to put things like this in the package builder
+# image and snapshot and then only in the docker files that will actually
+# install that package itself ... hrm ... unfortunately that is WAY harder
+# for someone to understand and track than it is to stick it in here and
+# rebuild everything ... sigh, eventually we will implement this optimization
+**** package.use
+# TODO consider dev-db/sqlite secure-delete
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use
 # font rendering
 media-libs/freetype -cleartype-hinting -cleartype_hinting
 
@@ -554,7 +650,11 @@ dev-scheme/racket cs bc cgc jit
 
 # graphviz
 media-libs/gd truetype fontconfig
+
+# tgbugs-overlay python
+dev-python/orthauth yaml  # FIXME sxpyr ftlog
 #+end_src
+
 **** use.mask
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/use.mask
 # reduce deps
@@ -1225,6 +1325,8 @@ COPY --from=tgbugs/musl:user / /
 #+end_src
 
 ** xorg
+# FIXME why is this not being built from binpkg only? is it for layer
+# efficiency?
 *** run
 #+name: &musl-run-xorg
 #+begin_src bash
@@ -1262,7 +1364,7 @@ tgbugs/musl:xorg
 The really good news here is that portage ignores packages that were
 built with mismatched use flags, so at the end of the day what we will
 wind up with is a case where only packages with mismatched flags will
-be build and deposited into musl-x. The less good news is that this is
+be built and deposited into musl-x. The less good news is that this is
 not fully implemented yet as noted in <https://wiki.gentoo.org/wiki/
 Binary_package_guide#Pulling_packages_from_a_binary_package_host>.
 
@@ -1290,6 +1392,9 @@ eselect profile set $PROFILE
 # FIXME this rebuild is bad because it results in duplication of
 # rebuilt packages between layers, probably need updated-x
 # XXX install freetype without harfbuzz first to avoid the circular dependency (sigh)
+# XXX NOTE when harfbuzz and freetype are installed from binpkgs sometimes fontconfig
+# will scream about missing libs, this is because the good harfbuzz is installed after
+# fontconfig, confusing and scary, but apparently not fatal
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 # FIXME tgbugs-overlay symlinks
 ln -s /var/db/repos/gentoo /usr/portage \
@@ -1314,6 +1419,8 @@ eselect fontconfig disable 10-hinting-slight.conf \
    57-dejavu-sans.conf \
    57-dejavu-sans-mono.conf
 #+end_src
+
+# FIXME 10-hinting-slight.conf no longer exists now ???
 
 The issues with freetype hinting are partially dealt with in the
 profile because so many packages pull in freetype, we have to deal
@@ -1426,14 +1533,16 @@ build_package sh -c "emerge -1q freetype"
 
 #+name: &builder-resnap
 #+begin_src bash
+export _tm_pbs=tgbugs/musl:package-builder-snap
+export _tm_s_pbs=tgbugs/musl:static-package-builder-snap
 function builder-resnap () {
 docker run tgbugs/musl:package-builder
-docker commit $(docker ps -lq) tgbugs/musl:package-builder-snap
+docker commit $(docker ps -lqf ancestor=tgbugs/musl:package-builder) ${_tm_pbs}
 }
 # FIXME SIGH SIGH SIGH why is this easier than doing the right thing
 function static-builder-resnap () {
 docker run tgbugs/musl:static-package-builder
-docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+docker commit $(docker ps -lqf ancestor=tgbugs/musl:static-package-builder) ${_tm_s_pbs}
 }
 #+end_src
 
@@ -1459,10 +1568,11 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
-tgbugs/musl:package-builder-snap \
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
 # FIXME SIGH code dupe
 function static-builder-world () {
@@ -1473,10 +1583,11 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
-tgbugs/musl:static-package-builder-snap \
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
 #+end_src
 
@@ -1490,11 +1601,12 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
-tgbugs/musl:package-builder-snap \
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
 # XXX FIXME code dupe
 function static-builder-arb () {
@@ -1505,11 +1617,12 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
-tgbugs/musl:static-package-builder-snap \
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
 #+end_src
 
@@ -1531,11 +1644,12 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
-tgbugs/musl:package-builder-snap \
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
 # FIXME code dupe
 function static-builder-arb-priv () {
@@ -1547,11 +1661,12 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
-tgbugs/musl:static-package-builder-snap \
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
 #+end_src
 # dev-lang/go
@@ -1567,9 +1682,10 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
--it tgbugs/musl:package-builder-snap
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+-it ${_tm_pbs}
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
 # XXX FIXME code dupe
 function static-builder-debug () {
@@ -1580,9 +1696,10 @@ docker run \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
--it tgbugs/musl:static-package-builder-snap
+-v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+-it ${_tm_s_pbs}
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
 #+end_src
 
@@ -1733,6 +1850,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-kg-release>>
 <<world-kg-dev>>
 <<world-docker>>
+<<world-interlex>>
 app-portage/smart-live-rebuild
 sys-devel/crossdev
 x11-base/xorg-server
@@ -1953,9 +2071,13 @@ dev-lang/python:3.6
 dev-lang/python:3.7
 dev-lang/python:3.8
 dev-lang/python:3.9
-dev-python/pipenv
 dev-python/pip
 #+end_src
+# XXX pipenv continues to be a toxic waste dump of insanity and brokeness
+# https://bugs.gentoo.org/717666 really really bad call on my part for
+# picking it back in 2018 because Pipfile seemed useful
+# LOL PYTHON pipenv bundles tomli but apparently has a hard upper version limit in the ebuild? wat
+# dev-python/pipenv
 ** pypy3 notes
 If you load up =builder-debug= you can emerge pypy3 by adding patches
 manually, the right thing to do is to update the musl overlay build,
@@ -2575,6 +2697,46 @@ RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigrap
 ; git -C ~/git/NIF-Ontology status
 #+end_src
 
+** interlex
+*** run
+WARNING! If you mount your postgres data directory like this make sure
+the host system is NOT also running postgres on top of that directory
+otherwise you will have a BAD TIME.
+#+begin_src screen
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:interlex
+#+end_src
+
+*** build
+#+name: &musl-build-interlex
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:interlex \
+--file musl/interlex/Dockerfile musl/interlex
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/interlex/Dockerfile
+FROM tgbugs/musl:binpkg-only
+
+ARG FEATURES=ebuild-locks
+<<&build-world-common>>
+#+end_src
+*** world
+# app-misc/elasticsearch  # XXX license issues, likely must handle separately
+# so that we don't taint the profile, probably want a license builder image
+# or something, this would allow us to build license tainted software and
+# then individual images that want to use it could set the license before
+# emerging the binpkg
+#+name: world-interlex
+#+begin_src conf :tangle ./musl/interlex/world
+dev-python/interlex
+dev-libs/redland
+#+end_src
+
 ** blazegraph
 *** run
 #+begin_src bash
@@ -2594,7 +2756,7 @@ docker run \
 *** file
 #+name: &musl/blazegraph
 #+begin_src dockerfile :tangle ./musl/blazegraph/Dockerfile
-ARG FEATURES="ebuild-lock"
+ARG FEATURES="ebuild-locks"
 <<&build-world-nox>>
 ADD entrypoint.sh /etc/entrypoint.sh
 ENTRYPOINT /etc/entrypoint.sh
@@ -2634,7 +2796,7 @@ tgbugs/musl:scigraph
 *** file
 #+name: &musl/scigraph
 #+begin_src dockerfile :tangle ./musl/scigraph/Dockerfile
-ARG FEATURES="ebuild-lock"
+ARG FEATURES="ebuild-locks"
 <<&build-world>>
 ADD entrypoint.sh /etc/entrypoint.sh
 ENTRYPOINT /etc/entrypoint.sh
@@ -2684,8 +2846,8 @@ docker run \
 #+begin_src dockerfile :tangle ./musl/kg-release/Dockerfile
 FROM tgbugs/musl:emacs
 
-ARG FEATURES="ebuild-lock"  # scigraph and blazegraph pull in acct-{user,group}
-<<&build-world>>
+ARG FEATURES="ebuild-locks"  # scigraph and blazegraph pull in acct-{user,group}
+<<&build-world-common>>
 #+end_src
 
 *** world
@@ -2909,6 +3071,7 @@ app-misc/yq
 dev-python/pip
 dev-python/pyzmq
 dev-java/robot-bin
+dev-python/jupyter_core
 #+end_src
 
 *** file
@@ -2986,7 +3149,7 @@ WORKDIR $HOME
 ARG INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simple.el
 
 RUN \
-emacs --batch --quick --eval "(progn (url-handler-mode 1) (find-file \"${INIT_URL}\") (eval-buffer))"
+emacs --batch --quick --eval "(progn (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" "${INIT_URL}"
 
 RUN \
 pushd ~/.emacs.d \
@@ -3006,6 +3169,10 @@ ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 # FIXME break these into their own images to avoid serial dependencies
 
+# TODO https://github.com/Jannis234/jm-overlay seems to have node.eclass
+# alternately we could try something similar to what we do for maven
+# supply chain attacks become a problem, but it is no worse than what
+# we have here
 RUN \
 pushd git \
 &&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
@@ -3055,10 +3222,6 @@ pushd git \
 &&         pip install --user -e . \
 &&     popd \
 && popd \
-&& rm -r ~/.cache/pip
-
-RUN \
-pip install --user jupyter jupyter-core \
 && rm -r ~/.cache/pip
 
 RUN \
