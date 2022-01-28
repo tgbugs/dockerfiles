@@ -984,38 +984,6 @@ priority = 200
 sync-uri = http://local.binhost:8089/musl-x
 #+end_src
 
-** profile-static-x
-*** build
-#+name: &musl-build-profile-static-x
-#+begin_src screen
-docker build \
---tag tgbugs/musl:profile-static-x \
---file musl/profile-x/static.Dockerfile .
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./musl/profile-x/static.Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-ADD docker-profile/x/docker-profile var/db/docker-profile
-ADD docker-profile/static/docker-profile var/db/docker-profile
-ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
-
-*** etc
-**** binrepos.conf
-#+begin_src conf :tangle ./musl/profile-x/musl-static-x.conf
-[tgbugs-musl-static-x]
-priority = 400
-sync-uri = http://local.binhost:8089/musl-static-x
-#+end_src
 ** user
 #+name: &musl-build-user
 #+begin_src screen
@@ -1433,32 +1401,6 @@ some default that is enabled so there winds up being a difference
 between there being no reference to a feature and a reference to it to
 explicitly disable it. Sigh.
 
-** static-xorg
-*** run
-debug
-#+begin_src screen
-docker run \
---net host \
---add-host local.binhost:127.0.0.1 \
---volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=${DISPLAY} \
---rm \
--it \
-tgbugs/musl:static-xorg
-#+end_src
-*** build
-#+name: &musl-build-static-xorg
-#+begin_src screen
-<<&docker-build>>
---tag tgbugs/musl:static-xorg \
---build-arg PROFILE='docker-profile:tgbugs/musl/static/x' \
---build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
---file musl/xorg/Dockerfile musl/xorg
-#+end_src
-# --build-arg START_IMAGE='tgbugs/musl:xorg' \
 ** package-builder
 *** populate 0
 Yes it is kind of annoying to fully split the packages here when many of them don't actually
@@ -1859,63 +1801,6 @@ media-libs/fontconfig
 media-fonts/dejavu
 #+end_src
 
-** static-package-builder
-*** populate 0
-#+name: &musl-run-static-xorg-quickpkg
-#+begin_src bash
-docker run \
---volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
---rm \
-tgbugs/musl:static-xorg \
-quickpkg "*/*" --include-config y
-#+end_src
-*** run
-#+begin_src bash
-docker run tgbugs/musl:static-package-builder
-docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
-
-cat ./musl/package-builder/world | xargs \
-docker run \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
-tgbugs/musl:static-package-builder-snap \
-emerge --color=y -j4 -q --keep-going -uDN
-
-docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
-#+end_src
-# FIXME racket failing with mkostemp failures during raco make or
-# something !? what the fuck?  how was this not caught before ?!
-*** build
-#+name: &musl-build-static-package-builder
-#+begin_src screen
-docker build \
---tag tgbugs/musl:static-package-builder \
---file musl/package-builder/static.Dockerfile musl/package-builder
-#+end_src
-*** file
-#+begin_src dockerfile :tangle ./musl/package-builder/static.Dockerfile
-FROM tgbugs/musl:static-xorg
-
-<<&musl-package-builder-common>>
-#+end_src
-*** world
-#+name: world-static-package-builder
-#+begin_src conf :tangle ./musl/static-package-builder/world
-<<world-sbcl>>
-<<world-static-sbcl-c-libs>>
-#+end_src
-
-#+name: world-static-sbcl-c-libs
-#+begin_src conf
-dev-libs/openssl
-dev-libs/gmp
-dev-libs/capstone
-dev-libs/mpfr
-dev-libs/redland
-#+end_src
 ** package-builder-nox
 *** populate 0
 #+name: &musl-run-updated-quickpkg
@@ -2015,21 +1900,6 @@ echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkgonly --getbinpkgonly"'
 
 #+begin_src dockerfile :tangle ./musl/binpkg-only/Dockerfile
 FROM tgbugs/musl:xorg
-<<&musl-binpkg-only-common>>
-#+end_src
-
-** static-binpkg-only
-*** build
-#+name: &musl-build-static-binpkg-only
-#+begin_src bash
-docker build \
---tag tgbugs/musl:static-binpkg-only \
---file musl/binpkg-only/static.Dockerfile musl/binpkg-only
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./musl/binpkg-only/static.Dockerfile
-FROM tgbugs/musl:static-xorg
 <<&musl-binpkg-only-common>>
 #+end_src
 
@@ -3245,55 +3115,6 @@ usermod -a -G blazegraph user \
 # unless you bake a new kg-dev-with-data release
 ENTRYPOINT /etc/entrypoint.sh
 #+end_src
-** sbcl
-*** build
-#+name: &musl-build-sbcl
-#+begin_src screen
-<<&docker-build>>
---tag tgbugs/musl:sbcl \
---file musl/sbcl/Dockerfile musl/sbcl
-#+end_src
-*** file
-#+begin_src dockerfile :tangle ./musl/sbcl/Dockerfile
-FROM tgbugs/musl:static-binpkg-only
-<<&build-world-common>>
-#+end_src
-*** world
-#+name: world-sbcl
-#+begin_src conf :tangle ./musl/sbcl/world
-<<world-emacs>>
-dev-lisp/uiop
-dev-lisp/asdf
-dev-lisp/sbcl
-#+end_src
-** sbcl-user
-*** run
-#+begin_src bash
-docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:sbcl-user
-#+end_src
-
-*** build
-#+name: &musl-build-sbcl-user
-#+begin_src screen
-docker build \
---tag tgbugs/musl:sbcl-user \
---build-arg UID=${UID} \
---file musl/sbcl-user/Dockerfile musl/sbcl-user
-#+end_src
-
-*** file
-# TODO emacs setup etc.
-#+begin_src dockerfile :tangle ./musl/sbcl-user/Dockerfile
-FROM tgbugs/musl:sbcl
-
-COPY --from=tgbugs/musl:user / /
-
-<<&musl-file-user-base>>
-#+end_src
-
 ** racket
 *** build
 #+name: &musl-build-racket
@@ -3505,6 +3326,188 @@ net-misc/rabbitmq-server
 #+begin_src conf
 dev-libs/redland
 #+end_src
+* musl static
+Same metadata as musl except with =static-libs= in order to produce
+statically linked binaries.
+** profile-static-x
+*** build
+#+name: &musl-build-profile-static-x
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:profile-static-x \
+--file musl/profile-x/static.Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/profile-x/static.Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+ADD docker-profile/x/docker-profile var/db/docker-profile
+ADD docker-profile/static/docker-profile var/db/docker-profile
+ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+
+*** etc
+**** binrepos.conf
+#+begin_src conf :tangle ./musl/profile-x/musl-static-x.conf
+[tgbugs-musl-static-x]
+priority = 400
+sync-uri = http://local.binhost:8089/musl-static-x
+#+end_src
+** static-xorg
+*** run
+debug
+#+begin_src screen
+docker run \
+--net host \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=${DISPLAY} \
+--rm \
+-it \
+tgbugs/musl:static-xorg
+#+end_src
+*** build
+#+name: &musl-build-static-xorg
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:static-xorg \
+--build-arg PROFILE='docker-profile:tgbugs/musl/static/x' \
+--build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
+--file musl/xorg/Dockerfile musl/xorg
+#+end_src
+# --build-arg START_IMAGE='tgbugs/musl:xorg' \
+** static-package-builder
+*** populate 0
+#+name: &musl-run-static-xorg-quickpkg
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
+--rm \
+tgbugs/musl:static-xorg \
+quickpkg "*/*" --include-config y
+#+end_src
+*** run
+#+begin_src bash
+docker run tgbugs/musl:static-package-builder
+docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+
+cat ./musl/package-builder/world | xargs \
+docker run \
+--volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+tgbugs/musl:static-package-builder-snap \
+emerge --color=y -j4 -q --keep-going -uDN
+
+docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
+#+end_src
+# FIXME racket failing with mkostemp failures during raco make or
+# something !? what the fuck?  how was this not caught before ?!
+*** build
+#+name: &musl-build-static-package-builder
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:static-package-builder \
+--file musl/package-builder/static.Dockerfile musl/package-builder
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./musl/package-builder/static.Dockerfile
+FROM tgbugs/musl:static-xorg
+
+<<&musl-package-builder-common>>
+#+end_src
+*** world
+#+name: world-static-package-builder
+#+begin_src conf :tangle ./musl/static-package-builder/world
+<<world-sbcl>>
+<<world-static-sbcl-c-libs>>
+#+end_src
+
+#+name: world-static-sbcl-c-libs
+#+begin_src conf
+dev-libs/openssl
+dev-libs/gmp
+dev-libs/capstone
+dev-libs/mpfr
+dev-libs/redland
+#+end_src
+** static-binpkg-only
+*** build
+#+name: &musl-build-static-binpkg-only
+#+begin_src bash
+docker build \
+--tag tgbugs/musl:static-binpkg-only \
+--file musl/binpkg-only/static.Dockerfile musl/binpkg-only
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/binpkg-only/static.Dockerfile
+FROM tgbugs/musl:static-xorg
+<<&musl-binpkg-only-common>>
+#+end_src
+
+** sbcl
+*** build
+#+name: &musl-build-sbcl
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:sbcl \
+--file musl/sbcl/Dockerfile musl/sbcl
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./musl/sbcl/Dockerfile
+FROM tgbugs/musl:static-binpkg-only
+<<&build-world-common>>
+#+end_src
+*** world
+#+name: world-sbcl
+#+begin_src conf :tangle ./musl/sbcl/world
+<<world-emacs>>
+dev-lisp/uiop
+dev-lisp/asdf
+dev-lisp/sbcl
+#+end_src
+** sbcl-user
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:sbcl-user
+#+end_src
+
+*** build
+#+name: &musl-build-sbcl-user
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:sbcl-user \
+--build-arg UID=${UID} \
+--file musl/sbcl-user/Dockerfile musl/sbcl-user
+#+end_src
+
+*** file
+# TODO emacs setup etc.
+#+begin_src dockerfile :tangle ./musl/sbcl-user/Dockerfile
+FROM tgbugs/musl:sbcl
+
+COPY --from=tgbugs/musl:user / /
+
+<<&musl-file-user-base>>
+#+end_src
+
 * gnu
 may not need this if we can use crossdev to build glibc sbcl on musl that that seems a stretch
 ** profile
@@ -3867,6 +3870,10 @@ DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 
 #+end_src
 * sckan
+=base= must be built before =services=, obvious from errors or from
+reading the docker files but doesn't jump out and is the inverse of
+the order of specification (because services is rebuilt more
+frequently).
 ** save
 To save a gzipped archive run
 #+begin_src bash
