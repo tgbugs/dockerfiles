@@ -33,11 +33,16 @@ the following in [[/etc/docker/daemon.json]].
 
 ** Client
 Building the precursor images in =gentoo/stage3= for this repo from
-[[https://github.com/gentoo/gentoo-docker-images][scratch]] requires
-the =buildx= extension which requires experimental features to be
-enabled in the client.
+[[https://github.com/gentoo/gentoo-docker-images][scratch]] requires the =buildx= extension which requires experimental
+features to be enabled in the client.
+
+If you want to push the images to a remote docker repository add the
+auths section as well (and fill it in with your credentials).
 #+begin_src json :tangle ~/.docker/config.json :tangle no
-{"experimental": "enabled"}
+{"experimental": "enabled",
+ "auths": {
+   "https://index.docker.io/v1/": {
+     "auth": "XXX NOT A REAL KEY FILL ME IN XXX"}}}
 #+end_src
 
 ** Package host
