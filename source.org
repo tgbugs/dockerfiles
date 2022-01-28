@@ -2360,7 +2360,7 @@ cd ~/ \
 && mkdir -p ~/.local/share ~/.local/bin \
 && mv Protege-${PROTEGE_VERSION} ~/.local/share/ \
 && pushd ~/.local/bin \
-&& ln -s ~/.local/share/Protege-${PROTEGE_VERSION}/run.sh protege \
+&& ln -s ../share/Protege-${PROTEGE_VERSION}/run.sh protege \
 && popd \
 && rm Protege-${PROTEGE_VERSION}-linux.tar.gz
 
