@@ -45,10 +45,6 @@ Prepare package host folders. The server will be started automatically
 below if it is not already up.
 #+begin_src screen
 mkdir -p ~/files/binpkgs/multi
-mkdir -p ~/files/binpkgs/gnu
-mkdir -p ~/files/binpkgs/musl
-mkdir -p ~/files/binpkgs/musl-x
-mkdir -p ~/files/binpkgs/musl-static-x
 #+end_src
 *** prepare all binpkg repos
 We have to prepare all the binpkg repos so that during a first build
@@ -56,40 +52,16 @@ they have some basic metadata, otherwise trying to emerge binpkgs will
 fail with strange errors in strange ways.
 #+name: &run-quickpkg-first-time
 #+begin_src screen
-docker pull gentoo/stage3:hardened
-
-# gnu
-docker run \
--v ~/files/binpkgs/gnu:/var/cache/binpkgs \
---rm \
-gentoo/stage3:hardened \
-quickpkg "virtual/ssh" --include-config y;
-
-# musl*
-docker pull gentoo/stage3:amd64-musl-hardened
-for binrepo in {musl,musl-x,musl-static-x}; do
-docker run \
--v ~/files/binpkgs/${binrepo}:/var/cache/binpkgs \
---rm \
-gentoo/stage3:amd64-musl-hardened \
-quickpkg "virtual/ssh" --include-config y;
+for stage3 in {hardened,amd64-musl-hardened}; do
+    docker pull gentoo/stage3:${stage3}
+    docker run \
+    -v ~/files/binpkgs/multi:/var/cache/binpkgs \
+    -e FEATURES=binpkg-multi-instance \
+    -e QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022" \
+    --rm \
+    gentoo/stage3:${stage3} \
+    quickpkg "virtual/ssh";
 done
-
-# multi gnu
-docker run \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--e FEATURES=binpkg-multi-instance \
---rm \
-gentoo/stage3:hardened \
-quickpkg "virtual/ssh" --include-config y;
-
-# multi musl
-docker run \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--e FEATURES=binpkg-multi-instance \
---rm \
-gentoo/stage3:amd64-musl-hardened \
-quickpkg "virtual/ssh" --include-config y;
 #+end_src
 
 ** Portage git ssh access
@@ -126,16 +98,19 @@ If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
 
 To prepare a fresh cycle of images.
+# FIXME something is off when trying to bootstrap this from scratch on a new computer
+# things break at ref:&musl-build-xorg
 #+name: workflow
 #+begin_src screen
 <<&workflow-funs>>
 
-unset _refresh _repos _repackage _resnap _live_rebuild
+unset _refresh _repos _repackage _resnap _live_rebuild _nopkgbldr
 _refresh=
 _repos=
 _repackage=
 _resnap=
 _live_rebuild=
+_nopkgbldr=
 package-server
 pull
 pushd ~/git/dockerfiles
@@ -203,6 +178,7 @@ local QPKGX="${_repackage}"
 local QPKGSX="${_repackage}"
 local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
+local NOBUILD="${_nopkgbldr}"
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
 <<&musl-build-profile>> || return $?;
@@ -245,13 +221,15 @@ local LIVE_REBUILD="${_live_rebuild}"
 
 # TODO build any new packages
 [ -z $RESNAP ] || builder-resnap
-builder-world
+[ ! -z $NOBUILD ] || builder-world
 # TODO smart-live-rebuild
 [ -z $LIVE_REBUILD ] || builder-arb @live-rebuild
 
 [ -z $RESNAP ] || static-builder-resnap
-static-builder-world  # FIXME if this is not run once at the start then something fails above
+[ ! -z $NOBUILD ] || static-builder-world  # FIXME if this is not run once at the start then something fails above
 [ -z $LIVE_REBUILD ] || static-builder-arb @live-rebuild
+
+# TODO consider whether we need to rebuild baselayout openrc sgml-common due to config issues with quickpkg
 
 # image builds
 
@@ -313,27 +291,23 @@ for _image in $(docker images --filter=reference="tgbugs/musl:*" --filter=refere
     docker push "${_image}"
 done
 #+end_src
+
 ** Emergency quickpkg
 Sometimes you don't want to wait to get to the package builder step
-because there is some bug in between.  Ideally we should derive the
-binpkgs from the selected profile for the image, taking the image as
-the first argument and then the rest of the arguments should be. The
-other possibility might be to use the output of =emerge --info=.
-Indeed =emerge --info= lists the binary repositories along with their
-priority, and we have the names of the repo definitions above.
-Another option would be =/etc/portage/binrepos.conf/= so that we don't
-have to bother with parsing the output of the info dump.
+because there is some bug in between.
+#+name: &docker-quickpkg
 #+begin_src bash
-#function docker-quickpkg () {
+function docker-quickpkg () {
+# FIXME TODO pass the image to package
 docker run \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-e FEATURES=binpkg-multi-instance \
+-e QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022" \
 --rm \
 tgbugs/musl:static-xorg \
 quickpkg \
-media-libs/harfbuzz \
-dev-libs/glib \
---include-config y;
-#}
+${@}
+}
 #+end_src
 * Next
 ** TODO update package builder image setup to accommodate /etc/portage/patches
@@ -464,6 +438,12 @@ COPY --from=builder /build /
 [docker-profile]
 location = /var/db/docker-profile
 #+end_src
+**** binrepos.conf
+#+begin_src conf :tangle ./docker-profile/base/binrepos-multi.conf
+[tgbugs-multi]
+priority = 100
+sync-uri = http://local.binhost:8089/multi
+#+end_src
 **** package.accept_keywords
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
 dev-python/*::tgbugs-overlay
@@ -535,6 +515,17 @@ USE="${USE} icu jemalloc"
 
 VIDEO_CARDS="-*"
 
+# ensure that packages are readable by other users via umask 022
+# use unmodified config in case a config file is modified, configs
+# should never wind up modified when using package builder images
+# see https://bugs.gentoo.org/307455 for more
+# FIXME XXX current issues include
+# /etc/hosts -> sys-apps/baselayout
+# /etc/rc.conf -> sys-apps/openrc
+# /etc/sgml/catalog -> app-text/sgml-common
+# which seem to have been modified by other merges
+QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022"
+
 ACCT_GROUP_BLAZEGRAPH_ID=834
 ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
 
@@ -575,7 +566,6 @@ dev-lang/rust-bin
 # gtknor
 >=gnome-base/librsvg-2.41
 >x11-themes/adwaita-icon-theme-3.33
-#>=media-libs/mesa-21 # FIXME temporary
 
 # dynapad
 >=media-gfx/imagemagick-7
@@ -825,14 +815,14 @@ x11-base/xorg-server xvfb
 
 **** mask
 The media-libs/mesa-21.1 set fails to build even with all the use flags set correctly.
+Same issue with media-libs/mesa-21.1 https://bugs.gentoo.org/828491. Currently 21.2.6
+is the only one that will compile correctly.
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.mask
 <media-libs/mesa-21.2
+>=media-libs/mesa-21.3
 #+end_src
 **** accept_keywords
-needed as a stop gap until there is a stable version >=media-libs/mesa-21.2
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.accept_keywords
-=x11-libs/libdrm-2.4.107 ~amd64
-=media-libs/mesa-21.2.0 ~amd64
 #+end_src
 ** nox
 Explicit nox profile.
@@ -938,7 +928,8 @@ ADD docker-profile/base/docker-profile var/db/docker-profile
 ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
 ADD docker-profile/base/package.accept_keywords etc/portage/package.accept_keywords/profile
 ADD docker-profile/base/package.mask etc/portage/package.mask/profile
-ADD musl/profile/musl.conf etc/portage/binrepos.conf/musl.conf
+#ADD musl/profile/musl.conf etc/portage/binrepos.conf/musl.conf
+ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
 
 FROM scratch
 
@@ -972,7 +963,7 @@ FROM busybox:latest as builder
 WORKDIR /build
 
 ADD docker-profile/x/docker-profile var/db/docker-profile
-ADD musl/profile-x/musl-x.conf etc/portage/binrepos.conf/musl-x.conf
+ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
 
 FROM scratch
 
@@ -1005,8 +996,7 @@ WORKDIR /build
 
 ADD docker-profile/x/docker-profile var/db/docker-profile
 ADD docker-profile/static/docker-profile var/db/docker-profile
-ADD musl/profile-x/musl-x.conf etc/portage/binrepos.conf/musl-x.conf
-ADD musl/profile-x/musl-static-x.conf etc/portage/binrepos.conf/musl-static-x.conf
+ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
 
 FROM scratch
 
@@ -1143,7 +1133,7 @@ This is where everything starts. The profile has to be set here etc.
 #+begin_src screen
 docker run \
 --volumes-from local-portage-snap \
--v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -it tgbugs/musl:eselect-repo
 #+end_src
@@ -1292,7 +1282,7 @@ docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
@@ -1344,7 +1334,7 @@ docker run \
 --net host \
 --add-host local.binhost:127.0.0.1 \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
@@ -1446,7 +1436,7 @@ docker run \
 --net host \
 --add-host local.binhost:127.0.0.1 \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
@@ -1488,10 +1478,10 @@ have expired as well. The latest ebuild in the tree has removed bindist entirely
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 --rm \
 tgbugs/musl:xorg \
-quickpkg "*/*" --include-config y
+quickpkg "*/*"
 #+end_src
 
 *** run
@@ -1499,7 +1489,7 @@ quickpkg "*/*" --include-config y
 function build_package () {
 echo docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 --rm \
 tgbugs/musl:package-builder \
@@ -1566,7 +1556,7 @@ cat ./musl/package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 ${_tm_pbs} \
@@ -1581,7 +1571,7 @@ cat ./musl/static-package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 ${_tm_s_pbs} \
@@ -1599,7 +1589,7 @@ container-check
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 ${_tm_pbs} \
@@ -1615,7 +1605,7 @@ container-check
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 ${_tm_s_pbs} \
@@ -1642,7 +1632,7 @@ docker run \
 --privileged \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 ${_tm_pbs} \
@@ -1659,7 +1649,7 @@ docker run \
 --privileged \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 ${_tm_s_pbs} \
@@ -1680,7 +1670,7 @@ docker run \
 --privileged \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 -it ${_tm_pbs}
@@ -1694,7 +1684,7 @@ docker run \
 --privileged \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
 -it ${_tm_s_pbs}
@@ -1870,7 +1860,7 @@ media-fonts/dejavu
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 --rm \
 tgbugs/musl:static-xorg \
 quickpkg "*/*" --include-config y
@@ -1884,7 +1874,7 @@ cat ./musl/package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/musl-static-x:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 tgbugs/musl:static-package-builder-snap \
 emerge --color=y -j4 -q --keep-going -uDN
@@ -1927,17 +1917,17 @@ dev-libs/redland
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 --rm \
 tgbugs/musl:updated \
-quickpkg "*/*" --include-config y
+quickpkg "*/*"
 #+end_src
 *** run
 #+begin_src bash
 cat ./musl/package-builder/nox.world | xargs \
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 --rm \
 tgbugs/musl:package-builder-nox \
@@ -2151,7 +2141,7 @@ docker run \
 --net host \
 --add-host local.binhost:127.0.0.1 \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/musl:/var/cache/binpkgs \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
@@ -3530,7 +3520,7 @@ WORKDIR /build
 # we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
 ADD docker-profile/base/docker-profile var/db/docker-profile
 ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
-ADD gnu/profile/gnu.conf etc/portage/binrepos.conf/gnu.conf
+ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
 
 FROM scratch
 
