@@ -142,10 +142,24 @@ curl --fail --head http://localhost:8089/musl/Packages || {
 
 function pull () {
 if [ -n "${_refresh}" ]; then
+    # even when refresh is set avoid spurious pulls where the underlying stage3 has not changed
+    local DIST="https://distfiles.gentoo.org/releases/amd64/autobuilds"
+    local STAGE3_LATEST="$(curl --fail --silent "${DIST}/latest-stage3-amd64-musl-hardened.txt" |\
+        tail -n 1 | cut -f 1 -d'/' | sed -r 's/(....)(..)(..)T(..)(..)(..)/\1-\2-\3T\4:\5:\6/')"
+    local LOCDOC_LATEST="$(docker image inspect gentoo/stage3:amd64-musl-hardened --format '{{.Created}}')"
+    local S3_DATE=$(date -In --utc --date "${STAGE3_LATEST}")
+    local LD_DATE=$(date -In --utc --date "${LOCDOC_LATEST}")
+    # XXX there is technically a narrow window between the release of
+    # a stage3 and the building of a docker image where this might fail
+    # have to use double square brackets for this to work correctly
+    [[ ${S3_DATE} < ${LD_DATE} ]] || \
     docker pull gentoo/stage3:amd64-musl-hardened
+    # TODO consider whether this should invoke a repackage
+    # TODO related to diffing existing binpkgs to installed
 fi
 
 if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
+    # these are updated more or less in sync with the upstream snapshot source
     docker pull gentoo/portage:latest
     docker rm local-portage-snap
     docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
@@ -184,6 +198,7 @@ local QPKGSX="${_repackage}"
 local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
+echo start bootstrap
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
 <<&musl-build-profile>> || return $?;
@@ -225,11 +240,15 @@ local NOBUILD="${_nopkgbldr}"
 
 
 # TODO build any new packages
+echo musl builder start
 [ -z $RESNAP ] || builder-resnap
+[ ! -z $NOBUILD ] || \
+<<&musl-run-build-need-priv>>
 [ ! -z $NOBUILD ] || builder-world
 # TODO smart-live-rebuild
 [ -z $LIVE_REBUILD ] || builder-arb @live-rebuild
 
+echo musl static builder start
 [ -z $RESNAP ] || static-builder-resnap
 [ ! -z $NOBUILD ] || static-builder-world  # FIXME if this is not run once at the start then something fails above
 [ -z $LIVE_REBUILD ] || static-builder-arb @live-rebuild
@@ -237,6 +256,8 @@ local NOBUILD="${_nopkgbldr}"
 # TODO consider whether we need to rebuild baselayout openrc sgml-common due to config issues with quickpkg
 
 # image builds
+
+echo start image builds
 
 ## emacs
 <<&musl-build-emacs>> || return $?; echo mbe;  # XXX fail on stale profile is very confusing
@@ -503,6 +524,10 @@ approach is likely better than using =INSTALL_MASK=.
 # USE="-doc"
 # LINGUAS="en"
 # for some reason empty video cards does not actually disable all the flags
+
+# NOTE: the hardened profile sets USE=-cli and USE=-jit and some other stuff
+# that changes behavior [[/usr/portage/profiles/features/hardened/make.defaults]]
+
 Normally we don't set =USE== in make.conf, however there is no way to set
 global use flags in a profile without doing so.
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/make.defaults
@@ -513,6 +538,8 @@ INSTALL_MASK="${INSTALL_MASK}
 -/usr/share/locale/en@quot
 -/usr/share/locale/en@shaw
 -/usr/share/locale/en_US"
+
+FEATURES="${FEATURES} binpkg-multi-instance"
 
 # icu is needed due to musl collation issues
 # jemalloc can improve performance re issues with musl allocator
@@ -741,7 +768,7 @@ links the executable which we rarely want, in which case a positive
 static use flag should be added below, rather than turning off nearly
 every instance of =static= that we encounter.
 #+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/make.defaults
-USE="static-libs"
+USE="${USE} static-libs"
 #+end_src
 ***** package.use :ARCHIVE:
 #+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/package.use :tangle no
@@ -793,7 +820,7 @@ emerge -uDN @world
 #+end_src
 **** make.defaults
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/x/make.defaults
-USE="X"
+USE="${USE} X"
 VIDEO_CARDS="-*"
 #+end_src
 **** package.use
@@ -933,21 +960,12 @@ ADD docker-profile/base/docker-profile var/db/docker-profile
 ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
 ADD docker-profile/base/package.accept_keywords etc/portage/package.accept_keywords/profile
 ADD docker-profile/base/package.mask etc/portage/package.mask/profile
-#ADD musl/profile/musl.conf etc/portage/binrepos.conf/musl.conf
 ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
 
 FROM scratch
 
 WORKDIR /
 COPY --from=builder /build /
-#+end_src
-
-*** etc
-**** binrepos.conf
-#+begin_src conf :tangle ./musl/profile/musl.conf
-[tgbugs-musl]
-priority = 100
-sync-uri = http://local.binhost:8089/musl
 #+end_src
 ** profile-x
 *** build
@@ -975,15 +993,6 @@ FROM scratch
 WORKDIR /
 COPY --from=builder /build /
 #+end_src
-
-*** etc
-**** binrepos.conf
-#+begin_src conf :tangle ./musl/profile-x/musl-x.conf
-[tgbugs-musl-x]
-priority = 200
-sync-uri = http://local.binhost:8089/musl-x
-#+end_src
-
 ** user
 #+name: &musl-build-user
 #+begin_src screen
@@ -1576,7 +1585,7 @@ function builder-arb-priv () {
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
---privileged \
+--security-opt seccomp=unconfined \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/multi:/var/cache/binpkgs \
@@ -1593,7 +1602,7 @@ function static-builder-arb-priv () {
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
---privileged \
+--security-opt seccomp=unconfined \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/multi:/var/cache/binpkgs \
@@ -1606,8 +1615,19 @@ ${@}
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
 #+end_src
-# dev-lang/go
 # dev-lisp/sbcl cross compile
+
+# ah the irony of docker dependencies needing ISE:do_peekstr:process_vm_readv
+# due to using go-md2man and thus being unsafe to build in a sandboxed docker container
+#+name: &musl-run-build-need-priv
+#+begin_src bash
+builder-arb-priv -1 -uN \
+dev-lang/go \
+dev-go/go-md2man \
+app-containers/runc \
+app-containers/containerd \
+app-containers/docker-cli
+#+end_src
 
 #+name: &builder-debug
 #+begin_src bash
@@ -1876,6 +1896,18 @@ FROM tgbugs/musl:updated
 
 ** package-binhost
 ** binpkg-only
+*** run
+debug
+#+begin_src screen
+docker run \
+--net host \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from local-repos-snap \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+--rm \
+-it tgbugs/musl:binpkg-only
+#+end_src
+
 *** build
 #+name: &musl-build-binpkg-only
 #+begin_src bash
@@ -1927,6 +1959,101 @@ app-editors/vim
 app-portage/eix
 sys-devel/gdb::musl
 #+end_src
+
+** docker :bootstrap:
+This image provides one route to bootstrap an environment that can
+execute this file. Other routes also exist.
+
+This route requires the following dependencies.
+1. This =source.org= file.
+2. Emacs 27 or later (earlier might work but not tested)
+3. A posix shell
+4. docker version 20 or later
+5. Access to a gentoo stage 3 musl image.
+
+It does not require git to be installed on the host so =source.org=
+could be retrieved via curl or from a backup or similar.
+
+With a bit of wrangling the bootstrap might also be able to drop the
+Emacs dependency.
+
+A second phase bootstrap is used to provide a stable starting point
+for the rest of the process. This second phase does use git.
+
+*** run
+Reminder that this gives access to the host docker system.
+#+begin_src bash
+docker run \
+-v /var/run/docker.sock:/var/run/docker.sock \
+-it tgbugs/musl:docker
+#+end_src
+
+Version that works with existing package host folders.
+
+#+begin_src bash
+docker run \
+-v /var/run/docker.sock:/var/run/docker.sock \
+-v ~/files/binpkgs:/binpkgs \
+-it tgbugs/musl:docker
+#+end_src
+
+After quite a bit of exploration it seems that passing =docker.sock=
+is the sanest way to achieve what we want, though it does create a
+strange warping of perspective because all containers run on the host
+docker server. This is unfortunate because it causes the semantics to
+differ between running the bootstrap outside of docker or trying to
+run it "inside" of docker. See the dind heading above for more.
+*** build
+#+name: &musl-build-docker
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:docker \
+--file musl/docker/Dockerfile musl/docker
+#+end_src
+
+*** entrypoints
+0th
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/docker/entrypoint-0.sh :mkdirp yes
+pushd dockerfiles
+./source.org ${@}
+#+end_src
+
+1st
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/docker/entrypoint-1.sh :mkdirp yes
+git clone https://github.com/tgbugs/dockerfiles.git
+pushd dockerfiles
+./source.org ${@}
+#+end_src
+
+*** file
+# TODO daemon.json
+#+begin_src dockerfile :tangle ./musl/docker/Dockerfile
+<<&build-world>>
+ADD source.org /dockerfiles/source.org
+ADD entrypoint-0.sh /etc/entrypoint-0.sh
+ENTRYPOINT /etc/entrypoint-0.sh
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/docker/nox.Dockerfile
+<<&build-world-nox>>
+ADD entrypoint.sh /etc/entrypoint.sh
+ENTRYPOINT /etc/entrypoint.sh
+#+end_src
+
+*** world
+NOTE =dev-lang/go= is pulled in by =app-emulation/docker= and must be
+built using ref:&builder-arb-priv to avoid =process_vm_readv= being
+blocked by the container.
+
+#+name: world-docker
+#+begin_src conf :tangle ./musl/docker/world
+app-editors/emacs
+app-containers/docker
+app-containers/docker-cli
+#+end_src
+
 ** testing-python
 Python testing.
 *** world
@@ -3353,14 +3480,6 @@ FROM scratch
 WORKDIR /
 COPY --from=builder /build /
 #+end_src
-
-*** etc
-**** binrepos.conf
-#+begin_src conf :tangle ./musl/profile-x/musl-static-x.conf
-[tgbugs-musl-static-x]
-priority = 400
-sync-uri = http://local.binhost:8089/musl-static-x
-#+end_src
 ** static-xorg
 *** run
 debug
@@ -3534,14 +3653,6 @@ FROM scratch
 
 WORKDIR /
 COPY --from=builder /build /
-#+end_src
-
-*** etc
-**** binrepos.conf
-#+begin_src conf :tangle ./gnu/profile/gnu.conf
-[tgbugs-gnu]
-priority = 100
-sync-uri = http://local.binhost:8089/gnu
 #+end_src
 ** eselect-repo
 *** build
