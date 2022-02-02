@@ -630,6 +630,7 @@ app-misc/yq ~amd64
 dev-db/blazegraph-bin ~amd64
 dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
+dev-node/apinat-converter **
 #dev-scheme/racket ~amd64  # profile can't restrict by repo :(
 
 # tgbugs-overlay python
@@ -3083,6 +3084,7 @@ dev-python/pip
 dev-python/pyzmq
 dev-java/robot-bin
 dev-python/jupyter_core
+dev-node/apinat-converter
 #+end_src
 
 *** file
@@ -3139,10 +3141,9 @@ rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
-# screen ? or just emacs
 su user -c 'emacs -visit ~/git/sparc-curation/docs/queries.org'
-echo you have left the user shell, run '`su user`' to get another shell
-/bin/bash
+/etc/init.d/scigraph stop
+/etc/init.d/blazegraph stop
 #+end_src
 
 *** file
@@ -3160,7 +3161,9 @@ WORKDIR $HOME
 ARG INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simple.el
 
 RUN \
-emacs --batch --quick --eval "(progn (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" "${INIT_URL}"
+emacs --batch --quick --eval \
+"(progn (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
+"${INIT_URL}"
 
 RUN \
 pushd ~/.emacs.d \
@@ -3179,26 +3182,6 @@ mkdir ~/git
 ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 # FIXME break these into their own images to avoid serial dependencies
-
-# TODO https://github.com/Jannis234/jm-overlay seems to have node.eclass
-# alternately we could try something similar to what we do for maven
-# supply chain attacks become a problem, but it is no worse than what
-# we have here
-RUN \
-pushd git \
-&&     git clone https://github.com/open-physiology/open-physiology-viewer.git \
-&&     pushd open-physiology-viewer \
-&&         npm install \
-&&         pushd wrapper \
-&&             npm install \
-&&         popd \
-&&         npm run build \
-&&         rm -r ./node_modules \
-&&         rm -r ./wrapper/node_modules \
-&&     popd \
-&& popd \
-&& ln -s ~/git/open-physiology-viewer/wrapper/bin/converter.js ~/.local/bin/apinat-converter \
-&& rm -r ~/.npm/_cacache
 
 RUN \
 pushd git \
@@ -3236,10 +3219,17 @@ pushd git \
 && rm -r ~/.cache/pip
 
 RUN \
+./git/sparc-curation/docs/queries.org
+
+RUN \
 ./git/sparc-curation/docs/apinatomy.org
 
 RUN \
-./git/sparc-curation/docs/queries.org
+emacs -batch -eval \
+"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))))" \
+$HOME/.emacs.d/init.el \
+./git/sparc-curation/docs/queries.org \
+./git/sparc-curation/docs/apinatomy.org
 
 # TODO embed orgstrap checksums for queries.org etc
 
