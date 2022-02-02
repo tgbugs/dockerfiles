@@ -97,6 +97,17 @@ ln -s /mnt/str/portage/.ssh /var/tmp/portage/
 chown -h portage:portage /var/tmp/portage/.ssh
 #+end_src
 
+** git ignore
+This takes care of itself.
+#+begin_src conf :tangle .gitignore
+.gitignore
+docker-profile/*
+repos/*
+musl/*
+gnu/*
+other/*
+sckan/*
+#+end_src
 * Ops
 ** Build
 If you are bootstrapping this file from scratch you will need to build
@@ -2129,6 +2140,14 @@ app-editors/emacs:29-vcs
 #+end_src
 ** emacs
 Emacs using the athena 3d toolkit to avoid pulling in gtk.
+*** bugs
+If you quickpkg emacs and then try to install it you can encounter
+#+begin_example
+mv: cannot stat '/var/tmp/portage/app-editors/emacs-27.2-r5/image/usr/share/info/emacs-27/dir.orig': No such file or directory
+#+end_example
+This is somewhat concerning since the failure is during preinst and it
+definitely should not be looking in /var/tmp/portage for that orig
+file. It seems that forcing a rebuild with builder-arb fixes the issue.
 *** run
 #+begin_src screen
 docker run \
