@@ -3147,6 +3147,9 @@ su user -c 'emacs -visit ~/git/sparc-curation/docs/queries.org'
 #+end_src
 
 *** file
+# XXX note the using builder means that the command history
+# that is used to create the /build/ directory are lost
+# sigh bad trade offs for multi stage builds
 #+begin_src dockerfile :tangle ./musl/kg-dev-user/Dockerfile
 FROM tgbugs/musl:kg-dev as builder
 
@@ -3183,40 +3186,39 @@ ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 # FIXME break these into their own images to avoid serial dependencies
 
-RUN \
-pushd git \
-&&     git clone https://github.com/tgbugs/pyontutils.git \
-&&     pushd pyontutils \
-&&         pushd ttlser \
-&&             pip install --user -e . \
-&&         popd \
-&&         pip install --user -e . \
-&&         python setup.py --release || true \
-&&         pushd nifstd \
-&&             pip install --user -e . \
-&&             python setup.py --release || true \
-&&         popd \
-&&     popd \
-&& popd \
-&& rm -r ~/.cache/pip
-
-RUN \
-pushd git \
-&&     git clone https://github.com/SciCrunch/sparc-curation.git \
-&&     pushd sparc-curation \
-&&         pip install --user -e . \
-&&     popd \
-&& popd \
-&& rm -r ~/.cache/pip
+# FIXME pip install --user -e . fails when run in /build/ due to change in $HOME
+# because it uses an expanded directory of course pip doesn't have any only-deps
+# option
 
 RUN \
 pushd git \
 &&     git clone https://github.com/tgbugs/idlib.git \
-&&     pushd idlib \
-&&         pip install --user -e . \
+&&     git clone https://github.com/tgbugs/pyontutils.git \
+&&     git clone https://github.com/SciCrunch/sparc-curation.git \
+&& popd
+
+RUN \
+pip install --user -e \
+git/idlib \
+git/pyontutils/ttlser \
+git/pyontutils \
+git/pyontutils/nifstd \
+git/sparc-curation \
+&& rm -r ~/.cache/pip
+
+RUN \
+pushd git \
+&&     pushd pyontutils \
+&&         python setup.py --release || true \
+&&         pushd nifstd \
+&&             python setup.py --release || true \
+&&         popd \
+&&     popd \
+&&     pushd sparc-curation \
+&&         python setup.py --release || true \
 &&     popd \
 && popd \
-&& rm -r ~/.cache/pip
+&& ln -s ../../git/sparc-curation/docs/apinatomy.org ~/.local/bin/apinat-build
 
 RUN \
 ./git/sparc-curation/docs/queries.org
@@ -3231,8 +3233,6 @@ $HOME/.emacs.d/init.el \
 ./git/sparc-curation/docs/queries.org \
 ./git/sparc-curation/docs/apinatomy.org
 
-# TODO embed orgstrap checksums for queries.org etc
-
 FROM tgbugs/musl:kg-dev
 
 COPY --from=builder /build /
@@ -3240,6 +3240,16 @@ COPY --from=builder /build /
 ADD entrypoint.sh /etc/entrypoint.sh
 
 <<&musl-file-user-base>>
+
+# XXX somehowo this induces ~10MB of new content !??!
+RUN \
+pip install --user --no-deps -e \
+git/idlib \
+git/pyontutils/ttlser \
+git/pyontutils \
+git/pyontutils/nifstd \
+git/sparc-curation \
+&& rm -r ~/.cache/pip
 
 USER 0
 
