@@ -1313,7 +1313,7 @@ COPY --from=tgbugs/musl:user / /
 # efficiency?
 *** run
 #+name: &musl-run-xorg
-#+begin_src bash
+#+begin_src screen
 # -v ~/files/binpkgs/musl:/var/cache/binpkgs \
 docker run \
 --volumes-from local-repos-snap \
@@ -1369,22 +1369,26 @@ eselect profile set $PROFILE
 
 # FIXME I think we have to update binhosts here
 
-#RUN \
-#echo '*/* X' >> /etc/portage/package.use/20-xorg \
-#&& echo '*/* VIDEO_CARDS: -*' >> /etc/portage/package.use/20-xorg
-
 # FIXME this rebuild is bad because it results in duplication of
 # rebuilt packages between layers, probably need updated-x
 # XXX install freetype without harfbuzz first to avoid the circular dependency (sigh)
+# also have to install harfbuzz -freetype as well https://bugs.gentoo.org/830966#c5
 # XXX NOTE when harfbuzz and freetype are installed from binpkgs sometimes fontconfig
 # will scream about missing libs, this is because the good harfbuzz is installed after
 # fontconfig, confusing and scary, but apparently not fatal
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 # FIXME tgbugs-overlay symlinks
 ln -s /var/db/repos/gentoo /usr/portage \
-&& emerge --getbinpkgonly --binpkg-respect-use=y media-libs/freetype \
-|| USE=-harfbuzz emerge -j4 -1q \
+&& emerge -j4 -1q \
+   --getbinpkgonly \
+   --binpkg-respect-use=y \
    media-libs/freetype \
+   media-libs/harfbuzz \
+|| USE="-harfbuzz -truetype" emerge -j4 -1q \
+   --getbinpkg \
+   --binpkg-respect-use=y \
+   media-libs/freetype \
+   media-libs/harfbuzz \
 && emerge -j1 -q -uDN @world \
    --getbinpkg \
    --binpkg-respect-use=y \
@@ -3102,6 +3106,7 @@ eselect racket set cs
 *** run
 # TODO -v /var/lib/scigraph:/var/lib/scigraph \
 #+begin_src screen
+# docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
 docker run \
 --volumes-from sckan-data \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
