@@ -3864,6 +3864,64 @@ VOLUME /sbcl
 #+end_src
 
 * other
+** alpine bootstrap
+Barely working and incomplete bootstrap in alpine.
+Might be useful for CI depending on how well the
+tgbugs/musl:docker work progresses.
+
+# this is cute but just git clone because there are a couple of legacy
+# cases where git is needed in the host environment (unfortunately)
+#+name: &aboot
+#+begin_src elisp
+(let ((u (pop argv)) (p (pop argv)) (enable-local-eval t)) (mkdir (file-name-directory p) t) (org-babel-do-load-languages 'org-babel-load-languages '((screen . t))) (url-handler-mode 1) (find-file u) (write-file p) (chmod p #o755) (find-file p) (org-sbe workflow))
+#+end_src
+
+#+begin_src screen
+SHELL=/bin/bash screen -dmS org-session
+# emacs -batch -eval "<<&aboot>>" https://raw.githubusercontent.com/tgbugs/dockerfiles/master/source.org ~/git/dockerfiles/source.org
+#+end_src
+
+# unfortunate for the builder mount ...
+#+begin_src bash
+docker run -v /var/run/docker.sock:/var/run/docker.sock -u ${UID} -it tgbugs/other:alpine-bootstrap
+#+end_src
+
+#+begin_src screen
+<<&docker-build>>
+--build-arg DUID=$(getent group docker | cut -d: -f3) \
+--tag tgbugs/other:alpine-bootstrap \
+--file other/alpine-bootstrap/Dockerfile other/alpine-bootstrap
+#+end_src
+
+#+begin_src dockerfile :tangle other/alpine-bootstrap/Dockerfile
+FROM alpine:latest
+
+ARG DUID=48
+
+RUN  \
+addgroup -g ${DUID} docker
+
+RUN \
+apk add bash docker emacs-nox git screen
+
+ARG UID=1000
+ARG USER_NAME=user
+
+RUN \
+addgroup -g ${UID} ${USER_NAME} \
+&& adduser -HD -u ${UID} -G ${USER_NAME} ${USER_NAME} \
+&& adduser ${USER_NAME} docker
+
+USER $USER_NAME
+
+WORKDIR /home/${USER_NAME}
+
+RUN \
+git clone https://github.com/tgbugs/dockerfiles.git
+
+RUN \
+mkdir -p ~/files/binpkgs/multi
+#+end_src
 ** ubuntu-genera-base
 *** file
 #+begin_src dockerfile :tangle ./other/ubuntu-genera-base/Dockerfile
