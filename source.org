@@ -194,9 +194,13 @@ echo TODO
 
 <<&builder-resnap>>
 
+<<&builder-bootstrap>>
+
 <<&builder-world>>
 
 <<&builder-arb>>
+
+<<&builder-arb-priv>>
 
 <<&builder-debug>>
 
@@ -253,6 +257,8 @@ echo start bootstrap
 # TODO build any new packages
 echo musl builder start
 [ -z $RESNAP ] || builder-resnap
+[ ! -z $NOBUILD ] || builder-bootstrap
+# FIXME this needs to run with --getbinpkg
 [ ! -z $NOBUILD ] || \
 <<&musl-run-build-need-priv>>
 [ ! -z $NOBUILD ] || builder-world
@@ -261,6 +267,7 @@ echo musl builder start
 
 echo musl static builder start
 [ -z $RESNAP ] || static-builder-resnap
+# TODO static-builder-bootstrap
 [ ! -z $NOBUILD ] || static-builder-world  # FIXME if this is not run once at the start then something fails above
 [ -z $LIVE_REBUILD ] || static-builder-arb @live-rebuild
 
@@ -452,16 +459,25 @@ docker build \
 #+end_src
 
 *** file
+#+name: &profile-adds
+#+begin_src dockerfile
+# we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
+ADD docker-profile                          var/db/docker-profile
+ADD docker-profile.conf                     etc/portage/repos.conf/docker-profile.conf
+ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
+ADD package.accept_keywords                 etc/portage/package.accept_keywords/profile
+ADD package.mask                            etc/portage/package.mask/profile
+ADD docker-profile/base/emacs.env           etc/portage/env/app-editors/emacs
+ADD docker-profile/base/no-distcc.env       etc/portage/env/no-distcc
+ADD package.env                             etc/portage/package.env/profile
+#+end_src
+
 #+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
 
-# we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
-ADD docker-profile var/db/docker-profile
-ADD docker-profile.conf etc/portage/repos.conf/docker-profile.conf
-ADD package.accept_keywords etc/portage/package.accept_keywords/profile
-ADD package.mask etc/portage/package.mask/profile
+<<&profile-adds>>
 
 FROM scratch
 
@@ -489,6 +505,25 @@ dev-scheme/racket::tgbugs-overlay
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
 dev-scheme/racket::gentoo
+#+end_src
+**** env
+***** no distcc
+# TODO MAKEOPTS_LOCAL
+# FIXME "${FEATURES} -distcc" vs "-distcc" behavior?
+# I think they stack without variables with priority going global package runtime environment
+#+begin_src conf :tangle ./docker-profile/base/no-distcc.env
+FEATURES="-distcc"
+#+end_src
+***** app-editors/emacs
+#+begin_src conf :tangle ./docker-profile/base/emacs.env
+NATIVE_FULL_AOT=1
+#+end_src
+**** package.env
+# dev-python/numpy no-distcc
+# XXX manually setting FEATURES=-distcc worked, but it seems that stacking features in make.conf doesn't?
+#+begin_src conf :tangle ./docker-profile/base/package.env
+dev-util/cmake no-distcc
+dev-util/colm no-distcc
 #+end_src
 *** profiles
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/metadata/layout.conf
@@ -552,9 +587,13 @@ INSTALL_MASK="${INSTALL_MASK}
 
 FEATURES="${FEATURES} binpkg-multi-instance"
 
+EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"
+
 # icu is needed due to musl collation issues
 # jemalloc can improve performance re issues with musl allocator
 USE="${USE} icu jemalloc"
+
+USE="${USE} -gstreamer"
 
 VIDEO_CARDS="-*"
 
@@ -672,7 +711,7 @@ media-libs/freetype -cleartype-hinting -cleartype_hinting
 # needed to ensure that -egl doesn't introduce conflicts
 x11-base/xorg-server minimal
 
-app-editors/emacs dynamic-loading gmp json threads
+app-editors/emacs dynamic-loading gmp jit json threads
 
 # gdb don't pull in the world
 sys-devel/gdb -nls -python
@@ -967,12 +1006,7 @@ FROM busybox:latest as builder
 
 WORKDIR /build
 
-# we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
-ADD docker-profile/base/docker-profile var/db/docker-profile
-ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
-ADD docker-profile/base/package.accept_keywords etc/portage/package.accept_keywords/profile
-ADD docker-profile/base/package.mask etc/portage/package.mask/profile
-ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
+<<&profile-adds>>
 
 FROM scratch
 
@@ -1188,6 +1222,7 @@ mkdir /etc/portage/package.accept_keywords \
 
 #+name: &gentoo-file-eselect-repo-common-3
 #+begin_src dockerfile
+# FIXME MAKEOPTS_LOCAL
 RUN \
 echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
 && [[ -z ${PYTHON_TARGETS} ]] || \
@@ -1381,17 +1416,16 @@ RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,r
 ln -s /var/db/repos/gentoo /usr/portage \
 && emerge -j4 -1q \
    --getbinpkgonly \
-   --binpkg-respect-use=y \
    media-libs/freetype \
    media-libs/harfbuzz \
+# FIXME these do not get repackaged correctly
 || USE="-harfbuzz -truetype" emerge -j4 -1q \
    --getbinpkg \
-   --binpkg-respect-use=y \
    media-libs/freetype \
    media-libs/harfbuzz \
-&& emerge -j1 -q -uDN @world \
+# remind me again why were we using -j1 here? old gcc issues?
+&& emerge -j4 -q -uDN @world \
    --getbinpkg \
-   --binpkg-respect-use=y \
    --exclude sys-process/procps \
    --keep-going \
 || echo $? > /emerge-fail \
@@ -1520,32 +1554,76 @@ docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 }
 #+end_src
 
-#+name: &builder-world
+# FIXME currently the host sets /etc/distcc/hosts and mounts it
+# host discovery for distcc will take more work ... in particular
+# port mapping via ssh, the other possibility is that we just
+# add a utility that can configure a container image to update
+# itself with current settings or something
+# FIXME FEATURES and MAKEOPTS are also set assuming the host is gentoo
+
+#+name: &builder-args
 #+begin_src bash
-function builder-world () {
-container-check
-cat ./musl/package-builder/world | xargs \
-docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
 -v ~/files/binpkgs/multi:/var/cache/binpkgs \
 -v /mnt/str/portage/distfiles:/var/cache/distfiles \
 -v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+-v /etc/distcc/hosts.docker:/etc/distcc/hosts \
+--env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
+--env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
+#+end_src
+# --network host \
+# network host is required to get distcc working on here due to the port forwarding
+# hilariously or depressingly network host is still the only sane solution
+# https://stackoverflow.com/q/17770902
+
+#+name: &builder-bootstrap
+#+begin_src bash :noweb yes
+function builder-bootstrap () {
+container-check
+
+docker run \
+<<&builder-args>>
+${_tm_pbs} \
+emerge  --color=y --with-bdeps=y -j4 -q --keep-going --getbinpkg \
+sys-devel/distcc \
+sys-devel/crossdev
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+
+for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+docker run \
+<<&builder-args>>
+${_tm_pbs} \
+crossdev --stage4 --stable --portage --getbinpkg --target ${target}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+done
+
+}
+
+#+end_src
+
+# TODO crossdev aarch64-unknown-linux-gnu-emerge
+#+name: &builder-world
+#+begin_src bash :noweb yes
+function builder-world () {
+container-check
+cat ./musl/package-builder/world | xargs \
+docker run \
+<<&builder-args>>
 ${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
+
 # FIXME SIGH code dupe
 function static-builder-world () {
 container-check
 cat ./musl/static-package-builder/world | xargs \
 docker run \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+<<&builder-args>>
 ${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
 
@@ -1554,16 +1632,12 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs
 #+end_src
 
 #+name: &builder-arb
-#+begin_src bash
+#+begin_src bash :noweb yes
 function builder-arb () {
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+<<&builder-args>>
 ${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
@@ -1575,16 +1649,43 @@ function static-builder-arb () {
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+<<&builder-args>>
 ${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+}
+#+end_src
+
+# XXX seems like cross emerge really does not work at all as desired ???
+# well this is somewhat annoying https://wiki.gentoo.org/wiki/Cross_build_environment
+# grrr the system should be able to use the host packages, yes I know that there are
+# surely many build tools that have bad assumptions baked in about the host environment
+# matching the target environment ... but sigh
+# XXX LOL the answer was simple, --nodeps DUH!
+# the other part of the solution is to add ** to ACCEPT_KEYWORDS
+# but it may need to be se in the cross env make.conf
+# yeah ... unfortunately for things like sbcl ... there is no way
+# because the ebuild authors would have had to anticipate this
+# and it is insanely hard to test stuff like this, I make the modification
+# in sbcl.env that is needed to get it to work, but still ...
+# just symlink it to the cross env portage/env, and then we are to our
+# usual determine-endianness issues with host vs target
+#+name: &cross-builder-arb
+#+begin_src bash :noweb yes
+function cross-aarch64-gnu-builder-arb () {
+container-check
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+<<&builder-args>>
+--env USE='-*' \
+--env ACCEPT_KEYWORDS='**' \
+${_tm_pbs} \
+aarch64-unknown-linux-gnu-emerge --color=y --with-bdeps=y -j4 -q --keep-going \
+--usepkg=n --nodeps --buildpkgonly \
+${@}
+
 }
 #+end_src
 
@@ -1596,17 +1697,13 @@ See https://github.com/gentoo/gentoo-docker-images/issues/98 and
 https://github.com/moby/moby/issues/1916.
 
 #+name: &builder-arb-priv
-#+begin_src bash
+#+begin_src bash :noweb yes
 function builder-arb-priv () {
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
 --security-opt seccomp=unconfined \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+<<&builder-args>>
 ${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
@@ -1619,11 +1716,7 @@ container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
 --security-opt seccomp=unconfined \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+<<&builder-args>>
 ${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
@@ -1637,7 +1730,7 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs
 # due to using go-md2man and thus being unsafe to build in a sandboxed docker container
 #+name: &musl-run-build-need-priv
 #+begin_src bash
-builder-arb-priv -1 -uN \
+builder-arb-priv -1 -uN --getbinpkg \
 dev-lang/go \
 dev-go/go-md2man \
 app-containers/runc \
@@ -1646,16 +1739,12 @@ app-containers/docker-cli
 #+end_src
 
 #+name: &builder-debug
-#+begin_src bash
+#+begin_src bash :noweb yes
 function builder-debug () {
 container-check
 docker run \
 --privileged \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+<<&builder-args>>
 -it ${_tm_pbs}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
@@ -1665,11 +1754,7 @@ function static-builder-debug () {
 container-check
 docker run \
 --privileged \
---volumes-from local-repos-snap \
---volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
+<<&builder-args>>
 -it ${_tm_s_pbs}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
@@ -1723,8 +1808,12 @@ ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
-&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg --binpkg-respect-use=y"' >> /etc/portage/make.conf
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg"' >> /etc/portage/make.conf
 #+end_src
+
+We don't add distcc until we get to the builder here to avoid issues
+during bootstrap. Usually we don't have too many packages to rebuild
+to get to a sane world state.
 
 #+begin_src dockerfile :tangle ./musl/package-builder/Dockerfile
 FROM tgbugs/musl:xorg
@@ -1824,10 +1913,14 @@ significant maintenance overhead due to ebuild duplication.
 <<world-kg-dev>>
 <<world-docker>>
 <<world-interlex>>
-app-portage/smart-live-rebuild
-sys-devel/crossdev
+<<world-package-builder-common>>
 x11-base/xorg-server
 x11-libs/gtk+
+#+end_src
+
+#+name: world-package-builder-common
+#+begin_src conf
+app-portage/smart-live-rebuild
 app-editors/gvim
 #+end_src
 
@@ -1871,6 +1964,7 @@ remember whether binpkgs check use flags.
 <<world-dynapad-base>>
 <<world-python>>
 <<world-schemes>>
+<<world-package-builder-common>>
 dev-lisp/sbcl
 #+end_src
 
@@ -3539,7 +3633,7 @@ docker run \
 -v ~/files/binpkgs/multi:/var/cache/binpkgs \
 --rm \
 tgbugs/musl:static-xorg \
-quickpkg "*/*" --include-config y
+quickpkg "*/*"
 #+end_src
 *** run
 #+begin_src bash
