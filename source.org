@@ -144,7 +144,7 @@ popd
 function package-server () {
 # FIXME needs to run in another terminal, container, or daemon
 # but for now it blocks other commands which is ok
-curl --fail --head http://localhost:8089/musl/Packages || {
+curl --fail --head http://localhost:8089/multi/Packages || {
     pushd ~/files/binpkgs
     python -m http.server 8089 --bind 127.0.0.1
     popd
@@ -462,14 +462,16 @@ docker build \
 #+name: &profile-adds
 #+begin_src dockerfile
 # we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
-ADD docker-profile                          var/db/docker-profile
-ADD docker-profile.conf                     etc/portage/repos.conf/docker-profile.conf
-ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
-ADD package.accept_keywords                 etc/portage/package.accept_keywords/profile
-ADD package.mask                            etc/portage/package.mask/profile
-ADD docker-profile/base/emacs.env           etc/portage/env/app-editors/emacs
-ADD docker-profile/base/no-distcc.env       etc/portage/env/no-distcc
-ADD package.env                             etc/portage/package.env/profile
+ARG bp=docker-profile/base/
+
+ADD ${bp}docker-profile                          var/db/docker-profile
+ADD ${bp}docker-profile.conf                     etc/portage/repos.conf/docker-profile.conf
+ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi.conf
+ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
+ADD ${bp}package.mask                            etc/portage/package.mask/profile
+ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
+ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
+ADD ${bp}package.env                             etc/portage/package.env/profile
 #+end_src
 
 #+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
@@ -705,6 +707,9 @@ dev-python/setuptools ~amd64  # TODO remove this when upstream shifts
 **** package.use
 # TODO consider dev-db/sqlite secure-delete
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use
+# setpriv command
+sys-apps/util-linux caps
+
 # font rendering
 media-libs/freetype -cleartype-hinting -cleartype_hinting
 
@@ -723,6 +728,9 @@ dev-scheme/racket cs bc cgc jit
 
 # graphviz
 media-libs/gd truetype fontconfig
+
+# keep ipykernel deps minimal for emacs-jupyter
+dev-python/ipython -smp
 
 # tgbugs-overlay python
 dev-python/orthauth yaml  # FIXME sxpyr ftlog
@@ -1601,7 +1609,28 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs})
 done
 
 }
+#+end_src
 
+# TODO distcc test
+#+begin_src bash
+function test_distcc () {
+local test_host
+for test_host in $(distcc --show-hosts); do
+echo ${test_host}
+DISTCC_HOSTS=${test_host} distcc x86_64-gentoo-linux-musl-gcc -c test.c -o test.o -v
+echo
+done
+}
+#+end_src
+
+#+name: distcc-test-file
+#+begin_src c
+#include <stdio.h>
+int main(void)
+{
+	printf("Hello world\n");
+	return 0;
+}
 #+end_src
 
 # TODO crossdev aarch64-unknown-linux-gnu-emerge
@@ -1738,6 +1767,7 @@ app-containers/containerd \
 app-containers/docker-cli
 #+end_src
 
+# --network host \
 #+name: &builder-debug
 #+begin_src bash :noweb yes
 function builder-debug () {
@@ -2968,7 +2998,12 @@ ARG FEATURES="ebuild-locks"  # scigraph and blazegraph pull in acct-{user,group}
 dev-db/blazegraph-bin
 dev-java/scigraph-bin
 media-gfx/graphviz
+dev-python/ipykernel
+dev-python/pip
 #+end_src
+# TODO consider including for the python bits in queries
+# dev-python/pyontutils-9999
+# dev-python/nifstd-tools-9999
 
 ** kg-release-user
 *** run
@@ -3024,6 +3059,7 @@ docker run \
 *** build
 #+name: &musl-build-kg-release-user
 #+begin_src screen
+unset _devel _docd _sckand _docsfsc
 _devel=
 _docd=(queries.org)
 _docsf="https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/"
@@ -3101,7 +3137,7 @@ ADD --chown=${UID}:${UID} README.org README.org
 
 RUN \
 emacs -batch -eval \
-"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))))" \
+"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))) (ow-use-packages evil undo-tree))" \
 $HOME/.emacs.d/init.el queries.org welcome.org examples.org scratch.org
 
 FROM tgbugs/musl:kg-release
@@ -3122,6 +3158,11 @@ usermod -a -G blazegraph user \
 
 RUN \
 echo 'root:sparcSCKAN-2021' | chpasswd
+
+# make it easier to use portage inside a container
+RUN \
+echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
+&& echo 'FEATURES=""' >> /etc/portage/make.conf
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
@@ -3178,10 +3219,7 @@ dev-scheme/racket
 net-libs/nodejs
 app-arch/zip
 app-misc/yq
-dev-python/pip
-dev-python/pyzmq
 dev-java/robot-bin
-dev-python/jupyter_core
 dev-node/apinat-converter
 #+end_src
 
