@@ -971,8 +971,7 @@ FROM tgbugs/musl:eselect-repo as builder
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
    emaint sync --repo musl \
 && emaint sync --repo lisp \
-&& emaint sync --repo tgbugs-overlay \
-&& rm -r /var/db/repos/lisp/dev-scheme/racket
+&& emaint sync --repo tgbugs-overlay
 
 # emergency backup
 ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
