@@ -4196,10 +4196,12 @@ the order of specification (because services is rebuilt more
 frequently).
 ** save
 To save a gzipped archive run
+#+name: &sckan-save-image
 #+begin_src bash
 # first run the following to find the latest build, then
 docker image ls tgbugs/sckan:data-*
-docker save tgbugs/sckan:data-2021-09-30T232453Z | gzip > /tmp/docker-sckan-data-2021-09-30T232453Z.tar.gz
+_datetime=$(docker image ls tgbugs/sckan:data-* | sort | tail -n 1 | awk '{ print $2 }')
+docker save tgbugs/sckan:${_datetime} | gzip > /tmp/docker-sckan-${_datetime}.tar.gz
 #+end_src
 
 To restore from the archive run
@@ -4210,8 +4212,8 @@ docker load --input sckan-data-2021-09-30T232453Z.tar.gz
 This combines the raw (data) base image with prefixes.conf and services.yaml.
 Note that the image names for these are shifted so that they don't confuse users.
 The logic is that base + services = data, but users don't know anything about services.
-
 *** container
+Test this with tgbugs/musl:kg-release-user
 #+begin_src bash
 docker container inspect sckan-data > /dev/null && \
 docker rm sckan-data
