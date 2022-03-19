@@ -120,13 +120,14 @@ To prepare a fresh cycle of images.
 #+begin_src screen
 <<&workflow-funs>>
 
-unset _refresh _repos _repackage _resnap _live_rebuild _nopkgbldr
-_refresh=
-_repos=
-_repackage=
-_resnap=
-_live_rebuild=
-_nopkgbldr=
+unset _refresh _repos _repackage _resnap _live_rebuild _nopkgbldr _sync_gentoo
+_refresh=       # pull base images
+_repos=         # pull ebuild repo images
+_sync_gentoo=   # run emaint sync for gentoo repo
+_repackage=     # run quickpackage on base images  # FIXME conditional on actual change ?
+_resnap=        # snap package build containers set this if you changed the profile or you will have a bad time
+_live_rebuild=  # rebuild 9999 ebuilds e.g. from git
+_nopkgbldr=     # do not run package building steps
 package-server
 pull
 pushd ~/git/dockerfiles
@@ -206,6 +207,7 @@ echo TODO
 
 function run-musl () {
 local REPOS="${_repos}"
+local SYNC_GENTOO="${_sync_gentoo}"
 # TODO set QPKG below based on whether any new packages were actually built
 local QPKG="${_repackage}"
 local QPKGX="${_repackage}"
@@ -676,6 +678,7 @@ dev-node/apinat-converter **
 
 # tgbugs-overlay python
 dev-python/interlex **
+dev-python/sparcur **
 
 # gtknor
 <gnome-base/librsvg-2.41 **
@@ -961,6 +964,7 @@ perspective the exact ebuilds are stored in file:/var/db/pkg/.
 #+begin_src screen
 docker build \
 --no-cache \
+--build-arg SYNC_GENTOO=$SYNC_GENTOO \
 --tag tgbugs/repos:latest \
 --file repos/Dockerfile repos
 #+end_src
@@ -972,6 +976,12 @@ RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/d
    emaint sync --repo musl \
 && emaint sync --repo lisp \
 && emaint sync --repo tgbugs-overlay
+
+# manual sync in cases where there is a showstopper blocking progress
+ARG SYNC_GENTOO
+
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+   test -z $SYNC_GENTOO || emaint sync --repo gentoo
 
 # emergency backup
 ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
@@ -3592,11 +3602,38 @@ pushd ~/git/dynapad
 #+end_src
 
 ** sparcur
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:sparcur
+#+end_src
+
+*** build
+#+name: &musl-build-sparcur
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:sparcur \
+--file musl/sparcur/Dockerfile musl/sparcur
+#+end_src
+
+*** file
+# when deriving from multiple parent worlds docker does not compose
+# well at all, so we have to pick a primary world line so to speak
+#+name: &musl/sparcur
+#+begin_src dockerfile :tangle ./musl/sparcur/Dockerfile
+FROM tgbugs/musl:emacs
+
+<<&build-world-common>>
+#+end_src
+
 *** world
 #+name: world-sparcur
 #+begin_src conf
 dev-db/redis
 net-misc/rabbitmq-server
+dev-python/sparcur
 #+end_src
 ** protc
 *** world
