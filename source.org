@@ -356,6 +356,16 @@ ${@}
 }
 #+end_src
 * Next
+** TODO ebuilds changing behind the scenes
+:PROPERTIES:
+:CREATED:  [2022-03-21 Mon 20:50]
+:END:
+so it turns out that it is possible to change an ebuild, rebuild the package
+and .. install the newest version of that package, all while using the old
+ebuild, so it is possible to change ebuilds without revbumps build a matching
+package and the system can't detect the difference, this is probably a good
+thing because it allows for some wiggle room when things go wrong, but it is
+a reminder that packages are not 1:1 with ebuild versions
 ** TODO update package builder image setup to accommodate /etc/portage/patches
 pypy3 is an example of one case where we need a fix, but in general
 =/etc/portage/patches= is a way to rapidly build and deploy fixes
@@ -680,6 +690,10 @@ dev-node/apinat-converter **
 dev-python/interlex **
 dev-python/sparcur **
 
+# sparcur
+app-text/xlsx2csv ~amd64
+dev-python/semver ~amd64
+
 # gtknor
 <gnome-base/librsvg-2.41 **
 
@@ -690,9 +704,6 @@ app-emacs/vterm ~amd64
 dev-lisp/asdf ~amd64
 dev-lisp/uiop ~amd64
 dev-lisp/sbcl ~amd64
-
-# python packaging chaos
-dev-python/setuptools ~amd64  # TODO remove this when upstream shifts
 #+end_src
 # probably have to put dev-python/*::tgbugs-overlay in /etc/portage/package.accept_keywords/profile
 # dev-python/pyontutils ~amd64
@@ -737,6 +748,7 @@ dev-python/ipython -smp
 
 # tgbugs-overlay python
 dev-python/orthauth yaml  # FIXME sxpyr ftlog
+dev-python/pint babel uncertainties
 #+end_src
 
 **** use.mask
@@ -1227,6 +1239,9 @@ RUN \
 eselect news read all \
 && eselect news purge
 
+# XXX these are retained to avoid crossdev and other issues where
+# portage needs these to be folders and are expected to error if
+# the profile in question creates a ./profile file in these folders
 RUN \
 mkdir /etc/portage/package.accept_keywords \
 ;  mkdir /etc/portage/package.env \
@@ -1952,6 +1967,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-kg-dev>>
 <<world-docker>>
 <<world-interlex>>
+<<world-sparcur>>
 <<world-package-builder-common>>
 x11-base/xorg-server
 x11-libs/gtk+
@@ -2206,9 +2222,10 @@ app-containers/docker-cli
 ** testing-python
 Python testing.
 *** world
+# gentoo no longer has 3.6 in the main tree, going to be a pain test back there
+# dev-lang/python:3.6
 #+name: world-python
 #+begin_src conf :tangle ./musl/testing-python/world
-dev-lang/python:3.6
 dev-lang/python:3.7
 dev-lang/python:3.8
 dev-lang/python:3.9
@@ -3226,7 +3243,12 @@ app-arch/zip
 app-misc/yq
 dev-java/robot-bin
 dev-node/apinat-converter
+dev-python/pennsieve
 #+end_src
+
+# we include pennsieve in world here because
+# it cannot be installed via pip due to a completely
+# braindead handling of 2.7 vs 3.0 issues
 
 *** file
 #+name: &musl/kg-dev
@@ -3383,7 +3405,7 @@ ADD entrypoint.sh /etc/entrypoint.sh
 
 <<&musl-file-user-base>>
 
-# XXX somehowo this induces ~10MB of new content !??!
+# XXX somehow this induces ~10MB of new content !??!
 RUN \
 pip install --user --no-deps -e \
 git/idlib \
@@ -3630,11 +3652,142 @@ FROM tgbugs/musl:emacs
 
 *** world
 #+name: world-sparcur
-#+begin_src conf
+#+begin_src conf :tangle ./musl/sparcur/world
 dev-db/redis
 net-misc/rabbitmq-server
+dev-python/celery
+dev-python/redis-py
 dev-python/sparcur
+dev-python/pip
 #+end_src
+
+** sparcur-user
+*** run
+# FIXME SIGH yes indeed chown modifies the parent system permissions
+# somehow this doesn't surprise me given how janky docker is in here
+#+begin_src screen
+_f=$(basename ~/ni/dev/sparc-curation-*.json)
+docker run \
+-v /var/lib/sparc/.local/share/sparcur:/var/lib/sparc/.local/share/sparcur \
+-v /var/lib/sparc/files:/var/lib/sparc/files \
+-v ~/ni/dev/secrets-sparcron.yaml:/var/lib/sparc/.config/orthauth/secrets.yaml \
+-v ~/ni/dev/${_f}:/var/lib/sparc/.config/orthauth/${_f} \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:sparcur-user
+#+end_src
+# -v ~/.config/sparcur/config.yaml:/var/lib/sparc/.config/sparcur/config.yaml \
+
+build helper to work around missing prompt toolkit dep without rebuilding the world
+#+begin_src screen
+docker run \
+--volumes-from local-portage-snap \
+-v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:sparcur-user
+#+end_src
+*** build
+#+name: &musl-build-sparcur-user
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:sparcur-user \
+--file musl/sparcur-user/Dockerfile musl/sparcur-user
+#+end_src
+
+*** entrypoint
+# https://forums.gentoo.org/viewtopic-t-1014086-start-0.html
+# sigh this really doesn't need the net admin cap just to start rabbit
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/sparcur-user/entrypoint.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/redis start
+# FIXME rabbitmq has a stupid service dependency setup that
+# has a hard dependency on the network but it doesn't actually
+# need a network process to be started, even a dummy will do ... sigh
+/etc/init.d/rabbitmq start
+#pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
+su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
+#/etc/init.d/redis stop
+#/etc/init.d/rabbitmq stop
+#+end_src
+
+*** configs
+#+begin_src yaml :tangle ./musl/sparcur-user/sparcur-config.yaml
+auth-stores:
+  secrets:
+    path: '{:user-config-path}/orthauth/secrets.yaml'
+auth-variables:
+  remote-organization: N:organization:618e8dd9-f8d2-4dc4-9abb-c6aaab2e78a0
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/sparcur-user/Dockerfile
+FROM tgbugs/musl:sparcur
+
+ADD --chown=836:836 sparcur-config.yaml /var/lib/sparc/.config/sparcur/config.yaml
+
+USER sparc
+
+ARG HOME=/var/lib/sparc
+
+WORKDIR $HOME
+
+RUN \
+mkdir ~/git \
+;  mkdir -p /var/lib/sparc/.config/sparcur \
+;  mkdir -p /var/lib/sparc/.config/orthauth \
+;  chmod 0700 /var/lib/sparc/.config/orthauth
+
+RUN \
+pushd git \
+&&     git clone https://github.com/tgbugs/idlib.git \
+&&     git clone https://github.com/tgbugs/pyontutils.git \
+&&     git clone https://github.com/SciCrunch/sparc-curation.git \
+&& popd
+
+RUN \
+pip install --user -e \
+git/idlib \
+git/pyontutils/ttlser \
+git/pyontutils \
+git/pyontutils/nifstd \
+git/sparc-curation \
+&& rm -r ~/.cache/pip
+
+RUN \
+pushd git \
+&&     pushd pyontutils \
+&&         python setup.py --release || true \
+&&         pushd nifstd \
+&&             python setup.py --release || true \
+&&         popd \
+&&     popd \
+&&     pushd sparc-curation \
+&&         python setup.py --release || true \
+&&     popd \
+&& popd
+
+# XXX somehowo this induces ~10MB of new content !??!
+RUN \
+pip install --user --no-deps -e \
+git/idlib \
+git/pyontutils/ttlser \
+git/pyontutils \
+git/sparc-curation \
+&& rm -r ~/.cache/pip
+
+WORKDIR $HOME/git/sparc-curation/sparcur_internal
+
+USER 0
+
+# FIXME temporary fix
+RUN \
+sed -i 's/need net epmd/need epmd/' /etc/init.d/rabbitmq
+#+end_src
+
 ** protc
 *** world
 #+name: world-protc
@@ -4390,6 +4543,14 @@ FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(cat /var/lib/portage/world | xargs
 || { rm -r /var/cache/distfiles/* > /dev/null 2>&1 \
    ; rm -r /var/cache/binpkgs/* > /dev/null 2>&1; } \
 ;  exit $CODE
+#+end_src
+
+A build helper for use during development when you need to add
+packages you forgot but don't want to rebuild the whole world.
+#+name: &build-helper-temp
+#+begin_src dockerfile
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q -uDN \
 #+end_src
 * Bootstrap :noexport:
 
