@@ -3696,37 +3696,15 @@ docker build \
 --file musl/sparcur-user/Dockerfile musl/sparcur-user
 #+end_src
 
-*** entrypoint
-# https://forums.gentoo.org/viewtopic-t-1014086-start-0.html
-# sigh this really doesn't need the net admin cap just to start rabbit
-#+header: :shebang "#!/usr/bin/env sh"
-#+begin_src bash :tangle ./musl/sparcur-user/entrypoint.sh :mkdirp yes
-rc-status
-touch /run/openrc/softlevel
-/etc/init.d/redis start
-# FIXME rabbitmq has a stupid service dependency setup that
-# has a hard dependency on the network but it doesn't actually
-# need a network process to be started, even a dummy will do ... sigh
-/etc/init.d/rabbitmq start
-#pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
-su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
-#/etc/init.d/redis stop
-#/etc/init.d/rabbitmq stop
-#+end_src
-
-*** configs
-#+begin_src yaml :tangle ./musl/sparcur-user/sparcur-config.yaml
-auth-stores:
-  secrets:
-    path: '{:user-config-path}/orthauth/secrets.yaml'
-auth-variables:
-  remote-organization: N:organization:618e8dd9-f8d2-4dc4-9abb-c6aaab2e78a0
-#+end_src
-
 *** file
 #+begin_src dockerfile :tangle ./musl/sparcur-user/Dockerfile
 FROM tgbugs/musl:sparcur
 
+# FIXME temporary fix
+RUN \
+sed -i 's/need net epmd/need epmd/' /etc/init.d/rabbitmq
+
+ADD --chown=836:836 idlib-config.yaml /var/lib/sparc/.config/idlib/config.yaml
 ADD --chown=836:836 sparcur-config.yaml /var/lib/sparc/.config/sparcur/config.yaml
 
 USER sparc
@@ -3748,44 +3726,88 @@ pushd git \
 &&     git clone https://github.com/SciCrunch/sparc-curation.git \
 && popd
 
-RUN \
-pip install --user -e \
-git/idlib \
-git/pyontutils/ttlser \
-git/pyontutils \
-git/pyontutils/nifstd \
-git/sparc-curation \
-&& rm -r ~/.cache/pip
-
+# FIXME somehow pyontutils is still getting installed in site packages >:|
+# oh, it is worse, if you don't use . it will create a wheel and stick it in
+# site packages WHAT, yay variant behavior depending on cwd vs specified path
+# so yeah, can't use pip directly at the top level, have to do the pushd dance
 RUN \
 pushd git \
+&&     pushd idlib \
+&&         pip install --user -e . \
+&&     popd \
 &&     pushd pyontutils \
+&&         pushd ttlser \
+&&             pip install --user -e . \
+&&             python setup.py --release || true \
+&&         popd \
+&&         pip install --user -e . \
 &&         python setup.py --release || true \
 &&         pushd nifstd \
+&&             pip install --user -e . \
 &&             python setup.py --release || true \
 &&         popd \
 &&     popd \
 &&     pushd sparc-curation \
+&&         pip install --user -e . \
 &&         python setup.py --release || true \
 &&     popd \
-&& popd
-
-# XXX somehowo this induces ~10MB of new content !??!
-RUN \
-pip install --user --no-deps -e \
-git/idlib \
-git/pyontutils/ttlser \
-git/pyontutils \
-git/sparc-curation \
+&& popd \
 && rm -r ~/.cache/pip
 
 WORKDIR $HOME/git/sparc-curation/sparcur_internal
 
 USER 0
+#+end_src
 
-# FIXME temporary fix
-RUN \
-sed -i 's/need net epmd/need epmd/' /etc/init.d/rabbitmq
+*** configs
+#+begin_src yaml :tangle ./musl/sparcur-user/sparcur-config.yaml
+auth-stores:
+  secrets:
+    path: '{:user-config-path}/orthauth/secrets.yaml'
+auth-variables:
+  google-api-service-account-file-readonly:
+    path: google api saro  # FIXME SIGH get_path nonsense
+  hypothesis-api-key: hypothesis api default-user
+  hypothesis-group: hypothesis group sparc-curation
+  remote-organization: N:organization:618e8dd9-f8d2-4dc4-9abb-c6aaab2e78a0
+#+end_src
+
+# TODO
+#+begin_src yaml :tangle ./musl/sparcur-user/idlib-config.yaml
+auth-stores:
+  secrets:
+    path: '{:user-config-path}/orthauth/secrets.yaml'
+auth-variables:
+  protocols-io-api-creds-file:
+    path: protocols-io api creds-file
+  protocols-io-api-store-file:
+    path: protocols-io api store-file
+#+end_src
+
+*** entrypoint
+# https://forums.gentoo.org/viewtopic-t-1014086-start-0.html
+# sigh this really doesn't need the net admin cap just to start rabbit
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/sparcur-user/entrypoint.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/redis start
+# FIXME rabbitmq has a stupid service dependency setup that
+# has a hard dependency on the network but it doesn't actually
+# need a network process to be started, even a dummy will do ... sigh
+/etc/init.d/rabbitmq start
+
+# testing
+su sparc
+python sparcron.py
+
+#pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
+su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
+# FIXME missing rmeta stuff
+# FIXME mount ~/.cache
+
+#/etc/init.d/redis stop
+#/etc/init.d/rabbitmq stop
 #+end_src
 
 ** protc
