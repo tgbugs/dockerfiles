@@ -309,6 +309,10 @@ echo start image builds
 ## interlex
 <<&musl-build-interlex>> || return $?; echo mbilx;
 
+## sparcur
+<<&musl-build-sparcur>> || return $?; echo mbsp;
+<<&musl-build-sparcur-user>> || return $?; echo mbspu;
+
 }
 #+end_src
 
@@ -3667,15 +3671,21 @@ dev-python/pip
 # somehow this doesn't surprise me given how janky docker is in here
 #+begin_src screen
 _f=$(basename ~/ni/dev/sparc-curation-*.json)
+_h=protocols-io-api-token-rw.pickle
 docker run \
--v /var/lib/sparc/.local/share/sparcur:/var/lib/sparc/.local/share/sparcur \
 -v /var/lib/sparc/files:/var/lib/sparc/files \
+-v /var/lib/sparc/.local/share/sparcur:/var/lib/sparc/.local/share/sparcur \
+-v /var/lib/sparc/.cache:/var/lib/sparc/.cache \
 -v ~/ni/dev/secrets-sparcron.yaml:/var/lib/sparc/.config/orthauth/secrets.yaml \
 -v ~/ni/dev/${_f}:/var/lib/sparc/.config/orthauth/${_f} \
+-v ~/ni/dev/${_h}:/var/lib/sparc/.config/orthauth/${_h} \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
+-e SCIGRAPH_API=http://192.168.1.207:9000/scigraph \
 -it tgbugs/musl:sparcur-user
 #+end_src
+# _g=$(basename ~/ni/dev/client*protocols.io.json)
+# -v ~/ni/dev/${_g}:/var/lib/sparc/.config/orthauth/client_secret_protocols.io.json \
 # -v ~/.config/sparcur/config.yaml:/var/lib/sparc/.config/sparcur/config.yaml \
 
 build helper to work around missing prompt toolkit dep without rebuilding the world
@@ -3797,14 +3807,15 @@ touch /run/openrc/softlevel
 # need a network process to be started, even a dummy will do ... sigh
 /etc/init.d/rabbitmq start
 
-# testing
-su sparc
-python sparcron.py
-
+# prod
 #pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
 su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
 # FIXME missing rmeta stuff
 # FIXME mount ~/.cache
+
+# testing
+su sparc
+python sparcron.py
 
 #/etc/init.d/redis stop
 #/etc/init.d/rabbitmq stop
