@@ -3807,15 +3807,14 @@ touch /run/openrc/softlevel
 # need a network process to be started, even a dummy will do ... sigh
 /etc/init.d/rabbitmq start
 
+# testing and ensure that there is an existing cache on first run
+su sparc -c 'python sparcron.py'
+
 # prod
 #pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
 su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
 # FIXME missing rmeta stuff
 # FIXME mount ~/.cache
-
-# testing
-su sparc
-python sparcron.py
 
 #/etc/init.d/redis stop
 #/etc/init.d/rabbitmq stop
