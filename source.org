@@ -3669,8 +3669,10 @@ dev-python/pip
 *** run
 # FIXME SIGH yes indeed chown modifies the parent system permissions
 # somehow this doesn't surprise me given how janky docker is in here
-To run as a deamon use =-d= option in then =docker ps= to get the
+To run as a daemon use =-d= option in then =docker ps= to get the
 container id, and then =docker logs -f= the container.
+
+Development =docker run= example.
 #+begin_src screen
 _f=$(basename ~/ni/dev/sparc-curation-*.json)
 _h=protocols-io-api-token-rw.pickle
@@ -3687,20 +3689,24 @@ docker run \
 -e SCIGRAPH_API=http://192.168.1.207:9000/scigraph \
 -it tgbugs/musl:sparcur-user
 #+end_src
-# _g=$(basename ~/ni/dev/client*protocols.io.json)
-# -v ~/ni/dev/${_g}:/var/lib/sparc/.config/orthauth/client_secret_protocols.io.json \
-# -v ~/.config/sparcur/config.yaml:/var/lib/sparc/.config/sparcur/config.yaml \
 
-build helper to work around missing prompt toolkit dep without rebuilding the world
+Production =docker run= example.
 #+begin_src screen
-docker run \
---volumes-from local-portage-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--e DISPLAY=$DISPLAY \
+_f=$(sudo su sparc -c 'basename /var/lib/sparc/.config/pyontutils/sparc-curation-*.json')
+_h=protocols-io-api-token-rw.pickle
+sudo docker run \
+-d \
+-v /var/lib/sparc/files:/var/lib/sparc/files \
+-v /var/lib/sparc/.local/share/sparcur:/var/lib/sparc/.local/share/sparcur \
+-v /var/lib/sparc/.cache:/var/lib/sparc/.cache \
+-v /var/lib/sparc/.config/sparcur/docker-config.yaml:/var/lib/sparc/.config/sparcur/config.yaml \
+-v /var/lib/sparc/.config/pyontutils/secrets.yaml:/var/lib/sparc/.config/orthauth/secrets.yaml \
+-v /var/lib/sparc/.config/pyontutils/${_f}:/var/lib/sparc/.config/orthauth/${_f} \
+-v /var/lib/sparc/.config/pyontutils/${_h}:/var/lib/sparc/.config/orthauth/${_h} \
+-e SCIGRAPH_API=https://scigraph.olympiangods.org/scigraph \
 -it tgbugs/musl:sparcur-user
 #+end_src
+
 *** build
 #+name: &musl-build-sparcur-user
 #+begin_src screen
