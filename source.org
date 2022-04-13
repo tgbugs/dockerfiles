@@ -3676,6 +3676,7 @@ docker run \
 -v /var/lib/sparc/files:/var/lib/sparc/files \
 -v /var/lib/sparc/.local/share/sparcur:/var/lib/sparc/.local/share/sparcur \
 -v /var/lib/sparc/.cache:/var/lib/sparc/.cache \
+-v /var/lib/sparc/.config/sparcur/docker-config.yaml:/var/lib/sparc/.config/sparcur/config.yaml \
 -v ~/ni/dev/secrets-sparcron.yaml:/var/lib/sparc/.config/orthauth/secrets.yaml \
 -v ~/ni/dev/${_f}:/var/lib/sparc/.config/orthauth/${_f} \
 -v ~/ni/dev/${_h}:/var/lib/sparc/.config/orthauth/${_h} \
@@ -3767,9 +3768,16 @@ pushd git \
 WORKDIR $HOME/git/sparc-curation/sparcur_internal
 
 USER 0
+
+ADD entrypoint.sh /etc/entrypoint.sh
+
+ENTRYPOINT /etc/entrypoint.sh
 #+end_src
 
 *** configs
+This config provides sane defaults, if you need to add a section (such
+as a =datasets-no:=) then use =-v= in docker run to mount over the
+location of this file.
 #+begin_src yaml :tangle ./musl/sparcur-user/sparcur-config.yaml
 auth-stores:
   secrets:
