@@ -3669,6 +3669,8 @@ dev-python/pip
 *** run
 # FIXME SIGH yes indeed chown modifies the parent system permissions
 # somehow this doesn't surprise me given how janky docker is in here
+To run as a deamon use =-d= option in then =docker ps= to get the
+container id, and then =docker logs -f= the container.
 #+begin_src screen
 _f=$(basename ~/ni/dev/sparc-curation-*.json)
 _h=protocols-io-api-token-rw.pickle
