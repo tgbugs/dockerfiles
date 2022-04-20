@@ -24,12 +24,29 @@ exit
 
 * Setup
 ** Server
+*** docker config
 Docker files in this repo use buildkit features. To enable it include
 the following in [[/etc/docker/daemon.json]].
 #+begin_src json :tangle /etc/docker/daemon.json :tangle no
 {"experimental": true,
  "features": {"buildkit": true}}
 #+end_src
+*** portage ssh keys
+Make sure that =/var/lib/portage/home/.ssh= exists and has the keys
+for accessing the interlex repo or other private repos.
+*** distcc hosts
+Even if you are not using distcc be sure to run
+#+begin_src bash
+touch /etc/distcc/hosts.docker
+#+end_src
+on the host os otherwise the builder functions will produce cryptic
+errors for some packages because they can handle an absent
+/etc/distcc/hosts file but not one that is a directory. Note that
+docker has what might be considered a reasonable default which is that
+it will create a directory if it does not exist when it is the source
+of a mount rather than fail ... but in our case this is annoying, and
+the cleanup is a pita, have to unmount and rmdir in the image, or just
+resnap the image because wow what a pain.
 
 ** Client
 Building the precursor images in =gentoo/stage3= for this repo from
@@ -924,12 +941,11 @@ x11-base/xorg-server xvfb
 #+end_src
 
 **** mask
-The media-libs/mesa-21.1 set fails to build even with all the use flags set correctly.
-Same issue with media-libs/mesa-21.1 https://bugs.gentoo.org/828491. Currently 21.2.6
-is the only one that will compile correctly.
+# Looks like the mesa issue has been fixed.
+# The media-libs/mesa-21.1 set fails to build even with all the use flags set correctly.
+# Same issue with media-libs/mesa-21.1 https://bugs.gentoo.org/828491. Currently 21.2.6
+# is the only one that will compile correctly.
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.mask
-<media-libs/mesa-21.2
->=media-libs/mesa-21.3
 #+end_src
 **** accept_keywords
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.accept_keywords
