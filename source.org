@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--prp-1\.1; orgstrap-block-checksum: e260a3ed98153a851097513b6db9ba959320b3e0214dfbf224cda5480979cf73; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--prp-1\.1; orgstrap-block-checksum: 6b7135beb5779c7a931e94673c9a18c95f656ff5f9fa4e9484669949c8072d01; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -126,6 +126,13 @@ other/*
 sckan/*
 #+end_src
 * Ops
+** CLI
+The standard way to use this file to build is to run the following block
+WARNING: never run this command from inside the =org-session= screen, input
+will be severely broken
+#+begin_src bash
+./source.org build --refresh --repos --repackage --resnap --live-rebuild
+#+end_src
 ** Build
 If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
@@ -133,11 +140,9 @@ dependent images in order.
 To prepare a fresh cycle of images.
 # FIXME something is off when trying to bootstrap this from scratch on a new computer
 # things break at ref:&musl-build-xorg
-#+name: workflow
+#+name: workflow-manual
 #+begin_src screen
-<<&workflow-funs>>
-
-unset _refresh _repos _repackage _resnap _live_rebuild _nopkgbldr _sync_gentoo
+unset _refresh _repos _sync_gentoo _repackage _resnap _live_rebuild _nopkgbldr
 _refresh=       # pull base images
 _repos=         # pull ebuild repo images
 _sync_gentoo=   # run emaint sync for gentoo repo
@@ -145,6 +150,20 @@ _repackage=     # run quickpackage on base images  # FIXME conditional on actual
 _resnap=        # snap package build containers set this if you changed the profile or you will have a bad time
 _live_rebuild=  # rebuild 9999 ebuilds e.g. from git
 _nopkgbldr=     # do not run package building steps
+
+<<&workflow-common>>
+#+end_src
+
+#+name: workflow-cli
+#+begin_src screen
+<<&screen-set-vars>>
+<<&workflow-common>>
+#+end_src
+
+#+name: &workflow-common
+#+begin_src screen
+<<&workflow-funs>>
+
 package-server
 pull
 pushd ~/git/dockerfiles
@@ -154,6 +173,7 @@ run-musl
 # build a bunch of packages
 popd
 #+end_src
+
 # reminder that closing parens must be on separate lines or terminate with ;
 # XXX ob-screen doesn't support :var right now
 # #+header: :var _refresh=(or workflow-refresh) _repos=(or workflow-refresh workflow-repos)
@@ -200,7 +220,7 @@ function tangle () {
 [ -d ./gnu ] && rm -r ./gnu
 [ -d ./musl ] && rm -r ./musl
 [ -d ./repos ] && rm -r ./repos
-./source.org --tangle  # TODO --tangle does nothing right now because the behavior is default
+./source.org tangle
 return $?
 }
 
@@ -4620,16 +4640,30 @@ emerge -j4 -q -uDN \
 
 #+name: orgstrap
 #+begin_src elisp :results none :lexical yes
-(defvar-local workflow-refresh nil)
-(defvar-local workflow-repos nil)
+(defvar-local refresh      nil)
+(defvar-local repos        nil)
+(defvar-local sync-gentoo  nil)
+(defvar-local repackage    nil)
+(defvar-local resnap       nil)
+(defvar-local live-rebuild nil)
+(defvar-local no-pkg-bldr  nil)
+
+(defun make-screen-vars ()
+  (apply #'format
+         "export _refresh=%s _repos=%s _sync_gentoo=%s _repackage=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s;"
+         (mapcar (lambda (b) (if b 1 ""))
+                 (list refresh repos sync-gentoo repackage resnap live-rebuild no-pkg-bldr))))
 
 (defun fix-ocbe ()
   "it would seem that blanking `enable-local-eval' resets this"
   (setq-local
    org-confirm-babel-evaluate
    (lambda (lang body)
-     (not (and (member lang '("elisp" "emacs-lisp"))
-               (string= body "value"))))))
+     (not (or (and (member lang '("elisp" "emacs-lisp"))
+                   (or (string= body "value")
+                       (string= body "(make-screen-vars)")))
+              (and (member lang '("screen"))
+                   (string= (cl-subseq body 0 15) "export _refresh")))))))
 
 (defun dedupe-lines (blockname)
   (let* ((info (save-excursion
@@ -4648,17 +4682,49 @@ emerge -j4 -q -uDN \
 (fix-ocbe)
 
 (when noninteractive
-  (setq args nil)
-  (unless (fboundp #'dockerfile-mode)
-    (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
-      "Stub to avoid comment-start issues"
-      (set (make-local-variable 'comment-start) "#")))
-  (let (enable-local-eval)
-    ;; this pattern is required when tangling to avoid infinite loops
-    (revert-buffer nil t nil)
-    (setq-local find-file-literally nil))
-  (fix-ocbe)
-  (org-babel-tangle))
+  (let ((setup (member "setup" argv))
+        (build (member "build" argv))
+        (tangle (member "tangle" argv)))
+    (let ((no-screen    (and build (member "--no-screen" argv)))
+          (refresh      (and build (member "--refresh" argv)))
+          (repos        (and build (member "--repos" argv)))
+          (sync-gentoo  (and build (member "--sync-gentoo" argv)))
+          (repackage    (and build (member "--repackage" argv)))
+          (resnap       (and build (member "--resnap" argv)))
+          (live-rebuild (and build (member "--live-rebuild" argv)))
+          (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv))))
+      (setq argv nil)
+      (when setup
+        (message "setup"))
+      (when build
+        ;; either use bash internally here (bad) or try to use screen
+        ;; currently going with screen since we have a hack for passing vars
+        (message "build:\n%s" (make-screen-vars))
+        (org-babel-do-load-languages
+         'org-babel-load-languages
+         '((screen . t)
+           (shell . t)))
+        ;; check that setup was run correctly, if not, fail
+        ;; start screen
+        ;; start up the packages server
+        ;; run build
+        ;; TODO block until build finishes or fails
+        (fix-ocbe)
+        (save-excursion ; can't use org-sbe because it calls some other random block !?
+          (org-babel-goto-named-src-block "workflow-cli")
+          (org-babel-execute-src-block)))
+      (when tangle
+        (message "tangle")
+        (unless (fboundp #'dockerfile-mode)
+          (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
+            "Stub to avoid comment-start issues"
+            (set (make-local-variable 'comment-start) "#")))
+        (let (enable-local-eval)
+          ;; this pattern is required when tangling to avoid infinite loops
+          (revert-buffer nil t nil)
+          (setq-local find-file-literally nil))
+        (fix-ocbe)
+        (org-babel-tangle)))))
 #+end_src
 
 Helper block to make it easier to use elisp functions as noweb inputs.
@@ -4667,6 +4733,17 @@ Helper block to make it easier to use elisp functions as noweb inputs.
 value
 #+end_src
 
+Helper blocks to pass variables to screen from cli.
+#+name: &screen-pass-vars
+#+begin_src elisp
+(make-screen-vars)
+#+end_src
+
+Note that all screen blocks have an implicit eval.
+#+name: &screen-set-vars
+#+begin_src screen
+<<&screen-pass-vars()>>
+#+end_src
 ** Local Variables :ARCHIVE:
 # close powershell comment #>
 # Local Variables:
