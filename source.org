@@ -27,6 +27,7 @@ exit
 *** docker config
 Docker files in this repo use buildkit features. To enable it include
 the following in [[/etc/docker/daemon.json]].
+#+name: docker-daemon-config
 #+begin_src json :tangle /etc/docker/daemon.json :tangle no
 {"experimental": true,
  "features": {"buildkit": true}}
@@ -55,6 +56,7 @@ features to be enabled in the client.
 
 If you want to push the images to a remote docker repository add the
 auths section as well (and fill it in with your credentials).
+#+name: docker-client-config
 #+begin_src json :tangle ~/.docker/config.json :tangle no
 {"experimental": "enabled",
  "auths": {
@@ -151,12 +153,27 @@ _resnap=        # snap package build containers set this if you changed the prof
 _live_rebuild=  # rebuild 9999 ebuilds e.g. from git
 _nopkgbldr=     # do not run package building steps
 
+<<&workflow-vars>>
 <<&workflow-common>>
+#+end_src
+
+#+name: &workflow-vars
+#+begin_src bash
+# XXX NOTE that these are embedded in the docker files right now
+_img_stage3=${_img_stage3:-gentoo/stage3:amd64-musl-hardened}
+
+__is3_0=${_img_stage3/\//-}
+__is3_1=${__is3_0/:/-}
+__src_from_img=${__is3_1/gentoo/latest}
+_src_stage3=${__src_stage3:-${__src_from_img}}
+
+_img_portage=${_img_portage:-gentoo/portage:latest}
 #+end_src
 
 #+name: workflow-cli
 #+begin_src screen
 <<&screen-set-vars>>
+<<&workflow-vars>>
 <<&workflow-common>>
 #+end_src
 
@@ -179,11 +196,16 @@ popd
 # #+header: :var _refresh=(or workflow-refresh) _repos=(or workflow-refresh workflow-repos)
 #+name: &workflow-funs
 #+begin_src screen
+# we web these in at the top since some of the vars are used in functions
+# outside the builders (e.g. package-server)
+
+<<&builder-vars>>
+
 function package-server () {
 # FIXME needs to run in another terminal, container, or daemon
 # but for now it blocks other commands which is ok
-curl --fail --head http://localhost:8089/multi/Packages || {
-    pushd ~/files/binpkgs
+curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
+    pushd ${_path_binpkgs}
     python -m http.server 8089 --bind 127.0.0.1
     popd
 }
@@ -193,25 +215,25 @@ function pull () {
 if [ -n "${_refresh}" ]; then
     # even when refresh is set avoid spurious pulls where the underlying stage3 has not changed
     local DIST="https://distfiles.gentoo.org/releases/amd64/autobuilds"
-    local STAGE3_LATEST="$(curl --fail --silent "${DIST}/latest-stage3-amd64-musl-hardened.txt" |\
+    local STAGE3_LATEST="$(curl --fail --silent "${DIST}/${_src_stage3}.txt" |\
         tail -n 1 | cut -f 1 -d'/' | sed -r 's/(....)(..)(..)T(..)(..)(..)/\1-\2-\3T\4:\5:\6/')"
-    local LOCDOC_LATEST="$(docker image inspect gentoo/stage3:amd64-musl-hardened --format '{{.Created}}')"
+    local LOCDOC_LATEST="$(docker image inspect ${_img_stage3} --format '{{.Created}}')"
     local S3_DATE=$(date -In --utc --date "${STAGE3_LATEST}")
     local LD_DATE=$(date -In --utc --date "${LOCDOC_LATEST}")
     # XXX there is technically a narrow window between the release of
     # a stage3 and the building of a docker image where this might fail
     # have to use double square brackets for this to work correctly
     [[ ${S3_DATE} < ${LD_DATE} ]] || \
-    docker pull gentoo/stage3:amd64-musl-hardened
+    docker pull ${_img_stage3}
     # TODO consider whether this should invoke a repackage
     # TODO related to diffing existing binpkgs to installed
 fi
 
 if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
     # these are updated more or less in sync with the upstream snapshot source
-    docker pull gentoo/portage:latest
+    docker pull ${_img_portage}
     docker rm local-portage-snap
-    docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
+    docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
 fi
 }
 
@@ -220,6 +242,7 @@ function tangle () {
 [ -d ./gnu ] && rm -r ./gnu
 [ -d ./musl ] && rm -r ./musl
 [ -d ./repos ] && rm -r ./repos
+[ -d ./other ] && rm -r ./other
 ./source.org tangle
 return $?
 }
@@ -387,7 +410,7 @@ because there is some bug in between.
 function docker-quickpkg () {
 # FIXME TODO pass the image to package
 docker run \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
 -e FEATURES=binpkg-multi-instance \
 -e QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022" \
 --rm \
@@ -396,6 +419,51 @@ quickpkg \
 ${@}
 }
 #+end_src
+** Cleanup
+#+name: &docker-cleanup
+#+begin_src screen
+docker container prune --force
+docker volume    prune --force
+docker image     prune --force
+docker builder   prune --force
+#+end_src
+* Default variables
+Default variable values that will eventually have cli overrides.
+# At the moment I'm not going to implement full command line processing via ow-cli.
+#+name: &host-binpkgs-root-path
+: ~/files/binpkgs
+
+NOTE: we will not be making the repo name configurable, it only
+appears to be for implementation convenience.
+#+name: &host-binpkgs-repo-name
+: multi
+
+#+name: &host-distfiles-path
+: /mnt/str/portage/distfiles
+
+#+name: &host-distcc-hosts-path
+: /etc/distcc/hosts.docker
+
+#+name: &host-ssh-path
+: /var/lib/portage/home/.ssh
+
+# FIXME grrrr the need to be able to set these computationally
+# passed via the command line means that we have to descend into elisp
+# or we have to have a oneshot self modifying configuration command
+# which is also bad because it breaks version control
+
+# ALTERNATELY you could try to configure symlinks or something and
+# point inside this repo, all bad options
+
+# yet another option would be to define all of these in some top
+# level environment for screen or something and pass them the same
+# way we do for the runtime vars, they would be dereferenced in the
+# ref:&builder-args block and we would set them before that like we
+# (horribly) do with _tm_pbs and _tm_s_pbs
+
+# reminder: you have to use =kill-local-variable= to clean up buffer local vars
+# if you use =makunbound= defvar-local will fail ... and even then there are issues
+# so sometimes you just have to kill and reopen the buffer (sigh)
 * Next
 ** TODO ebuilds changing behind the scenes
 :PROPERTIES:
@@ -1230,8 +1298,8 @@ This is where everything starts. The profile has to be set here etc.
 #+begin_src screen
 docker run \
 --volumes-from local-portage-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
 -it tgbugs/musl:eselect-repo
 #+end_src
 
@@ -1383,8 +1451,8 @@ docker image tag tgbugs/musl:updated-remerge tgbugs/musl:updated
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
 -it tgbugs/musl:updated
@@ -1435,8 +1503,8 @@ docker run \
 --net host \
 --add-host local.binhost:127.0.0.1 \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
 --rm \
@@ -1556,7 +1624,7 @@ have expired as well. The latest ebuild in the tree has removed bindist entirely
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
 --rm \
 tgbugs/musl:xorg \
 quickpkg "*/*"
@@ -1567,8 +1635,8 @@ quickpkg "*/*"
 function build_package () {
 echo docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
 --rm \
 tgbugs/musl:package-builder \
 $@
@@ -1599,18 +1667,38 @@ build_package sh -c "emerge -1q freetype"
 # those in the future, it should be fairly straight forward to create
 # a /var/db/docker-profile -> /etc/portage translator for the builder
 
+I suggest adding all the =_path_= variables below (and the repo name)
+to your shell rc file if you use any of the docker run commands during
+development so that you can do so in a new shell. These values are
+usually stable per system.
+#+name: &builder-vars
+#+begin_src bash :noweb yes
+export \
+_path_binpkgs_root=${_path_root_binpkgs:-<<&host-binpkgs-root-path()>>}
+_binpkgs_repo_name=${_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
+_path_binpkgs=${_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
+_path_distfiles=${_path_distfiles:-<<&host-distfiles-path()>>}
+_path_distcc_hosts=${_path_distcc_hosts:-<<&host-distcc-hosts-path()>>}
+_path_ssh=${_path_ssh:-<<&host-ssh-path()>>}
+
+export \
+_tm_pb=${_tm_pb:-tgbugs/musl:package-builder}
+_tm_s_pb=${_tm_s_pb:-tgbugs/musl:static-package-builder}
+
+_tm_pbs=${_tm_pbs:-${_tm_pb}-snap} \
+_tm_s_pbs=${_tm_s_pbs:-${_tm_s_pb}-snap} \
+#+end_src
+
 #+name: &builder-resnap
 #+begin_src bash
-export _tm_pbs=tgbugs/musl:package-builder-snap
-export _tm_s_pbs=tgbugs/musl:static-package-builder-snap
 function builder-resnap () {
-docker run tgbugs/musl:package-builder
-docker commit $(docker ps -lqf ancestor=tgbugs/musl:package-builder) ${_tm_pbs}
+docker run ${_tm_pb}
+docker commit $(docker ps -lqf ancestor=${_tm_pb}) ${_tm_pbs}
 }
 # FIXME SIGH SIGH SIGH why is this easier than doing the right thing
 function static-builder-resnap () {
-docker run tgbugs/musl:static-package-builder
-docker commit $(docker ps -lqf ancestor=tgbugs/musl:static-package-builder) ${_tm_s_pbs}
+docker run ${_tm_s_pb}
+docker commit $(docker ps -lqf ancestor=${_tm_s_pb}) ${_tm_s_pbs}
 }
 #+end_src
 
@@ -1637,10 +1725,10 @@ docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 #+begin_src bash
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
--v /var/lib/portage/home/.ssh:/var/lib/portage/home/.ssh \
--v /etc/distcc/hosts.docker:/etc/distcc/hosts \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
+-v ${_path_ssh}:/var/lib/portage/home/.ssh \
+-v ${_path_distcc_hosts}:/etc/distcc/hosts \
 --env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
 --env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
 #+end_src
@@ -2031,7 +2119,7 @@ media-fonts/dejavu
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
 --rm \
 tgbugs/musl:updated \
 quickpkg "*/*"
@@ -2041,8 +2129,8 @@ quickpkg "*/*"
 cat ./musl/package-builder/nox.world | xargs \
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
 --rm \
 tgbugs/musl:package-builder-nox \
 emerge --color=y -j4 -q --keep-going
@@ -2357,8 +2445,8 @@ docker run \
 --net host \
 --add-host local.binhost:127.0.0.1 \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=${DISPLAY} \
 --rm \
@@ -3937,7 +4025,7 @@ tgbugs/musl:static-xorg
 #+begin_src bash
 docker run \
 --volumes-from local-repos-snap \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
 --rm \
 tgbugs/musl:static-xorg \
 quickpkg "*/*"
@@ -3951,8 +4039,8 @@ cat ./musl/package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
--v ~/files/binpkgs/multi:/var/cache/binpkgs \
--v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
 tgbugs/musl:static-package-builder-snap \
 emerge --color=y -j4 -q --keep-going -uDN
 
@@ -4321,7 +4409,10 @@ RUN \
 git clone https://github.com/tgbugs/dockerfiles.git
 
 RUN \
-mkdir -p ~/files/binpkgs/multi
+dockerfiles/source.org setup
+
+# RUN \
+# mkdir -p ~/files/binpkgs/multi
 #+end_src
 ** ubuntu-genera-base
 *** file
@@ -4639,7 +4730,7 @@ emerge -j4 -q -uDN \
 * Bootstrap :noexport:
 
 #+name: orgstrap
-#+begin_src elisp :results none :lexical yes
+#+begin_src elisp :results none :lexical yes :noweb yes
 (defvar-local refresh      nil)
 (defvar-local repos        nil)
 (defvar-local sync-gentoo  nil)
@@ -4648,11 +4739,31 @@ emerge -j4 -q -uDN \
 (defvar-local live-rebuild nil)
 (defvar-local no-pkg-bldr  nil)
 
+(defvar-local path-distfiles (expand-file-name "<<&host-distfiles-path()>>"))
+(defvar-local path-binpkgs-root (expand-file-name "<<&host-binpkgs-root-path()>>")) ; FIXME multi
+(defvar-local path-binpkgs (concat path-binpkgs-root "/" "<<&host-binpkgs-repo-name()>>"))
+(defvar-local path-distcc-hosts (expand-file-name "<<&host-distcc-hosts-path()>>"))
+(defvar-local path-ssh (expand-file-name "<<&host-ssh-path()>>"))
+; FIXME should we only mount the key itself to avoid config issues internally ? probably yes ? also known_hosts issues, the docker build ssh-agent doesn't really help here
+
 (defun make-screen-vars ()
   (apply #'format
-         "export _refresh=%s _repos=%s _sync_gentoo=%s _repackage=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s;"
-         (mapcar (lambda (b) (if b 1 ""))
-                 (list refresh repos sync-gentoo repackage resnap live-rebuild no-pkg-bldr))))
+         "export _refresh=%s _repos=%s _sync_gentoo=%s _repackage=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s \\
+_path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S _path_ssh=%S;"
+         (append
+          (mapcar (lambda (b) (if b 1 ""))
+                  (list refresh repos sync-gentoo repackage resnap live-rebuild no-pkg-bldr))
+          (list path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh))))
+
+(defun run-setup ()
+;; docker daemon config ; XXX this can't be done due to bad design of docker (investigate podman)
+;; docker client config
+;;  remote repo key
+;; binpkgs path
+;; portage ssh keys
+;; distcc hosts file
+(make-directory)
+)
 
 (defun fix-ocbe ()
   "it would seem that blanking `enable-local-eval' resets this"
@@ -4695,11 +4806,11 @@ emerge -j4 -q -uDN \
           (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv))))
       (setq argv nil)
       (when setup
-        (message "setup"))
+        (run-setup))
       (when build
         ;; either use bash internally here (bad) or try to use screen
         ;; currently going with screen since we have a hack for passing vars
-        (message "build:\n%s" (make-screen-vars))
+        ;;(message "build:\n%s" (make-screen-vars))
         (org-babel-do-load-languages
          'org-babel-load-languages
          '((screen . t)
@@ -4714,7 +4825,6 @@ emerge -j4 -q -uDN \
           (org-babel-goto-named-src-block "workflow-cli")
           (org-babel-execute-src-block)))
       (when tangle
-        (message "tangle")
         (unless (fboundp #'dockerfile-mode)
           (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
             "Stub to avoid comment-start issues"
