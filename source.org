@@ -1220,8 +1220,6 @@ ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 ARG UID=1000
 ARG USER_NAME=user
 
-WORKDIR /build
-
 RUN \
 groupadd -g ${UID} ${USER_NAME} \
 && useradd -m -k /etc/skel -u ${UID} -g ${UID} -d /build/home/${USER_NAME} ${USER_NAME}
@@ -1235,6 +1233,8 @@ chown -R ${UID}:${UID} home/${USER_NAME}
 
 #+begin_src dockerfile :tangle ./musl/user/Dockerfile
 FROM gentoo/stage3:amd64-musl-hardened as builder
+
+WORKDIR /build
 
 <<&musl-user-skel-common>>
 
@@ -2630,6 +2630,8 @@ FROM tgbugs/musl:icedtea as builder
 ARG ARCHIVE
 ARG PROTEGE_VERSION="5.5.0"
 
+WORKDIR /build
+
 <<&musl-user-skel-common>>
 
 USER ${USER_NAME}
@@ -3265,6 +3267,8 @@ touch /run/openrc/softlevel
 #+begin_src dockerfile :tangle ./musl/kg-release-user/Dockerfile
 FROM tgbugs/musl:kg-release as builder
 
+WORKDIR /build
+
 <<&musl-user-skel-common>>
 
 ARG HOME=/build/home/${USER_NAME}
@@ -3371,7 +3375,9 @@ app-arch/zip
 app-misc/yq
 dev-java/robot-bin
 dev-node/apinat-converter
+dev-python/nifstd-tools
 dev-python/pennsieve
+dev-python/sparcur
 #+end_src
 
 # we include pennsieve in world here because
@@ -3442,6 +3448,7 @@ su user -c 'emacs -visit ~/git/sparc-curation/docs/queries.org'
 # XXX note the using builder means that the command history
 # that is used to create the /build/ directory are lost
 # sigh bad trade offs for multi stage builds
+# HOORAY pip install --user -e and /build/ are incompatable! >_<
 #+begin_src dockerfile :tangle ./musl/kg-dev-user/Dockerfile
 FROM tgbugs/musl:kg-dev as builder
 
@@ -3449,7 +3456,8 @@ FROM tgbugs/musl:kg-dev as builder
 
 USER ${USER_NAME}
 
-ARG HOME=/build/home/${USER_NAME}
+#ARG HOME=/build/home/${USER_NAME}
+ARG HOME=/home/${USER_NAME}
 
 WORKDIR $HOME
 
@@ -3484,33 +3492,25 @@ ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 RUN \
 pushd git \
-&&     git clone https://github.com/tgbugs/idlib.git \
 &&     git clone https://github.com/tgbugs/pyontutils.git \
 &&     git clone https://github.com/SciCrunch/sparc-curation.git \
 && popd
 
 RUN \
-pip install --user -e \
-git/idlib \
-git/pyontutils/ttlser \
-git/pyontutils \
-git/pyontutils/nifstd \
-git/sparc-curation \
-&& rm -r ~/.cache/pip
-
-RUN \
 pushd git \
 &&     pushd pyontutils \
-&&         python setup.py --release || true \
 &&         pushd nifstd \
+&&             pip install --user -e . \
 &&             python setup.py --release || true \
 &&         popd \
 &&     popd \
 &&     pushd sparc-curation \
+&&         pip install --user -e . \
 &&         python setup.py --release || true \
 &&     popd \
 && popd \
-&& ln -s ../../git/sparc-curation/docs/apinatomy.org ~/.local/bin/apinat-build
+&& ln -s ../../git/sparc-curation/docs/apinatomy.org ~/.local/bin/apinat-build \
+&& rm -r ~/.cache/pip
 
 RUN \
 ./git/sparc-curation/docs/queries.org
@@ -3525,23 +3525,20 @@ $HOME/.emacs.d/init.el \
 ./git/sparc-curation/docs/queries.org \
 ./git/sparc-curation/docs/apinatomy.org
 
-FROM tgbugs/musl:kg-dev
+#FROM tgbugs/musl:kg-dev
 
-COPY --from=builder /build /
+#COPY --from=builder /build /
 
 ADD entrypoint.sh /etc/entrypoint.sh
 
-<<&musl-file-user-base>>
+ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 
 # XXX somehow this induces ~10MB of new content !??!
-RUN \
-pip install --user --no-deps -e \
-git/idlib \
-git/pyontutils/ttlser \
-git/pyontutils \
-git/pyontutils/nifstd \
-git/sparc-curation \
-&& rm -r ~/.cache/pip
+#RUN \
+#pip install --user --no-deps -e \
+#git/pyontutils/nifstd \
+#git/sparc-curation \
+#&& rm -r ~/.cache/pip
 
 USER 0
 
@@ -3785,8 +3782,8 @@ dev-db/redis
 net-misc/rabbitmq-server
 dev-python/celery
 dev-python/redis-py
-dev-python/sparcur
 dev-python/pip
+dev-python/sparcur
 #+end_src
 
 ** sparcur-user
@@ -3843,10 +3840,6 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/sparcur-user/Dockerfile
 FROM tgbugs/musl:sparcur
 
-# FIXME temporary fix
-RUN \
-sed -i 's/need net epmd/need epmd/' /etc/init.d/rabbitmq
-
 ADD --chown=836:836 idlib-config.yaml /var/lib/sparc/.config/idlib/config.yaml
 ADD --chown=836:836 sparcur-config.yaml /var/lib/sparc/.config/sparcur/config.yaml
 
@@ -3864,32 +3857,11 @@ mkdir ~/git \
 
 RUN \
 pushd git \
-&&     git clone https://github.com/tgbugs/idlib.git \
-&&     git clone https://github.com/tgbugs/pyontutils.git \
 &&     git clone https://github.com/SciCrunch/sparc-curation.git \
 && popd
 
-# FIXME somehow pyontutils is still getting installed in site packages >:|
-# oh, it is worse, if you don't use . it will create a wheel and stick it in
-# site packages WHAT, yay variant behavior depending on cwd vs specified path
-# so yeah, can't use pip directly at the top level, have to do the pushd dance
 RUN \
 pushd git \
-&&     pushd idlib \
-&&         pip install --user -e . \
-&&     popd \
-&&     pushd pyontutils \
-&&         pushd ttlser \
-&&             pip install --user -e . \
-&&             python setup.py --release || true \
-&&         popd \
-&&         pip install --user -e . \
-&&         python setup.py --release || true \
-&&         pushd nifstd \
-&&             pip install --user -e . \
-&&             python setup.py --release || true \
-&&         popd \
-&&     popd \
 &&     pushd sparc-curation \
 &&         pip install --user -e . \
 &&         python setup.py --release || true \
@@ -3942,9 +3914,6 @@ auth-variables:
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/redis start
-# FIXME rabbitmq has a stupid service dependency setup that
-# has a hard dependency on the network but it doesn't actually
-# need a network process to be started, even a dummy will do ... sigh
 /etc/init.d/rabbitmq start
 
 # testing and ensure that there is an existing cache on first run
