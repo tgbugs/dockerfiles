@@ -593,6 +593,9 @@ ADD ${bp}package.mask                            etc/portage/package.mask/profil
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
+ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
+ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3-exe/musl-include-sys-time.patch
+ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3-exe/musl-fix-stdio-defs.patch
 #+end_src
 
 #+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
@@ -645,6 +648,7 @@ NATIVE_FULL_AOT=1
 # dev-python/numpy no-distcc
 # XXX manually setting FEATURES=-distcc worked, but it seems that stacking features in make.conf doesn't?
 #+begin_src conf :tangle ./docker-profile/base/package.env
+dev-python/pypy3 no-distcc
 dev-util/cmake no-distcc
 dev-util/colm no-distcc
 #+end_src
@@ -710,7 +714,7 @@ INSTALL_MASK="${INSTALL_MASK}
 
 FEATURES="${FEATURES} binpkg-multi-instance"
 
-EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"
+EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"  # FIXME portageq shows bru opt twice ??
 
 # icu is needed due to musl collation issues
 # jemalloc can improve performance re issues with musl allocator
@@ -813,6 +817,10 @@ app-emacs/vterm ~amd64
 dev-lisp/asdf ~amd64
 dev-lisp/uiop ~amd64
 dev-lisp/sbcl ~amd64
+
+# pypy3
+dev-python/pypy3-exe ~amd64
+dev-python/pypy3 ~amd64
 #+end_src
 # probably have to put dev-python/*::tgbugs-overlay in /etc/portage/package.accept_keywords/profile
 # dev-python/pyontutils ~amd64
@@ -852,6 +860,10 @@ dev-scheme/racket cs bc cgc jit
 # graphviz
 media-libs/gd truetype fontconfig
 
+# pypy3
+dev-python/pypy3-exe jit
+dev-python/pypy3 sqlite
+
 # keep ipykernel deps minimal for emacs-jupyter
 dev-python/ipython -smp
 
@@ -877,6 +889,9 @@ dbus
 vala
 introspection
 elogind
+
+# allow pypy3 as a python target
+-python_targets_pypy3
 #+end_src
 **** x/
 intentionally empty
@@ -1079,7 +1094,16 @@ them the same way we mount the gentoo repo during build so that we can
 keep the images a bit slimmer. We can publish the build images
 independently, and it is also worth noting that from a reproducibility
 perspective the exact ebuilds are stored in file:/var/db/pkg/.
+
+*** debug
+#+begin_src bash
+docker run \
+--entrypoint /bin/sh \
+-it tgbugs/repos:latest
+#+end_src
 *** build
+# FIXME the --no-cache option here means that setting --repos forces a
+# rebuild of _everything_ downstream even if repos didn't change
 #+name: &repos-build-repos
 #+begin_src screen
 docker build \
@@ -1308,6 +1332,13 @@ docker run \
 docker run -it tgbugs/musl:eselect-repo
 #+end_src
 
+# debug tgbugs/repos:latest
+#+begin_src screen
+docker run \
+--volumes-from local-repos-snap \
+-it tgbugs/musl:eselect-repo
+#+end_src
+
 *** build
 #+name: &musl-build-eselect-repo
 #+begin_src screen
@@ -1338,11 +1369,14 @@ eselect repository enable musl
 #+name: &gentoo-file-eselect-repo-common-1
 #+begin_src dockerfile
 ARG ARCHIVE
-ARG PYTHON_TARGETS  # use if there are issues with mismatched python targets
 #+end_src
 
 #+name: &gentoo-file-eselect-repo-common-2
 #+begin_src dockerfile
+RUN \
+# FIXME tgbugs-overlay symlinks
+ln -s /var/db/repos/gentoo /usr/portage
+
 RUN \
 eselect news read all \
 && eselect news purge
@@ -1364,9 +1398,7 @@ mkdir /etc/portage/package.accept_keywords \
 #+begin_src dockerfile
 # FIXME MAKEOPTS_LOCAL
 RUN \
-echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf \
-&& [[ -z ${PYTHON_TARGETS} ]] || \
-   echo "*/* PYTHON_TARGETS: -* ${PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
+echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf
 # XXX setting PORTAGE_BINHOSTS has to come later? maybe as an envar?
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -1527,6 +1559,34 @@ be built and deposited into musl-x. The less good news is that this is
 not fully implemented yet as noted in <https://wiki.gentoo.org/wiki/
 Binary_package_guide#Pulling_packages_from_a_binary_package_host>.
 
+#+begin_comment
+Trying to bootstrap pypy3 at this phase of the build when you don't have
+a pypy3 free environment yet can be a massive pain to debug. The solution
+is to set =USE_PYTHYON_TARGETS= explicitly to override the default pypy3,
+bootstrap everything until you can run =builder-debug= and then build the
+binary pypy3 in an environment where you can debug.
+#+end_comment
+
+# FIXME I think that we really have to make the pypy3 environment its own branch
+# because bootstrapping it is beyond terrifying when you have to use the same
+# images and the builder can deposit pyp3, otherwise you wind up building pypy3
+# in an environment where binpkgs are not being generated until the whole image
+# is repackaged (!!!!)
+# SIGH
+#+name: &python-targets-common
+#+begin_src dockerfile
+ARG USE_PYTHON_TARGETS  # use if there are issues with mismatched python targets
+# can't use PYTHON_TARGETS directly because ARG PYTHON_TARGETS is the same
+# as export PYTHON_TARGETS= which means that portageq results will be affected
+
+# we defer changing python targets until after eselect-repo to avoid
+# issues bootstrapping pypy3
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3"} \
+&& [[ -z ${USE_PYTHON_TARGETS} ]] || \
+   echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
+#+end_src
+
 #+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
 ARG PROFILE_IMAGE=tgbugs/musl:profile-x
 ARG START_IMAGE=tgbugs/musl:updated
@@ -1542,6 +1602,10 @@ ARG PROFILE=docker-profile:tgbugs/musl/x
 RUN \
 eselect profile set $PROFILE
 
+# FIXME python targets to include pypy3 needs to be in its own derived environment
+# starting from package builder or something like that
+<<&python-targets-common>>
+
 # FIXME I think we have to update binhosts here
 
 # FIXME this rebuild is bad because it results in duplication of
@@ -1552,9 +1616,7 @@ eselect profile set $PROFILE
 # will scream about missing libs, this is because the good harfbuzz is installed after
 # fontconfig, confusing and scary, but apparently not fatal
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-# FIXME tgbugs-overlay symlinks
-ln -s /var/db/repos/gentoo /usr/portage \
-&& emerge -j4 -1q \
+emerge -j4 -1q \
    --getbinpkgonly \
    media-libs/freetype \
    media-libs/harfbuzz \
@@ -2357,6 +2419,8 @@ Python testing.
 dev-lang/python:3.7
 dev-lang/python:3.8
 dev-lang/python:3.9
+dev-lang/python:3.10
+dev-python/pypy3
 dev-python/pip
 #+end_src
 # XXX pipenv continues to be a toxic waste dump of insanity and brokeness
@@ -2370,20 +2434,69 @@ manually, the right thing to do is to update the musl overlay build,
 but for now, if you can manage to manually build in the builder you
 will wind up with a binpkg that can be reused.
 
-https://bugs.python.org/issue21622
-https://github.com/python/cpython/pull/18380
-https://bugs.python.org/issue43112
-# AAAAAAAAAAAAAAAAAAAAAAAAAAaa
-# So yes ... my suspicion that invariance to libc is completely neglected is completely vindicated
-This patch fixes the problem
-https://git.alpinelinux.org/aports/plain/main/python3/musl-find_library.patch
-stick it in /etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
+A number of relevant issues
+- https://bugs.python.org/issue21622
+- https://github.com/python/cpython/pull/18380
+- https://bugs.python.org/issue43112
+- https://github.com/gentoo/musl/issues/451#issuecomment-1017102775
 
-https://raw.githubusercontent.com/gentoo/musl/master/dev-python/pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch
-# https://raw.githubusercontent.com/gentoo/musl/master/dev-python/pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-include-sys-time.patch
-https://github.com/gentoo/musl/issues/451#issuecomment-1017102775
-# rebuild binpkgs emerge -g n -k n package-name
-#+begin_src diff :tangle musl/profile/patches/dev-python/pypy3-3.7.3/lol.patch :mkdirp yes
+*** cpython 2.7 patch
+Sourced from https://git.alpinelinux.org/aports/plain/main/python3/musl-find_library.patch
+If in =builder-debug= rebuild the python:2.7 binpkg =emerge -g n -k n python:2.7=.
+#+begin_src diff :tangle ./docker-profile/base/musl-find_library.patch
+diff -ru Python-2.7.12.orig/Lib/ctypes/util.py Python-2.7.12/Lib/ctypes/util.py
+--- Python-2.7.12.orig/Lib/ctypes/util.py	2016-06-26 00:49:30.000000000 +0300
++++ Python-2.7.12/Lib/ctypes/util.py	2016-11-03 16:05:46.954665040 +0200
+@@ -204,6 +204,41 @@
+         def find_library(name, is64 = False):
+             return _get_soname(_findLib_crle(name, is64) or _findLib_gcc(name))
+ 
++    elif True:
++
++        # Patched for Alpine Linux / musl - search manually system paths
++        def _is_elf(filepath):
++            try:
++                with open(filepath, 'rb') as fh:
++                    return fh.read(4) == b'\x7fELF'
++            except:
++                return False
++
++        def find_library(name):
++            from glob import glob
++            # absolute name?
++            if os.path.isabs(name):
++                return name
++            # special case for libm, libcrypt and libpthread and musl
++            if name in ['m', 'crypt', 'pthread']:
++                name = 'c'
++            elif name in ['libm.so', 'libcrypt.so', 'libpthread.so']:
++                name = 'libc.so'
++            # search in standard locations (musl order)
++            paths = ['/lib', '/usr/local/lib', '/usr/lib']
++            if 'LD_LIBRARY_PATH' in os.environ:
++                paths = os.environ['LD_LIBRARY_PATH'].split(':') + paths
++            for d in paths:
++                f = os.path.join(d, name)
++                if _is_elf(f):
++                    return os.path.basename(f)
++
++                prefix = os.path.join(d, 'lib'+name)
++                for suffix in ['.so', '.so.*']:
++                    for f in glob('{0}{1}'.format(prefix, suffix)):
++                        if _is_elf(f):
++                            return os.path.basename(f)
++
+     else:
+ 
+         def _findSoname_ldconfig(name):
+#+end_src
+
+*** pypy3-exe sys time patch
+The patch is a version of the below patch that will apply correctly to later versions of pypy3.
+<https://raw.githubusercontent.com/gentoo/musl/master/dev-python/
+pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-include-sys-time.patch>
+
+#+begin_src diff :tangle ./docker-profile/base/musl-include-sys-time.patch :mkdirp yes
 diff -r 9ef55f6fc369 pypy/module/cpyext/include/pytime.h
 --- a/pypy/module/cpyext/include/pytime.h
 +++ b/pypy/module/cpyext/include/pytime.h
@@ -2400,12 +2513,29 @@ diff -r 9ef55f6fc369 pypy/module/cpyext/include/pytime.h
  
 #+end_src
 
-pip install --user -e . is broken for <=dev-python/setuptools-60 sigh
+*** pypy3-exe stdio patch
+The patch is a version of the below patch that will apply correctly to later versions of pypy3.
+<https://raw.githubusercontent.com/gentoo/musl/master/dev-python/
+pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch>
 
-# TODO I think this goes in the profile? or maybe along with the repos or something?
-# /etc/portage/patches is a super power for stuff like this
-#+begin_src dockerfile
-ADD musl/?/lol.patch /etc/portage/patches/dev-python/pypy3-3.7.3/lol.patch
+#+begin_src diff :tangle ./docker-profile/base/musl-fix-stdio-defs.patch :mkdirp yes
+--- a/rpython/rlib/rfile.py
++++ b/rpython/rlib/rfile.py
+@@ -123,11 +123,11 @@
+ c_ferror = llexternal('ferror', [FILEP], rffi.INT)
+ c_clearerr = llexternal('clearerr', [FILEP], lltype.Void)
+ 
+-c_stdin = rffi.CExternVariable(FILEP, 'stdin', eci, c_type='FILE*',
++c_stdin = rffi.CExternVariable(FILEP, 'stdin', eci, c_type='FILE* const',
+                                getter_only=True, declare_as_extern=False)
+-c_stdout = rffi.CExternVariable(FILEP, 'stdout', eci, c_type='FILE*',
++c_stdout = rffi.CExternVariable(FILEP, 'stdout', eci, c_type='FILE* const',
+                                 getter_only=True, declare_as_extern=False)
+-c_stderr = rffi.CExternVariable(FILEP, 'stderr', eci, c_type='FILE*',
++c_stderr = rffi.CExternVariable(FILEP, 'stderr', eci, c_type='FILE* const',
+                                 getter_only=True, declare_as_extern=False)
+ 
+ 
 #+end_src
 
 ** testing-emacs
