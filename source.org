@@ -596,6 +596,7 @@ ADD ${bp}package.env                             etc/portage/package.env/profile
 ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
 ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3-exe/musl-include-sys-time.patch
 ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3-exe/musl-fix-stdio-defs.patch
+ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3/json-str-subclass-safety.patch
 #+end_src
 
 #+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
@@ -2536,6 +2537,40 @@ pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch>
                                  getter_only=True, declare_as_extern=False)
  
  
+#+end_src
+
+*** pypy3 json string patch
+Not all instance of string have =__radd__= methods that make uncasted
+string concatenation safe. This results in divergent behavior compared
+to the cypthon json implementation.
+#+begin_src diff :tangle ./docker-profile/base/pypy3-json-str-subclass-safety.patch :mkdirp yes
+diff -r 05fbe3aa5b08 lib-python/3/json/encoder.py
+--- a/lib-python/3/json/encoder.py	Tue Mar 29 08:15:20 2022 +0300
++++ b/lib-python/3/json/encoder.py	Fri Apr 29 15:19:41 2022 -0700
+@@ -371,8 +371,10 @@
+                 first = False
+             else:
+                 buf = separator
+-            if isinstance(value, str):
++            if type(value) == str:
+                 yield buf + '"' + self.__encoder(value) + '"'
++            elif isinstance(value, str):
++                yield buf + '"' + str(self.__encoder(value)) + '"'
+             elif value is None:
+                 yield buf + 'null'
+             elif value is True:
+@@ -448,8 +450,10 @@
+                 yield item_separator
+             yield '"' + self.__encoder(key) + '"'
+             yield self.key_separator
+-            if isinstance(value, str):
++            if type(value) == str:
+                 yield '"' + self.__encoder(value) + '"'
++            elif isinstance(value, str):
++                yield '"' + str(self.__encoder(value)) + '"'
+             elif value is None:
+                 yield 'null'
+             elif value is True:
 #+end_src
 
 ** testing-emacs
