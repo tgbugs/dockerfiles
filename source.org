@@ -133,7 +133,7 @@ The standard way to use this file to build is to run the following block
 WARNING: never run this command from inside the =org-session= screen, input
 will be severely broken
 #+begin_src bash
-./source.org build --refresh --repos --repackage --resnap --live-rebuild
+./source.org build --refresh --repos --resnap --live-rebuild
 #+end_src
 ** Build
 If you are bootstrapping this file from scratch you will need to build
@@ -144,11 +144,10 @@ To prepare a fresh cycle of images.
 # things break at ref:&musl-build-xorg
 #+name: workflow-manual
 #+begin_src screen
-unset _refresh _repos _sync_gentoo _repackage _resnap _live_rebuild _nopkgbldr
+unset _refresh _repos _sync_gentoo _resnap _live_rebuild _nopkgbldr
 _refresh=       # pull base images
 _repos=         # pull ebuild repo images
 _sync_gentoo=   # run emaint sync for gentoo repo
-_repackage=     # run quickpackage on base images  # FIXME conditional on actual change ?
 _resnap=        # snap package build containers set this if you changed the profile or you will have a bad time
 _live_rebuild=  # rebuild 9999 ebuilds e.g. from git
 _nopkgbldr=     # do not run package building steps
@@ -225,8 +224,6 @@ if [ -n "${_refresh}" ]; then
     # have to use double square brackets for this to work correctly
     [[ ${S3_DATE} < ${LD_DATE} ]] || \
     docker pull ${_img_stage3}
-    # TODO consider whether this should invoke a repackage
-    # TODO related to diffing existing binpkgs to installed
 fi
 
 if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
@@ -238,6 +235,7 @@ fi
 }
 
 function tangle () {
+[ -d ./bin ] && rm -r ./bin
 [ -d ./docker-profile ] && rm -r ./docker-profile
 [ -d ./gnu ] && rm -r ./gnu
 [ -d ./musl ] && rm -r ./musl
@@ -268,10 +266,6 @@ echo TODO
 function run-musl () {
 local REPOS="${_repos}"
 local SYNC_GENTOO="${_sync_gentoo}"
-# TODO set QPKG below based on whether any new packages were actually built
-local QPKG="${_repackage}"
-local QPKGX="${_repackage}"
-local QPKGSX="${_repackage}"
 local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
@@ -292,13 +286,9 @@ echo start bootstrap
     }
     <<&musl-build-updated>> || return $?; echo mbu;
       <<&musl-build-updated-user>> || return $?; echo mbuu;
-      # FIXME quickpkg should not repackage
-      #[ -z $QPKG ] ||
       <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
 
       <<&musl-build-pypy3>> || return $?; echo mbpypy3;
-        # FIXME quickpkg should not repackage
-        #[ -z $QPKG ] ||
         <<&musl-run-pypy3-quickpkg>> || return $?; echo mrpypy3q;
 
         <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
@@ -306,8 +296,6 @@ echo start bootstrap
 
         # XXX this is the point at which things split into musl and musl/x
         <<&musl-build-xorg>> || return $?; echo mbx;
-        # FIXME quickpkg should not repackage
-        #[ -z $QPKGX ] ||
         <<&musl-run-xorg-quickpkg>> || return $?; echo mrxq;
 
         <<&musl-build-package-builder>> || return $?; echo mbpb;
@@ -315,7 +303,6 @@ echo start bootstrap
 
         # XXX split to musl/static/x
         <<&musl-build-static-xorg>> || return $?; echo mbsx;
-        #[ -z $QPKGSX ] ||
         <<&musl-run-static-xorg-quickpkg>> || return $?; echo mrsxp;
 
         <<&musl-build-static-package-builder>> || return $?; echo mbspb;
@@ -851,6 +838,9 @@ sys-apps/util-linux caps
 
 # font rendering
 media-libs/freetype -cleartype-hinting -cleartype_hinting
+
+# reduce deps
+dev-libs/uriparser -doc
 
 # needed to ensure that -egl doesn't introduce conflicts
 x11-base/xorg-server minimal
@@ -1541,7 +1531,7 @@ docker run \
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:pypy3 \
---file musl/xorg/Dockerfile musl/pypy3
+--file musl/pypy3/Dockerfile musl/pypy3
 #+end_src
 *** file
 #+begin_comment
@@ -4991,7 +4981,6 @@ emerge -j4 -q -uDN \
 (defvar-local refresh      nil)
 (defvar-local repos        nil)
 (defvar-local sync-gentoo  nil)
-(defvar-local repackage    nil)
 (defvar-local resnap       nil)
 (defvar-local live-rebuild nil)
 (defvar-local no-pkg-bldr  nil)
@@ -5005,11 +4994,11 @@ emerge -j4 -q -uDN \
 
 (defun make-screen-vars ()
   (apply #'format
-         "export _refresh=%s _repos=%s _sync_gentoo=%s _repackage=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s \\
+         "export _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s \\
 _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S _path_ssh=%S;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
-                  (list refresh repos sync-gentoo repackage resnap live-rebuild no-pkg-bldr))
+                  (list refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr))
           (list path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh))))
 
 (defun run-setup ()
@@ -5057,7 +5046,6 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           (refresh      (and build (member "--refresh" argv)))
           (repos        (and build (member "--repos" argv)))
           (sync-gentoo  (and build (member "--sync-gentoo" argv)))
-          (repackage    (and build (member "--repackage" argv)))
           (resnap       (and build (member "--resnap" argv)))
           (live-rebuild (and build (member "--live-rebuild" argv)))
           (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv))))
