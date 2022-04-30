@@ -1386,12 +1386,12 @@ eselect news read all \
 # portage needs these to be folders and are expected to error if
 # the profile in question creates a ./profile file in these folders
 RUN \
-mkdir /etc/portage/package.accept_keywords \
-;  mkdir /etc/portage/package.env \
-;  mkdir /etc/portage/package.mask \
-;  mkdir /etc/portage/package.unmask \
-;  mkdir /etc/portage/package.use \
-;  mkdir /etc/portage/repos.conf \
+   mkdir /etc/portage/package.accept_keywords > /dev/null 2>&1 \
+;  mkdir /etc/portage/package.env             > /dev/null 2>&1 \
+;  mkdir /etc/portage/package.mask            > /dev/null 2>&1 \
+;  mkdir /etc/portage/package.unmask          > /dev/null 2>&1 \
+;  mkdir /etc/portage/package.use             > /dev/null 2>&1 \
+;  mkdir /etc/portage/repos.conf              > /dev/null 2>&1 \
 || true
 #+end_src
 
@@ -1691,6 +1691,51 @@ docker run \
 --rm \
 tgbugs/musl:xorg \
 quickpkg "*/*"
+#+end_src
+
+**** quickpkg dedupe
+This more or less works to avoid duplicate packages in a binhost multi
+instance setup.
+#+begin_src jupyter-python :session pys
+import portage
+from portage.versions import _pkg_str
+
+def atoms_to_package():
+    eroot = portage.settings['EROOT']
+    trees = portage.db[eroot]
+    bintree = trees['bintree']
+    vartree = trees['vartree']
+    vardb = vartree.dbapi
+
+    installed = vartree.dbapi.cpv_all()
+    packaged, not_packaged, misses = [], [], {}
+    for i in installed:
+        bt, bi, use = vardb.aux_get(i, ['BUILD_TIME', 'BUILD_ID', 'USE'])
+        bt = int(bt) if bt else -1
+        bi = int(bi) if bi else -1
+        matches = [a for a in bintree.dbapi.match(i) if
+                   (a.build_time == bt and
+                    a.build_id == bi and
+                    a._metadata['USE'] == use)]
+        if matches:
+            packaged.append(i)
+        else:
+            misses[i] = [a for a in bintree.dbapi.match(i) if not
+                         (a.build_time == bt and
+                          a.build_id == bi and
+                          a._metadata['USE'] == use)]
+            not_packaged.append(i)
+            #[[l.build_id for l in [k] + v] for k, v in misses.items()]
+            #[[l.build_time for l in [k] + v] for k, v in misses.items()]
+            #[[l._metadata['USE'] if hasattr(l, '_metadata') else None
+              #for l in [k] + v] for k, v in misses.items()]
+
+    return sorted([f'={a}' for a in not_packaged])
+
+if __name__ == '__main__':
+    atp = atoms_to_package()
+    if atp:
+        print('quickpkg', *atoms_to_package())
 #+end_src
 
 *** run
@@ -2583,7 +2628,7 @@ app-editors/emacs:24
 app-editors/emacs:25
 app-editors/emacs:26
 app-editors/emacs:27
-app-editors/emacs:28-vcs
+app-editors/emacs:28
 app-editors/emacs:29-vcs
 #+end_src
 ** emacs
