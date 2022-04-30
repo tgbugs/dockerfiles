@@ -288,32 +288,38 @@ echo start bootstrap
     docker container inspect local-repos-snap > /dev/null &&
     docker rm local-repos-snap;
     docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
+    echo repos done;
     }
     <<&musl-build-updated>> || return $?; echo mbu;
       <<&musl-build-updated-user>> || return $?; echo mbuu;
       # FIXME quickpkg should not repackage
-      [ -z $QPKG ] ||
+      #[ -z $QPKG ] ||
       <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
 
-      <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
-      <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
+      <<&musl-build-pypy3>> || return $?; echo mbpypy3;
+        # FIXME quickpkg should not repackage
+        #[ -z $QPKG ] ||
+        <<&musl-run-pypy3-quickpkg>> || return $?; echo mrpypy3q;
 
-      # XXX this is the point at which things split into musl and musl/x
-      <<&musl-build-xorg>> || return $?; echo mbx;
-      # FIXME quickpkg should not repackage
-      [ -z $QPKGX ] ||
-      <<&musl-run-xorg-quickpkg>> || return $?; echo mrxq;
+        <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
+        <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
 
-      <<&musl-build-package-builder>> || return $?; echo mbpb;
-      <<&musl-build-binpkg-only>> || return $?; echo mbpo;
+        # XXX this is the point at which things split into musl and musl/x
+        <<&musl-build-xorg>> || return $?; echo mbx;
+        # FIXME quickpkg should not repackage
+        #[ -z $QPKGX ] ||
+        <<&musl-run-xorg-quickpkg>> || return $?; echo mrxq;
 
-      # XXX split to musl/static/x
-      <<&musl-build-static-xorg>> || return $?; echo mbsx;
-      [ -z $QPKGSX ] ||
-      <<&musl-run-static-xorg-quickpkg>> || return $?; echo mrsxp;
+        <<&musl-build-package-builder>> || return $?; echo mbpb;
+        <<&musl-build-binpkg-only>> || return $?; echo mbpo;
 
-      <<&musl-build-static-package-builder>> || return $?; echo mbspb;
-      <<&musl-build-static-binpkg-only>> || return $?; echo mbsbo;
+        # XXX split to musl/static/x
+        <<&musl-build-static-xorg>> || return $?; echo mbsx;
+        #[ -z $QPKGSX ] ||
+        <<&musl-run-static-xorg-quickpkg>> || return $?; echo mrsxp;
+
+        <<&musl-build-static-package-builder>> || return $?; echo mbspb;
+        <<&musl-build-static-binpkg-only>> || return $?; echo mbsbo;
 
 
 # TODO build any new packages
@@ -795,6 +801,7 @@ app-misc/yq ~amd64
 
 # tgbugs-overlay
 dev-db/blazegraph-bin ~amd64
+dev-db/pguri **
 dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
 dev-node/apinat-converter **
@@ -869,6 +876,7 @@ dev-python/pypy3 sqlite
 dev-python/ipython -smp
 
 # tgbugs-overlay python
+dev-python/interlex alt database
 dev-python/orthauth yaml  # FIXME sxpyr ftlog
 dev-python/pint babel uncertainties
 #+end_src
@@ -1516,6 +1524,89 @@ COPY --from=tgbugs/musl:user / /
 <<&musl-file-user-base>>
 #+end_src
 
+** pypy3
+*** run
+#+name: &musl-run-pypy3
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=${DISPLAY} \
+-it tgbugs/musl:pypy3
+#+end_src
+*** build
+#+name: &musl-build-pypy3
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:pypy3 \
+--file musl/xorg/Dockerfile musl/pypy3
+#+end_src
+*** file
+#+begin_comment
+Trying to bootstrap pypy3 at this phase of the build when you don't have
+a pypy3 free environment yet can be a massive pain to debug. The solution
+is to set =USE_PYTHYON_TARGETS= explicitly to override the default pypy3,
+bootstrap everything until you can run =builder-debug= and then build the
+binary pypy3 in an environment where you can debug.
+#+end_comment
+
+#+begin_comment
+FIXME I think that we really have to make the pypy3 environment its
+own branch because bootstrapping it is beyond terrifying when you have
+to use the same images and the builder can deposit pyp3, otherwise you
+wind up building pypy3 in an environment where binpkgs are not being
+generated until the whole image is repackaged (!!!!)  SIGH
+
+so here is the issue that we run into, we have multiple different
+profiles that we construct for each base image and we keep those
+profiles separate so that we don't impact all images when only a
+derived layer changes, basically we want to have a single profile, but
+we don't want docker to stupidly rebuild everything just becuase some
+file that is irrelevant to the current image lineage changed,
+unfortunately we need our base profile in order to build a pypy3
+environment correctly so the base profile has to be added directly
+after updated in order for this to work, maybe we can get it to go
+
+XXX ignore the rant above, eselect-profile already sets our base
+profile!  so we don't have to worry about any of this and can just add
+an interposting layer
+#+end_comment
+
+#+name: &python-targets-common
+#+begin_src dockerfile
+ARG USE_PYTHON_TARGETS  # use if there are issues with mismatched python targets
+# can't use PYTHON_TARGETS directly because ARG PYTHON_TARGETS is the same
+# as export PYTHON_TARGETS= which means that portageq results will be affected
+
+# we defer changing python targets until after eselect-repo to avoid
+# issues bootstrapping pypy3
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3"} \
+&& [[ -z ${USE_PYTHON_TARGETS} ]] || \
+   echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/pypy3/Dockerfile
+FROM tgbugs/musl:updated
+# FIXME python targets to include pypy3 needs to be in its own derived environment
+# starting from package builder or something like that
+<<&python-targets-common>>
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q -uDN @system @world \
+   --getbinpkg \
+   --keep-going \
+   --exclude sys-process/procps \
+|| echo $? > /emerge-fail \
+<<&archive-or-rm>>
+
+# fail if emerge fails but for buildkit ensure that we do it in such a
+# way that we can truncate further steps and create a debug image
+RUN \
+test ! -e /emerge-fail
+#+end_src
 ** xorg
 # FIXME why is this not being built from binpkg only? is it for layer
 # efficiency?
@@ -1560,37 +1651,9 @@ be built and deposited into musl-x. The less good news is that this is
 not fully implemented yet as noted in <https://wiki.gentoo.org/wiki/
 Binary_package_guide#Pulling_packages_from_a_binary_package_host>.
 
-#+begin_comment
-Trying to bootstrap pypy3 at this phase of the build when you don't have
-a pypy3 free environment yet can be a massive pain to debug. The solution
-is to set =USE_PYTHYON_TARGETS= explicitly to override the default pypy3,
-bootstrap everything until you can run =builder-debug= and then build the
-binary pypy3 in an environment where you can debug.
-#+end_comment
-
-# FIXME I think that we really have to make the pypy3 environment its own branch
-# because bootstrapping it is beyond terrifying when you have to use the same
-# images and the builder can deposit pyp3, otherwise you wind up building pypy3
-# in an environment where binpkgs are not being generated until the whole image
-# is repackaged (!!!!)
-# SIGH
-#+name: &python-targets-common
-#+begin_src dockerfile
-ARG USE_PYTHON_TARGETS  # use if there are issues with mismatched python targets
-# can't use PYTHON_TARGETS directly because ARG PYTHON_TARGETS is the same
-# as export PYTHON_TARGETS= which means that portageq results will be affected
-
-# we defer changing python targets until after eselect-repo to avoid
-# issues bootstrapping pypy3
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3"} \
-&& [[ -z ${USE_PYTHON_TARGETS} ]] || \
-   echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
-#+end_src
-
 #+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
 ARG PROFILE_IMAGE=tgbugs/musl:profile-x
-ARG START_IMAGE=tgbugs/musl:updated
+ARG START_IMAGE=tgbugs/musl:pypy3
 
 FROM ${PROFILE_IMAGE} as profile_image
 
@@ -1602,10 +1665,6 @@ ARG PROFILE=docker-profile:tgbugs/musl/x
 
 RUN \
 eselect profile set $PROFILE
-
-# FIXME python targets to include pypy3 needs to be in its own derived environment
-# starting from package builder or something like that
-<<&python-targets-common>>
 
 # FIXME I think we have to update binhosts here
 
@@ -1688,15 +1747,17 @@ have expired as well. The latest ebuild in the tree has removed bindist entirely
 docker run \
 --volumes-from local-repos-snap \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
+-v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 tgbugs/musl:xorg \
-quickpkg "*/*"
+/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
 #+end_src
 
 **** quickpkg dedupe
 This more or less works to avoid duplicate packages in a binhost multi
 instance setup.
-#+begin_src jupyter-python :session pys
+#+header: :shebang "#!/usr/bin/env python" :tangle-mode (or #o0755)
+#+begin_src jupyter-python :session pys :tangle ./bin/quickpkg-new :mkdirp yes
 import portage
 from portage.versions import _pkg_str
 
@@ -1713,16 +1774,17 @@ def atoms_to_package():
         bt, bi, use = vardb.aux_get(i, ['BUILD_TIME', 'BUILD_ID', 'USE'])
         bt = int(bt) if bt else -1
         bi = int(bi) if bi else -1
+        # yes build id has issues for some reason that I don't entirely understand
         matches = [a for a in bintree.dbapi.match(i) if
                    (a.build_time == bt and
-                    a.build_id == bi and
+                    #a.build_id == bi and
                     a._metadata['USE'] == use)]
         if matches:
             packaged.append(i)
         else:
             misses[i] = [a for a in bintree.dbapi.match(i) if not
                          (a.build_time == bt and
-                          a.build_id == bi and
+                          #a.build_id == bi and
                           a._metadata['USE'] == use)]
             not_packaged.append(i)
             #[[l.build_id for l in [k] + v] for k, v in misses.items()]
@@ -1735,7 +1797,9 @@ def atoms_to_package():
 if __name__ == '__main__':
     atp = atoms_to_package()
     if atp:
-        print('quickpkg', *atoms_to_package())
+        print(*atoms_to_package())
+    else:
+        print('-h')  # keep quickpkg happy since it doesn't like no args
 #+end_src
 
 *** run
@@ -2228,9 +2292,21 @@ media-fonts/dejavu
 docker run \
 --volumes-from local-repos-snap \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
+-v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 tgbugs/musl:updated \
-quickpkg "*/*"
+/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+#+end_src
+
+#+name: &musl-run-pypy3-quickpkg
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
+--rm \
+tgbugs/musl:pypy3 \
+/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
 #+end_src
 *** run
 #+begin_src bash
@@ -2290,7 +2366,7 @@ docker build \
 
 *** file
 #+begin_src dockerfile :tangle ./musl/package-builder/nox.Dockerfile
-FROM tgbugs/musl:updated
+FROM tgbugs/musl:pypy3
 
 <<&musl-package-builder-common>>
 #+end_src
@@ -2348,7 +2424,7 @@ docker build \
 *** file
 # FIXME not quite right, this is the vanilla, which leaves X enabled for some things
 #+begin_src dockerfile :tangle ./musl/binpkg-only/nox.Dockerfile
-FROM tgbugs/musl:updated
+FROM tgbugs/musl:pypy3
 <<&musl-binpkg-only-common>>
 #+end_src
 
@@ -4195,6 +4271,7 @@ tgbugs/musl:static-xorg
 --tag tgbugs/musl:static-xorg \
 --build-arg PROFILE='docker-profile:tgbugs/musl/static/x' \
 --build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
+--build-arg START_IMAGE='tgbugs/musl:updated' \
 --file musl/xorg/Dockerfile musl/xorg
 #+end_src
 # --build-arg START_IMAGE='tgbugs/musl:xorg' \
@@ -4205,9 +4282,10 @@ tgbugs/musl:static-xorg
 docker run \
 --volumes-from local-repos-snap \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
+-v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 tgbugs/musl:static-xorg \
-quickpkg "*/*"
+/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
 #+end_src
 *** run
 #+begin_src bash
