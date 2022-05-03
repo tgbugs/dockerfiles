@@ -4202,7 +4202,10 @@ su sparc -c 'python sparcron.py'
 
 # prod
 #pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
-su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
+su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker -n wcron -Q cron,default --detach --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
+
+su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker -n wexport -Q export --loglevel=INFO'
+# FIXME missing rmeta stuff
 # FIXME missing rmeta stuff
 # FIXME mount ~/.cache
 
