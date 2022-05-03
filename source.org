@@ -204,7 +204,7 @@ function package-server () {
 # FIXME needs to run in another terminal, container, or daemon
 # but for now it blocks other commands which is ok
 curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
-    pushd ${_path_binpkgs}
+    pushd ${_path_binpkgs_root}
     python -m http.server 8089 --bind 127.0.0.1
     popd
 }
