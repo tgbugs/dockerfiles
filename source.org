@@ -284,6 +284,7 @@ echo start bootstrap
     docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
     echo repos done;
     }
+    container-check
     <<&musl-build-updated>> || return $?; echo mbu;
       <<&musl-build-updated-user>> || return $?; echo mbuu;
       <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
