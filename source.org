@@ -1535,6 +1535,40 @@ docker run \
 --file musl/pypy3/Dockerfile musl/pypy3
 #+end_src
 *** file
+#+name: &python-targets-common
+#+begin_src dockerfile
+ARG USE_PYTHON_TARGETS  # use if there are issues with mismatched python targets
+# can't use PYTHON_TARGETS directly because ARG PYTHON_TARGETS is the same
+# as export PYTHON_TARGETS= which means that portageq results will be affected
+
+# we defer changing python targets until after eselect-repo to avoid
+# issues bootstrapping pypy3
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3"} \
+&& [[ -z ${USE_PYTHON_TARGETS} ]] || \
+   echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/pypy3/Dockerfile
+FROM tgbugs/musl:updated
+# FIXME python targets to include pypy3 needs to be in its own derived environment
+# starting from package builder or something like that
+<<&python-targets-common>>
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q -uDN @system @world eselect-python \
+   --getbinpkg \
+   --keep-going \
+   --exclude sys-process/procps \
+|| echo $? > /emerge-fail \
+<<&archive-or-rm>>
+
+# fail if emerge fails but for buildkit ensure that we do it in such a
+# way that we can truncate further steps and create a debug image
+RUN \
+test ! -e /emerge-fail
+#+end_src
+
 #+begin_comment
 Trying to bootstrap pypy3 at this phase of the build when you don't have
 a pypy3 free environment yet can be a massive pain to debug. The solution
@@ -1565,39 +1599,150 @@ profile!  so we don't have to worry about any of this and can just add
 an interposting layer
 #+end_comment
 
-#+name: &python-targets-common
-#+begin_src dockerfile
-ARG USE_PYTHON_TARGETS  # use if there are issues with mismatched python targets
-# can't use PYTHON_TARGETS directly because ARG PYTHON_TARGETS is the same
-# as export PYTHON_TARGETS= which means that portageq results will be affected
+*** patches
+If you load up =builder-debug= you can emerge pypy3 by adding patches
+manually, the right thing to do is to update the musl overlay build,
+but for now, if you can manage to manually build in the builder you
+will wind up with a binpkg that can be reused.
 
-# we defer changing python targets until after eselect-repo to avoid
-# issues bootstrapping pypy3
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3"} \
-&& [[ -z ${USE_PYTHON_TARGETS} ]] || \
-   echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
+A number of relevant issues
+- https://bugs.python.org/issue21622
+- https://github.com/python/cpython/pull/18380
+- https://bugs.python.org/issue43112
+- https://github.com/gentoo/musl/issues/451#issuecomment-1017102775
+
+**** cpython 2.7 patch
+Sourced from https://git.alpinelinux.org/aports/plain/main/python3/musl-find_library.patch
+If in =builder-debug= rebuild the python:2.7 binpkg =emerge -g n -k n python:2.7=.
+#+begin_src diff :tangle ./docker-profile/base/musl-find_library.patch
+diff -ru Python-2.7.12.orig/Lib/ctypes/util.py Python-2.7.12/Lib/ctypes/util.py
+--- Python-2.7.12.orig/Lib/ctypes/util.py	2016-06-26 00:49:30.000000000 +0300
++++ Python-2.7.12/Lib/ctypes/util.py	2016-11-03 16:05:46.954665040 +0200
+@@ -204,6 +204,41 @@
+         def find_library(name, is64 = False):
+             return _get_soname(_findLib_crle(name, is64) or _findLib_gcc(name))
+ 
++    elif True:
++
++        # Patched for Alpine Linux / musl - search manually system paths
++        def _is_elf(filepath):
++            try:
++                with open(filepath, 'rb') as fh:
++                    return fh.read(4) == b'\x7fELF'
++            except:
++                return False
++
++        def find_library(name):
++            from glob import glob
++            # absolute name?
++            if os.path.isabs(name):
++                return name
++            # special case for libm, libcrypt and libpthread and musl
++            if name in ['m', 'crypt', 'pthread']:
++                name = 'c'
++            elif name in ['libm.so', 'libcrypt.so', 'libpthread.so']:
++                name = 'libc.so'
++            # search in standard locations (musl order)
++            paths = ['/lib', '/usr/local/lib', '/usr/lib']
++            if 'LD_LIBRARY_PATH' in os.environ:
++                paths = os.environ['LD_LIBRARY_PATH'].split(':') + paths
++            for d in paths:
++                f = os.path.join(d, name)
++                if _is_elf(f):
++                    return os.path.basename(f)
++
++                prefix = os.path.join(d, 'lib'+name)
++                for suffix in ['.so', '.so.*']:
++                    for f in glob('{0}{1}'.format(prefix, suffix)):
++                        if _is_elf(f):
++                            return os.path.basename(f)
++
+     else:
+ 
+         def _findSoname_ldconfig(name):
 #+end_src
 
-#+begin_src dockerfile :tangle ./musl/pypy3/Dockerfile
-FROM tgbugs/musl:updated
-# FIXME python targets to include pypy3 needs to be in its own derived environment
-# starting from package builder or something like that
-<<&python-targets-common>>
+**** pypy3-exe sys time patch
+The patch is a version of the below patch that will apply correctly to later versions of pypy3.
+<https://raw.githubusercontent.com/gentoo/musl/master/dev-python/
+pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-include-sys-time.patch>
 
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN @system @world \
-   --getbinpkg \
-   --keep-going \
-   --exclude sys-process/procps \
-|| echo $? > /emerge-fail \
-<<&archive-or-rm>>
-
-# fail if emerge fails but for buildkit ensure that we do it in such a
-# way that we can truncate further steps and create a debug image
-RUN \
-test ! -e /emerge-fail
+#+begin_src diff :tangle ./docker-profile/base/musl-include-sys-time.patch :mkdirp yes
+diff -r 9ef55f6fc369 pypy/module/cpyext/include/pytime.h
+--- a/pypy/module/cpyext/include/pytime.h
++++ b/pypy/module/cpyext/include/pytime.h
+@@ -2,6 +2,10 @@
+ #ifndef Py_PYTIME_H
+ #define Py_PYTIME_H
+ 
++#ifndef MS_WINDOWS
++#include <sys/time.h>
++#endif
++
+ #include <pyconfig.h> /* include for defines */
+ #include "object.h"
+ 
 #+end_src
+
+**** pypy3-exe stdio patch
+The patch is a version of the below patch that will apply correctly to later versions of pypy3.
+<https://raw.githubusercontent.com/gentoo/musl/master/dev-python/
+pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch>
+
+#+begin_src diff :tangle ./docker-profile/base/musl-fix-stdio-defs.patch :mkdirp yes
+--- a/rpython/rlib/rfile.py
++++ b/rpython/rlib/rfile.py
+@@ -123,11 +123,11 @@
+ c_ferror = llexternal('ferror', [FILEP], rffi.INT)
+ c_clearerr = llexternal('clearerr', [FILEP], lltype.Void)
+ 
+-c_stdin = rffi.CExternVariable(FILEP, 'stdin', eci, c_type='FILE*',
++c_stdin = rffi.CExternVariable(FILEP, 'stdin', eci, c_type='FILE* const',
+                                getter_only=True, declare_as_extern=False)
+-c_stdout = rffi.CExternVariable(FILEP, 'stdout', eci, c_type='FILE*',
++c_stdout = rffi.CExternVariable(FILEP, 'stdout', eci, c_type='FILE* const',
+                                 getter_only=True, declare_as_extern=False)
+-c_stderr = rffi.CExternVariable(FILEP, 'stderr', eci, c_type='FILE*',
++c_stderr = rffi.CExternVariable(FILEP, 'stderr', eci, c_type='FILE* const',
+                                 getter_only=True, declare_as_extern=False)
+ 
+ 
+#+end_src
+
+**** pypy3 json string patch
+Not all instance of string have =__radd__= methods that make uncasted
+string concatenation safe. This results in divergent behavior compared
+to the cypthon json implementation.
+#+begin_src diff :tangle ./docker-profile/base/pypy3-json-str-subclass-safety.patch :mkdirp yes
+diff -r 05fbe3aa5b08 lib-python/3/json/encoder.py
+--- a/lib-python/3/json/encoder.py	Tue Mar 29 08:15:20 2022 +0300
++++ b/lib-python/3/json/encoder.py	Fri Apr 29 15:19:41 2022 -0700
+@@ -371,8 +371,10 @@
+                 first = False
+             else:
+                 buf = separator
+-            if isinstance(value, str):
++            if type(value) == str:
+                 yield buf + '"' + self.__encoder(value) + '"'
++            elif isinstance(value, str):
++                yield buf + '"' + str(self.__encoder(value)) + '"'
+             elif value is None:
+                 yield buf + 'null'
+             elif value is True:
+@@ -448,8 +450,10 @@
+                 yield item_separator
+             yield '"' + self.__encoder(key) + '"'
+             yield self.key_separator
+-            if isinstance(value, str):
++            if type(value) == str:
+                 yield '"' + self.__encoder(value) + '"'
++            elif isinstance(value, str):
++                yield '"' + str(self.__encoder(value)) + '"'
+             elif value is None:
+                 yield 'null'
+             elif value is True:
+#+end_src
+
 ** xorg
 # FIXME why is this not being built from binpkg only? is it for layer
 # efficiency?
@@ -2541,150 +2686,6 @@ dev-python/pip
 # picking it back in 2018 because Pipfile seemed useful
 # LOL PYTHON pipenv bundles tomli but apparently has a hard upper version limit in the ebuild? wat
 # dev-python/pipenv
-** pypy3 notes
-If you load up =builder-debug= you can emerge pypy3 by adding patches
-manually, the right thing to do is to update the musl overlay build,
-but for now, if you can manage to manually build in the builder you
-will wind up with a binpkg that can be reused.
-
-A number of relevant issues
-- https://bugs.python.org/issue21622
-- https://github.com/python/cpython/pull/18380
-- https://bugs.python.org/issue43112
-- https://github.com/gentoo/musl/issues/451#issuecomment-1017102775
-
-*** cpython 2.7 patch
-Sourced from https://git.alpinelinux.org/aports/plain/main/python3/musl-find_library.patch
-If in =builder-debug= rebuild the python:2.7 binpkg =emerge -g n -k n python:2.7=.
-#+begin_src diff :tangle ./docker-profile/base/musl-find_library.patch
-diff -ru Python-2.7.12.orig/Lib/ctypes/util.py Python-2.7.12/Lib/ctypes/util.py
---- Python-2.7.12.orig/Lib/ctypes/util.py	2016-06-26 00:49:30.000000000 +0300
-+++ Python-2.7.12/Lib/ctypes/util.py	2016-11-03 16:05:46.954665040 +0200
-@@ -204,6 +204,41 @@
-         def find_library(name, is64 = False):
-             return _get_soname(_findLib_crle(name, is64) or _findLib_gcc(name))
- 
-+    elif True:
-+
-+        # Patched for Alpine Linux / musl - search manually system paths
-+        def _is_elf(filepath):
-+            try:
-+                with open(filepath, 'rb') as fh:
-+                    return fh.read(4) == b'\x7fELF'
-+            except:
-+                return False
-+
-+        def find_library(name):
-+            from glob import glob
-+            # absolute name?
-+            if os.path.isabs(name):
-+                return name
-+            # special case for libm, libcrypt and libpthread and musl
-+            if name in ['m', 'crypt', 'pthread']:
-+                name = 'c'
-+            elif name in ['libm.so', 'libcrypt.so', 'libpthread.so']:
-+                name = 'libc.so'
-+            # search in standard locations (musl order)
-+            paths = ['/lib', '/usr/local/lib', '/usr/lib']
-+            if 'LD_LIBRARY_PATH' in os.environ:
-+                paths = os.environ['LD_LIBRARY_PATH'].split(':') + paths
-+            for d in paths:
-+                f = os.path.join(d, name)
-+                if _is_elf(f):
-+                    return os.path.basename(f)
-+
-+                prefix = os.path.join(d, 'lib'+name)
-+                for suffix in ['.so', '.so.*']:
-+                    for f in glob('{0}{1}'.format(prefix, suffix)):
-+                        if _is_elf(f):
-+                            return os.path.basename(f)
-+
-     else:
- 
-         def _findSoname_ldconfig(name):
-#+end_src
-
-*** pypy3-exe sys time patch
-The patch is a version of the below patch that will apply correctly to later versions of pypy3.
-<https://raw.githubusercontent.com/gentoo/musl/master/dev-python/
-pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-include-sys-time.patch>
-
-#+begin_src diff :tangle ./docker-profile/base/musl-include-sys-time.patch :mkdirp yes
-diff -r 9ef55f6fc369 pypy/module/cpyext/include/pytime.h
---- a/pypy/module/cpyext/include/pytime.h
-+++ b/pypy/module/cpyext/include/pytime.h
-@@ -2,6 +2,10 @@
- #ifndef Py_PYTIME_H
- #define Py_PYTIME_H
- 
-+#ifndef MS_WINDOWS
-+#include <sys/time.h>
-+#endif
-+
- #include <pyconfig.h> /* include for defines */
- #include "object.h"
- 
-#+end_src
-
-*** pypy3-exe stdio patch
-The patch is a version of the below patch that will apply correctly to later versions of pypy3.
-<https://raw.githubusercontent.com/gentoo/musl/master/dev-python/
-pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch>
-
-#+begin_src diff :tangle ./docker-profile/base/musl-fix-stdio-defs.patch :mkdirp yes
---- a/rpython/rlib/rfile.py
-+++ b/rpython/rlib/rfile.py
-@@ -123,11 +123,11 @@
- c_ferror = llexternal('ferror', [FILEP], rffi.INT)
- c_clearerr = llexternal('clearerr', [FILEP], lltype.Void)
- 
--c_stdin = rffi.CExternVariable(FILEP, 'stdin', eci, c_type='FILE*',
-+c_stdin = rffi.CExternVariable(FILEP, 'stdin', eci, c_type='FILE* const',
-                                getter_only=True, declare_as_extern=False)
--c_stdout = rffi.CExternVariable(FILEP, 'stdout', eci, c_type='FILE*',
-+c_stdout = rffi.CExternVariable(FILEP, 'stdout', eci, c_type='FILE* const',
-                                 getter_only=True, declare_as_extern=False)
--c_stderr = rffi.CExternVariable(FILEP, 'stderr', eci, c_type='FILE*',
-+c_stderr = rffi.CExternVariable(FILEP, 'stderr', eci, c_type='FILE* const',
-                                 getter_only=True, declare_as_extern=False)
- 
- 
-#+end_src
-
-*** pypy3 json string patch
-Not all instance of string have =__radd__= methods that make uncasted
-string concatenation safe. This results in divergent behavior compared
-to the cypthon json implementation.
-#+begin_src diff :tangle ./docker-profile/base/pypy3-json-str-subclass-safety.patch :mkdirp yes
-diff -r 05fbe3aa5b08 lib-python/3/json/encoder.py
---- a/lib-python/3/json/encoder.py	Tue Mar 29 08:15:20 2022 +0300
-+++ b/lib-python/3/json/encoder.py	Fri Apr 29 15:19:41 2022 -0700
-@@ -371,8 +371,10 @@
-                 first = False
-             else:
-                 buf = separator
--            if isinstance(value, str):
-+            if type(value) == str:
-                 yield buf + '"' + self.__encoder(value) + '"'
-+            elif isinstance(value, str):
-+                yield buf + '"' + str(self.__encoder(value)) + '"'
-             elif value is None:
-                 yield buf + 'null'
-             elif value is True:
-@@ -448,8 +450,10 @@
-                 yield item_separator
-             yield '"' + self.__encoder(key) + '"'
-             yield self.key_separator
--            if isinstance(value, str):
-+            if type(value) == str:
-                 yield '"' + self.__encoder(value) + '"'
-+            elif isinstance(value, str):
-+                yield '"' + str(self.__encoder(value)) + '"'
-             elif value is None:
-                 yield 'null'
-             elif value is True:
-#+end_src
-
 ** testing-emacs
 Emacs testing.
 *** world
@@ -4050,6 +4051,9 @@ docker run \
 FROM tgbugs/musl:emacs
 
 <<&build-world-common>>
+
+RUN \
+eselect python set pypy3
 #+end_src
 
 *** world
