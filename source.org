@@ -868,8 +868,9 @@ dev-python/ipython -smp
 
 # tgbugs-overlay python
 dev-python/interlex alt database
-dev-python/orthauth yaml  # FIXME sxpyr ftlog
+dev-python/orthauth yaml
 dev-python/pint babel uncertainties
+dev-python/sparcur cron  # XXX FIXME not all images want to pull in the cron deps, or the dashboard deps
 #+end_src
 
 **** use.mask
@@ -4057,12 +4058,11 @@ eselect python set pypy3
 #+end_src
 
 *** world
+# probably don't need pip anymore except for debug?
 #+name: world-sparcur
 #+begin_src conf :tangle ./musl/sparcur/world
 dev-db/redis
 net-misc/rabbitmq-server
-dev-python/celery
-dev-python/redis-py
 dev-python/pip
 dev-python/sparcur
 #+end_src
@@ -4124,35 +4124,9 @@ FROM tgbugs/musl:sparcur
 ADD --chown=836:836 idlib-config.yaml /var/lib/sparc/.config/idlib/config.yaml
 ADD --chown=836:836 sparcur-config.yaml /var/lib/sparc/.config/sparcur/config.yaml
 
-USER sparc
-
 ARG HOME=/var/lib/sparc
 
 WORKDIR $HOME
-
-RUN \
-mkdir ~/git \
-;  mkdir -p /var/lib/sparc/.config/sparcur \
-;  mkdir -p /var/lib/sparc/.config/orthauth \
-;  chmod 0700 /var/lib/sparc/.config/orthauth
-
-RUN \
-pushd git \
-&&     git clone https://github.com/SciCrunch/sparc-curation.git \
-&& popd
-
-RUN \
-pushd git \
-&&     pushd sparc-curation \
-&&         pip install --user -e . \
-&&         python setup.py --release || true \
-&&     popd \
-&& popd \
-&& rm -r ~/.cache/pip
-
-WORKDIR $HOME/git/sparc-curation/sparcur_internal
-
-USER 0
 
 ADD entrypoint.sh /etc/entrypoint.sh
 
@@ -4190,6 +4164,7 @@ auth-variables:
 *** entrypoint
 # https://forums.gentoo.org/viewtopic-t-1014086-start-0.html
 # sigh this really doesn't need the net admin cap just to start rabbit
+Slowly inching toward being able to run this via a service manager.
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./musl/sparcur-user/entrypoint.sh :mkdirp yes
 rc-status
@@ -4198,16 +4173,12 @@ touch /run/openrc/softlevel
 /etc/init.d/rabbitmq start
 
 # testing and ensure that there is an existing cache on first run
-su sparc -c 'python sparcron.py'
+su sparc -c 'pypy3 -m sparcur.sparcron'
 
-# prod
-#pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
-su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker -n wcron -Q cron,default --concurrency=1 --detach --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
+su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wcron -Q cron,default --concurrency=1 --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO' &
 
-su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker -n wexport -Q export --loglevel=INFO'
-# FIXME missing rmeta stuff
-# FIXME missing rmeta stuff
-# FIXME mount ~/.cache
+su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wexport -Q export --loglevel=INFO'
+# FIXME missing rmeta stuff ?
 
 #/etc/init.d/redis stop
 #/etc/init.d/rabbitmq stop
