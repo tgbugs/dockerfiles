@@ -4169,7 +4169,7 @@ auth-stores:
     path: '{:user-config-path}/orthauth/secrets.yaml'
 auth-variables:
   google-api-service-account-file-readonly:
-    path: google api saro  # FIXME SIGH get_path nonsense
+    path: google api saro
   hypothesis-api-key: hypothesis api default-user
   hypothesis-group: hypothesis group sparc-curation
   remote-organization: N:organization:618e8dd9-f8d2-4dc4-9abb-c6aaab2e78a0
@@ -4202,7 +4202,7 @@ su sparc -c 'python sparcron.py'
 
 # prod
 #pushd /var/lib/sparc/git/sparc-curation/sparcur_internal/
-su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker -n wcron -Q cron,default --detach --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
+su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker -n wcron -Q cron,default --concurrency=1 --detach --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO'
 
 su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcron worker -n wexport -Q export --loglevel=INFO'
 # FIXME missing rmeta stuff
