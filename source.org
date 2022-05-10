@@ -4092,11 +4092,13 @@ docker run \
 -it tgbugs/musl:sparcur-user
 #+end_src
 
-Production =docker run= example.
+Production =docker run= example. Must be run as root.
+#+name: &run-sparcron
 #+begin_src screen
-_f=$(sudo su sparc -c 'basename /var/lib/sparc/.config/pyontutils/sparc-curation-*.json')
+function docker-run-sparcron () {
+_f=$(su sparc -c 'basename /var/lib/sparc/.config/pyontutils/sparc-curation-*.json')
 _h=protocols-io-api-token-rw.pickle
-sudo docker run \
+docker run \
 -d \
 -v /var/lib/sparc/files:/var/lib/sparc/files \
 -v /var/lib/sparc/.local/share/sparcur:/var/lib/sparc/.local/share/sparcur \
@@ -4107,6 +4109,22 @@ sudo docker run \
 -v /var/lib/sparc/.config/pyontutils/${_h}:/var/lib/sparc/.config/orthauth/${_h} \
 -e SCIGRAPH_API=https://scigraph.olympiangods.org/scigraph \
 -it tgbugs/musl:sparcur-user
+}
+#+end_src
+
+Production image upgrade.
+#+begin_src bash
+function upgrade-sparcron () {
+_image=tgbugs/musl:sparcur-user
+_image_date=$(date -I --date $(docker inspect ${_image} --format '{{.Created}}'))
+_cid_old=$(docker ps -lqf ancestor=${_image})
+docker tag ${_image} ${_image}-${_image_date}
+docker pull ${_image}
+docker stop ${_cid_old}
+docker-run-sparcron
+_cid_new=$(docker ps -lqf ancestor=${_image})
+docker logs -f ${_cid_new}
+}
 #+end_src
 
 *** build
