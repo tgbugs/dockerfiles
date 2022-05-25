@@ -3571,7 +3571,7 @@ ADD --chown=${UID}:${UID} README.org README.org
 
 RUN \
 emacs -batch -eval \
-"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))) (ow-use-packages evil undo-tree))" \
+"(let ((user-init-file (pop argv))) (package-initialize) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
 $HOME/.emacs.d/init.el queries.org welcome.org examples.org scratch.org
 
 FROM tgbugs/musl:kg-release
