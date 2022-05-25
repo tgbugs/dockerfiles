@@ -778,6 +778,7 @@ dev-lang/rust-bin
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.unmask
 # gtknor
 <gnome-base/librsvg-2.41
+dev-python/dicttoxml
 #+end_src
 **** accept_keywords
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.accept_keywords
