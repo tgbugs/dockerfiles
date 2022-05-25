@@ -847,7 +847,7 @@ dev-libs/uriparser -doc
 # needed to ensure that -egl doesn't introduce conflicts
 x11-base/xorg-server minimal
 
-app-editors/emacs dynamic-loading gmp jit json threads
+app-editors/emacs dynamic-loading gmp json threads
 
 # gdb don't pull in the world
 sys-devel/gdb -nls -python
