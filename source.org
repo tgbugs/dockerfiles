@@ -756,6 +756,9 @@ ACCT_USER_METABASE_ID="${ACCT_GROUP_METABASE_ID}"
 
 EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
 EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
+
+# temporary commit override until the converter is fixed
+EGIT_OVERRIDE_COMMIT_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=2f6d17c2ccc052eecc17e57b469ade42be8cf216
 #+end_src
 
 # FIXME the ACCT_ and EGIT_OVERRIDE_ should probably be in env, but we rebuild
