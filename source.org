@@ -317,7 +317,7 @@ echo musl builder start
 # FIXME this needs to run with --getbinpkg
 [ ! -z $NOBUILD ] || \
 <<&musl-run-build-need-priv>>
-[ ! -z $NOBUILD ] || builder-world
+[ ! -z $NOBUILD ] || builder-world || return $?
 # TODO smart-live-rebuild
 [ -z $LIVE_REBUILD ] || builder-arb @live-rebuild
 
@@ -769,6 +769,8 @@ EGIT_OVERRIDE_COMMIT_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=2f6d17c2ccc052eecc17
 # insurance
 dev-lang/rust
 dev-lang/rust-bin
+>=dev-python/cryptography-3.4.8
+>=dev-python/pyopenssl-21
 
 # gtknor
 >=gnome-base/librsvg-2.41
@@ -2108,8 +2110,10 @@ docker run \
 <<&builder-args>>
 ${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
+local OUT=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+return $OUT
 }
 
 # FIXME SIGH code dupe
