@@ -441,6 +441,8 @@ appears to be for implementation convenience.
 #+name: &host-ssh-path
 : /var/lib/portage/home/.ssh
 
+#+name: &helper-repos
+: helper-repos
 # FIXME grrrr the need to be able to set these computationally
 # passed via the command line means that we have to descend into elisp
 # or we have to have a oneshot self modifying configuration command
@@ -973,6 +975,15 @@ gentoo:default/linux/amd64/17.0/musl/hardened
 ../../../nox
 #+end_src
 ** static
+*** file
+#+name: &profile-static-adds
+#+begin_src dockerfile
+ARG bp=docker-profile/static/
+ARG hr=<<&helper-repos()>>/
+
+# ADD ${bp}sbcl.env etc/portage/env/dev-lisp/sbcl  # gets klobbered when we make the profile so have to do it differently
+ADD ${hr}sbcl/patches/dev-lisp etc/portage/patches/dev-lisp
+#+end_src
 *** profiles
 ***** make.defaults
 We only set =static-libs= not =static= because =static= statically
@@ -2332,6 +2343,7 @@ The gentoo ebuilds for sbcl retrieve an existing binary for bootstrapping.
 Due to the fact that the current EAPI (?) is not libc aware for precompiled
 binaries we would have to create and maintain a binary for the musl overlay.
 Modifying =src_unpack= is a more expedient solution.
+#+name: &sbcl-env
 #+begin_src ebuild :tangle ./musl/package-builder/sbcl.env
 src_unpack() {
 	unpack ${A}
@@ -4227,6 +4239,19 @@ dev-libs/redland
 Same metadata as musl except with =static-libs= in order to produce
 statically linked binaries.
 ** profile-static-x
+*** run
+technically this is just debug since we can't actually run these
+#+begin_src bash :results file
+_name=profile-static-x.tar
+docker create --name="tmp_$$" tgbugs/musl:profile-static-x true > /dev/null &&
+docker export tmp_$$ > ${_name} &&
+docker rm tmp_$$ > /dev/null
+printf ${_name}
+#+end_src
+
+#+RESULTS:
+[[file:profile-static-x.tar]]
+
 *** build
 #+name: &musl-build-profile-static-x
 #+begin_src screen
@@ -4244,6 +4269,8 @@ WORKDIR /build
 ADD docker-profile/x/docker-profile var/db/docker-profile
 ADD docker-profile/static/docker-profile var/db/docker-profile
 ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
+
+<<&profile-static-adds>>
 
 FROM scratch
 
@@ -4319,6 +4346,8 @@ docker build \
 FROM tgbugs/musl:static-xorg
 
 <<&musl-package-builder-common>>
+
+ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 #+end_src
 *** world
 #+name: world-static-package-builder
@@ -4371,6 +4400,64 @@ dev-lisp/uiop
 dev-lisp/asdf
 dev-lisp/sbcl
 #+end_src
+*** patches
+make the patches since they are too much to tangle
+FIXME this is currently an entirely manual step
+FIXME this needs to be moved to run inside a builder phase
+#+name: &fn-sbcl-static-patch
+#+begin_src bash :noweb yes
+function sbcl-static-patch () {
+local version tag spath tpath patch
+version=${1}
+tag=sbcl-${version}
+patch=static-${version}.patch
+spath=./<<&helper-repos()>>/sbcl/patches
+tpath=./docker-profile/static/
+ipath=patches/dev-lisp/sbcl-${version}/
+sighpath=./<<&helper-repos()>>/sbcl/patches/dev-lisp/sbcl-${version}/${patch}
+if [[ ! -f "${sighpath}" ]]; then
+  mkdir <<&helper-repos()>>
+  pushd <<&helper-repos()>>
+    git clone https://github.com/sbcl/sbcl.git
+    pushd sbcl
+      git remote add tgbugs https://github.com/tgbugs/sbcl.git
+      git fetch tgbugs
+      mkdir -p ${ipath}
+      # gentoo eapply_user happens after gentoo patches are applied so we have to compensate here :/
+      git diff ${tag}..remotes/tgbugs/static-executable-v2-${version} ':(exclude)README*' | \
+        sed 'maybetime sh,maybetime sh -x,' > \
+        ${ipath}/${patch}
+    popd
+  popd
+fi
+# XXX old, we renamed this so that they will work
+# this portion has to be repeatable because we zap docker-profile on every tangle
+# mkdir -p ${tpath}
+# cp -a ${spath} ${tpath}
+}
+#+end_src
+
+#+begin_src bash :noweb yes
+<<&fn-sbcl-static-patch>>
+sbcl-static-patch 2.2.6
+#+end_src
+
+#+name: &sbcl-env-static
+#+begin_src ebuild :tangle ./docker-profile/static/sbcl.env :tangle no
+post_src_configure() {
+truncate -s $(head -n -2 "${CONFIG}" | wc -c) "${CONFIG}"
+sbcl_feature "true" ":sb-linkable-runtime"
+sbcl_feature "true" ":sb-prelink-linkage-table"
+echo ') list)' >> "${CONFIG}"
+}
+#+end_src
+
+#+begin_src ebuild :noweb yes :tangle ./musl/package-builder/static-sbcl.env
+<<&sbcl-env>>
+
+<<&sbcl-env-static>>
+#+end_src
+
 ** sbcl-user
 *** run
 #+begin_src bash
