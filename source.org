@@ -3755,18 +3755,8 @@ su user -c 'emacs -visit ~/git/sparc-curation/docs/queries.org'
 # that is used to create the /build/ directory are lost
 # sigh bad trade offs for multi stage builds
 # HOORAY pip install --user -e and /build/ are incompatable! >_<
-#+begin_src dockerfile :tangle ./musl/kg-dev-user/Dockerfile
-FROM tgbugs/musl:kg-dev as builder
-
-<<&musl-user-skel-common>>
-
-USER ${USER_NAME}
-
-#ARG HOME=/build/home/${USER_NAME}
-ARG HOME=/home/${USER_NAME}
-
-WORKDIR $HOME
-
+#+name: &emacs-sanity
+#+begin_src dockerfile
 ARG INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simple.el
 
 RUN \
@@ -3783,6 +3773,21 @@ pushd ~/.emacs.d \
 && echo "(load (expand-file-name \"reval.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"init-content.el\" user-emacs-directory))" >> init.el \
 && popd
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/kg-dev-user/Dockerfile
+FROM tgbugs/musl:kg-dev as builder
+
+<<&musl-user-skel-common>>
+
+USER ${USER_NAME}
+
+#ARG HOME=/build/home/${USER_NAME}  # FIXME somehow /build/ lingers ??? do I have a stale file !?? !
+ARG HOME=/home/${USER_NAME}
+
+WORKDIR $HOME
+
+<<&emacs-sanity>>
 
 RUN \
 mkdir ~/git
@@ -4035,10 +4040,17 @@ docker commit $(docker ps -lq) tgbugs/musl:dynapad
 In the image run the following and then exit, the commit will be made
 automatically. *NOTE* You may need to remove =build_musl= if it
 already exists.
+
 #+begin_src bash
-pushd ~/git/dynapad
-    mkdir build_musl
-    pushd build_musl
+function dynapad-build-all () {
+local build_dir SUBPATH SO_SUFFIX
+#local PATH
+#PATH=~/git/NOFORK/racket/racket/bin/:/usr/bin:/bin
+# command -v racketcgc
+# command -v racocgc
+build_dir=${1:-build}
+    mkdir ${build_dir}
+    pushd ${build_dir}
         cmake .. -G Ninja
         ninja
     popd
@@ -4046,12 +4058,17 @@ pushd ~/git/dynapad
     SO_SUFFIX=$(racketcgc -e "(display (bytes->string/utf-8 (system-type 'so-suffix)))")
     mkdir -p dynapad/compiled/bc/native/${SUBPATH}
     racocgc ctool --cgc \
-            ++ldf -Wl,-rpath,"${PWD}/build_musl/" \
+            ++ldf -Wl,-rpath,"${PWD}/${build_dir}/" \
             --ld dynapad/compiled/bc/native/${SUBPATH}/libdynapad_rkt${SO_SUFFIX} \
-            "${PWD}/build_musl/libdynapad${SO_SUFFIX}"
+            "${PWD}/${build_dir}/libdynapad${SO_SUFFIX}"
     racocgc pkg install collects/ dynapad/
     racocgc make apps/paddraw/paddraw.rkt
     racocgc make apps/uberapp/uberapp.rkt
+}
+#+end_src
+
+#+begin_src bash
+dynapad-build-all build_musl
 #+end_src
 
 ** sparcur
@@ -4484,6 +4501,9 @@ FROM tgbugs/musl:sbcl
 COPY --from=tgbugs/musl:user / /
 
 <<&musl-file-user-base>>
+
+# FIXME builder to factor common here
+<<&emacs-sanity>>
 #+end_src
 
 * gnu
