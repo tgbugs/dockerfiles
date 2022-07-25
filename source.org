@@ -4442,7 +4442,7 @@ if [[ ! -f "${sighpath}" ]]; then
       mkdir -p ${ipath}
       # gentoo eapply_user happens after gentoo patches are applied so we have to compensate here :/
       git diff ${tag}..remotes/tgbugs/static-executable-v2-${version} ':(exclude)README*' | \
-        sed 'maybetime sh,maybetime sh -x,' > \
+        sed 's,maybetime sh,maybetime sh -x,' > \
         ${ipath}/${patch}
     popd
   popd
