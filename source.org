@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 3afef52b2b543925c5612e187e81af34ccacc5d7ad3f167f833c744b7f55c0bf; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 986e87117f1d0cf14c0803e79695cc51928cde1d11b681c5882fa424dc5ad6bf; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -171,6 +171,7 @@ _img_portage=${_img_portage:-gentoo/portage:latest}
 
 #+name: workflow-cli
 #+begin_src screen
+HISTFILE=~/.org_session_history
 <<&screen-set-vars>>
 <<&workflow-vars>>
 <<&workflow-common>>
@@ -5139,7 +5140,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
                    (or (string= body "value")
                        (string= body "(make-screen-vars)")))
               (and (member lang '("screen"))
-                   (string= (cl-subseq body 0 15) "export _refresh")))))))
+                   (string= (cl-subseq body 0 15) "HISTFILE=~/.org")))))))
 
 (defun dedupe-lines (blockname)
   (let* ((info (save-excursion
