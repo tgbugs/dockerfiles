@@ -1059,7 +1059,7 @@ media-libs/freetype harfbuzz
 # gbm expects egl to be enabled, if it is not build errors
 media-libs/mesa -gbm
 
-app-editors/emacs gui Xaw3d xft # XXX note that latest reccomendations are to use harfbuzz + cairo for text shaping (or something like that)
+app-editors/emacs gui jpeg png Xaw3d xft # XXX note that latest reccomendations are to use harfbuzz + cairo for text shaping (or something like that)
 app-emacs/emacs-common gui
 
 # avoid extra deps
