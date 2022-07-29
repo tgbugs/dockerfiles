@@ -3456,6 +3456,7 @@ FROM tgbugs/musl:emacs
 <<world-icedtea>>
 dev-db/blazegraph-bin
 dev-java/scigraph-bin
+media-gfx/feh
 media-gfx/graphviz
 dev-python/ipykernel
 dev-python/pip
