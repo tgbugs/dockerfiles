@@ -2707,14 +2707,14 @@ dev-lang/python:3.7
 dev-lang/python:3.8
 dev-lang/python:3.9
 dev-lang/python:3.10
+dev-lang/python:3.11
 dev-python/pypy3
 dev-python/pip
+dev-python/pipenv
 #+end_src
 # XXX pipenv continues to be a toxic waste dump of insanity and brokeness
 # https://bugs.gentoo.org/717666 really really bad call on my part for
 # picking it back in 2018 because Pipfile seemed useful
-# LOL PYTHON pipenv bundles tomli but apparently has a hard upper version limit in the ebuild? wat
-# dev-python/pipenv
 ** testing-emacs
 Emacs testing.
 *** world
@@ -4439,6 +4439,7 @@ if [[ ! -f "${sighpath}" ]]; then
   pushd <<&helper-repos()>>
     git clone https://github.com/sbcl/sbcl.git
     pushd sbcl
+      git fetch
       git remote add tgbugs https://github.com/tgbugs/sbcl.git
       git fetch tgbugs
       mkdir -p ${ipath}
@@ -4459,6 +4460,7 @@ fi
 #+begin_src bash :noweb yes
 <<&fn-sbcl-static-patch>>
 sbcl-static-patch 2.2.6
+sbcl-static-patch 2.2.7
 #+end_src
 
 #+name: &sbcl-env-static
