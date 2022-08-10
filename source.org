@@ -3467,6 +3467,9 @@ dev-python/pip
 
 ** kg-release-user
 *** run
+Quick link to [[create-sckan-data]] useful if =sckan-data= has not
+been created or was wiped in a purge.
+
 #+begin_src screen
 docker run \
 --volumes-from sckan-data \
@@ -3526,14 +3529,18 @@ _docsf="https://raw.githubusercontent.com/SciCrunch/sparc-curation/master/docs/"
 _sckand=(welcome.org tutorial.org overview.org examples.org scratch.org README.org)
 _docsfsc="${_docsf}sckan/"
 pushd ./musl/kg-release-user
-rm queries.org welcome.org tutorial.org overview.org examples.org scratch.org
-if [ -n "${_devel}" ]; then
-  cp -aL ~/git/sparc-curation/docs/sckan/*.org . ;
-else
-  for fn in ${_docd[@]};   do curl -O ${_docsf}${fn}  ; done
-  for fn in ${_sckand[@]}; do curl -O ${_docsfsc}${fn}; done
-fi
-chmod +x ./queries.org
+  [ -d sckan ] && rm -r sckan
+  mkdir sckan
+  pushd sckan
+    mkdir images
+    if [ -n "${_devel}" ]; then
+      cp -aL ~/git/sparc-curation/docs/sckan/*.org . ;
+    else
+      for fn in ${_docd[@]};   do curl -O ${_docsf}${fn}  ; done
+      for fn in ${_sckand[@]}; do curl -O ${_docsfsc}${fn}; done
+    fi
+    chmod +x ./queries.org
+  popd
 popd
 
 <<&musl-build-kg-release-user-min>>
@@ -3555,7 +3562,7 @@ rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
-su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/welcome.org'
+su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sckan/welcome.org'
 /etc/init.d/scigraph stop
 /etc/init.d/blazegraph stop
 #+end_src
@@ -3583,24 +3590,17 @@ ARG HOME=/build/home/${USER_NAME}
 
 WORKDIR $HOME
 
-ADD --chown=${UID}:${UID} queries.org queries.org
+COPY --chown=${UID}:${UID} sckan sckan
 
 USER ${USER_NAME}
 
 RUN \
-./queries.org
-
-ADD --chown=${UID}:${UID} welcome.org welcome.org
-ADD --chown=${UID}:${UID} tutorial.org tutorial.org
-ADD --chown=${UID}:${UID} overview.org overview.org
-ADD --chown=${UID}:${UID} examples.org examples.org
-ADD --chown=${UID}:${UID} scratch.org scratch.org
-ADD --chown=${UID}:${UID} README.org README.org
+./sckan/queries.org
 
 RUN \
 emacs -batch -eval \
 "(let ((user-init-file (pop argv))) (package-initialize) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
-$HOME/.emacs.d/init.el queries.org welcome.org examples.org scratch.org
+$HOME/.emacs.d/init.el sckan/{queries,welcome,examples,scratch}.org
 
 FROM tgbugs/musl:kg-release
 
