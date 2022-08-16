@@ -879,6 +879,9 @@ media-libs/gd truetype fontconfig
 dev-python/pypy3-exe jit
 dev-python/pypy3 sqlite
 
+# uwsgi needs at least one backend enabled
+www-servers/uwsgi python
+
 # keep ipykernel deps minimal for emacs-jupyter
 dev-python/ipython -smp
 
@@ -4095,12 +4098,9 @@ docker run \
 # well at all, so we have to pick a primary world line so to speak
 #+name: &musl/sparcur
 #+begin_src dockerfile :tangle ./musl/sparcur/Dockerfile
-FROM tgbugs/musl:emacs
+FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
-
-RUN \
-eselect python set pypy3
 #+end_src
 
 *** world
@@ -4111,6 +4111,7 @@ dev-db/redis
 net-misc/rabbitmq-server
 dev-python/pip
 dev-python/sparcur
+www-servers/uwsgi
 #+end_src
 
 ** sparcur-user
@@ -4239,9 +4240,9 @@ touch /run/openrc/softlevel
 # testing and ensure that there is an existing cache on first run
 su sparc -c 'pypy3 -m sparcur.sparcron'
 
-su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wcron -Q cron,default --concurrency=1 --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO' &
+su sparc -c 'EPYTHON=pypy3 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wcron -Q cron,default --concurrency=1 --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO' &
 
-su sparc -c 'PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wexport -Q export --loglevel=INFO'
+su sparc -c 'EPYTHON=pypy3 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wexport -Q export --loglevel=INFO'
 # FIXME missing rmeta stuff ?
 
 #/etc/init.d/redis stop
