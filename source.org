@@ -4232,10 +4232,15 @@ auth-variables:
 Slowly inching toward being able to run this via a service manager.
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./musl/sparcur-user/entrypoint.sh :mkdirp yes
+if [ -n "${UWSGI_SOCKET_SPARCRON}" ]; then
+    echo "UWSGI_SOCKET_SPARCRON=${UWSGI_SOCKET_SPARCRON}" >> /etc/conf.d/sparcron-server
+fi
+
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/redis start
 /etc/init.d/rabbitmq start
+/etc/init.d/sparcron-server start
 
 # testing and ensure that there is an existing cache on first run
 su sparc -c 'pypy3 -m sparcur.sparcron'
