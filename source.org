@@ -1447,7 +1447,7 @@ emerge -j4 -q \
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
-&& eselect repository enable lisp
+&& eselect repository enable lisp \
 && eselect repository enable haskell
 #+end_src
 # TODO should we be adding the mount points here as well or is that not necessary?
