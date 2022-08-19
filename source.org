@@ -626,7 +626,11 @@ sync-uri = http://local.binhost:8089/multi
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
 dev-python/*::tgbugs-overlay
 dev-scheme/racket::tgbugs-overlay
+dev-haskell/*::tgbugs-overlay **
+dev-haskell/*::haskell
+dev-haskell/*::gentoo
 #+end_src
+# and they say haskell is a safe language
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
 dev-scheme/racket::gentoo
@@ -1148,6 +1152,7 @@ FROM tgbugs/musl:eselect-repo as builder
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
    emaint sync --repo musl \
 && emaint sync --repo lisp \
+&& emaint sync --repo haskell \
 && emaint sync --repo tgbugs-overlay
 
 # manual sync in cases where there is a showstopper blocking progress
@@ -1443,6 +1448,7 @@ emerge -j4 -q \
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && eselect repository enable lisp
+&& eselect repository enable haskell
 #+end_src
 # TODO should we be adding the mount points here as well or is that not necessary?
 
@@ -3461,6 +3467,7 @@ dev-db/blazegraph-bin
 dev-java/scigraph-bin
 media-gfx/feh
 media-gfx/graphviz
+dev-haskell/dot2graphml
 dev-python/ipykernel
 dev-python/pip
 #+end_src
