@@ -4063,7 +4063,7 @@ local build_dir SUBPATH SO_SUFFIX
 build_dir=${1:-build}
     mkdir ${build_dir}
     pushd ${build_dir}
-        cmake .. -G Ninja
+        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug
         ninja
     popd
     SUBPATH=$(racketcgc -e "(display (path->string (system-library-subpath)))")
