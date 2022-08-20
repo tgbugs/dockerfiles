@@ -4073,7 +4073,7 @@ build_dir=${1:-build}
             ++ldf -Wl,-rpath,"${PWD}/${build_dir}/" \
             --ld dynapad/compiled/bc/native/${SUBPATH}/libdynapad_rkt${SO_SUFFIX} \
             "${PWD}/${build_dir}/libdynapad${SO_SUFFIX}"
-    racocgc pkg install collects/ dynapad/
+    racocgc pkg install dynapad-collects/ dynapad/
     racocgc make apps/paddraw/paddraw.rkt
     racocgc make apps/uberapp/uberapp.rkt
 }
