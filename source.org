@@ -3474,6 +3474,8 @@ dev-python/ipykernel
 dev-python/pip
 #+end_src
 # dev-haskell/dot2graphml  # ghc broken
+# dev-python/jupyter_server is not needed, dev-python/ipykernel is sufficient for our limited emacs-jupyter use case
+
 # TODO consider including for the python bits in queries
 # dev-python/pyontutils-9999
 # dev-python/nifstd-tools-9999
@@ -3546,6 +3548,7 @@ pushd ./musl/kg-release-user
   mkdir sckan
   pushd sckan
     mkdir images
+    mkdir reports
     if [ -n "${_devel}" ]; then
       cp -aL ~/git/sparc-curation/docs/sckan/*.org . ;
     else
@@ -3697,7 +3700,6 @@ app-misc/yq
 dev-java/robot-bin
 dev-node/apinat-converter
 dev-python/nifstd-tools
-dev-python/pennsieve
 dev-python/sparcur
 #+end_src
 
@@ -4965,6 +4967,7 @@ Note that the image names for these are shifted so that they don't confuse users
 The logic is that base + services = data, but users don't know anything about services.
 *** container
 Test this with tgbugs/musl:kg-release-user
+#+name: create-sckan-data
 #+begin_src bash
 docker container inspect sckan-data > /dev/null && \
 docker rm sckan-data
