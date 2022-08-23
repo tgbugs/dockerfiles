@@ -629,11 +629,14 @@ dev-scheme/racket::tgbugs-overlay
 dev-haskell/*::tgbugs-overlay **
 dev-haskell/*::haskell
 dev-haskell/*::gentoo
+dev-lang/ghc::gentoo
+app-admin/haskell-updater::gentoo
 #+end_src
 # and they say haskell is a safe language
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
 dev-scheme/racket::gentoo
+dev-haskell/*::haskell
 #+end_src
 **** env
 ***** no distcc
@@ -3467,10 +3470,10 @@ dev-db/blazegraph-bin
 dev-java/scigraph-bin
 media-gfx/feh
 media-gfx/graphviz
-dev-haskell/dot2graphml
 dev-python/ipykernel
 dev-python/pip
 #+end_src
+# dev-haskell/dot2graphml  # ghc broken
 # TODO consider including for the python bits in queries
 # dev-python/pyontutils-9999
 # dev-python/nifstd-tools-9999
