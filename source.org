@@ -3876,7 +3876,7 @@ usermod -a -G blazegraph user \
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
-ENTRYPOINT /etc/entrypoint.sh
+# ENTRYPOINT /etc/entrypoint.sh
 #+end_src
 ** racket
 *** build
