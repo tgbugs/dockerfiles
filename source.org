@@ -3590,6 +3590,7 @@ rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
+tail -f /dev/null
 #+end_src
 *** file
 # FIXME we should be able to stash the builder in this image
