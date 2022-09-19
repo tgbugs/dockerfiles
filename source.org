@@ -783,16 +783,6 @@ EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
 
 **** mask
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.mask
-# insurance
-dev-lang/rust
-dev-lang/rust-bin
->=dev-python/cryptography-3.4.8
->=dev-python/pyopenssl-21
-
-# gtknor
->=gnome-base/librsvg-2.41
->x11-themes/adwaita-icon-theme-3.33
-
 # dynapad
 >=media-gfx/imagemagick-7
 #+end_src
