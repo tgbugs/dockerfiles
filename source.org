@@ -635,6 +635,7 @@ app-admin/haskell-updater::gentoo
 # and they say haskell is a safe language
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
+dev-java/icedtea-bin::gentoo
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
 #+end_src
@@ -803,6 +804,7 @@ app-misc/yq ~amd64
 # tgbugs-overlay
 dev-db/blazegraph-bin ~amd64
 dev-db/pguri **
+dev-java/icedtea-bin ~amd64  # hacked to avoid musl blocking on gnu systems
 dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
 dev-node/apinat-converter **
@@ -887,6 +889,7 @@ dev-python/interlex alt database
 dev-python/orthauth yaml
 dev-python/pint babel uncertainties
 dev-python/sparcur cron  # XXX FIXME not all images want to pull in the cron deps, or the dashboard deps
+dev-python/sxpyr -cli  # XXX FIXME avoid circular dep on clifun
 #+end_src
 
 **** use.mask
@@ -2822,7 +2825,7 @@ Backup.
 dev-libs/nss
 x11-libs/libXcomposite
 x11-libs/libXtst
-dev-java/icedtea-bin::musl
+dev-java/icedtea-bin::tgbugs-overlay
 #+end_src
 # back to musl since somehow my local setup is broken for the package builder
 # and the musl repo is fixed again and I managed to pull everything down this time
