@@ -589,6 +589,7 @@ ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keyw
 ADD ${bp}package.mask                            etc/portage/package.mask/profile
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
 ADD ${bp}erlang.env                              etc/portage/env/dev-lang/erlang
+ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
 ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
@@ -656,6 +657,17 @@ https://bugs.gentoo.org/857099
 https://github.com/OpenRC/openrc/blob/master/service-script-guide.md#be-wary-of-need-net-dependencies
 #+begin_src conf :tangle ./docker-profile/base/erlang.env
 post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/epmd; }
+#+end_src
+***** net-misc/rabbitmq-server
+It seems that a some point epmd started working correctly in docker
+images between =12.3.1= and =12.3.2.2=, therefore rabbitmq can't start
+its own empd and fails to connect. This removes the depend statement
+in the init file that pulls in system epmd, which if started will
+cause rabbitmq to fail to start. The correct solution is to figure out
+how to correctly configure rabbitmq, but for now this should restore
+the old behavior.
+#+begin_src conf :tangle ./docker-profile/base/rabbitmq.env
+post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/rabbitmq; }
 #+end_src
 **** package.env
 # dev-python/numpy no-distcc
