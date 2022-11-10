@@ -4219,6 +4219,17 @@ docker logs -f ${_cid_new}
 }
 #+end_src
 
+Production image archive.
+#+begin_src bash :eval never :dir /su::
+for img in $(docker image ls tgbugs/musl:sparcur-user-* --format '{{.Repository}}:{{.Tag}}'); do
+docker save "${img}" | gzip > /mnt/str/sparc/docker-images/"${img//\//-}".tar.gz
+done
+
+for img in $(docker image ls tgbugs/musl:sparcur-user-* --format '{{.Repository}}:{{.Tag}}' | sort | head -n -1); do
+docker image rm "${img}" || break
+done
+#+end_src
+
 *** build
 #+name: &musl-build-sparcur-user
 #+begin_src screen
