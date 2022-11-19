@@ -789,7 +789,6 @@ EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
 
 # temporary commit override until the converter fixes are merged
 EGIT_OVERRIDE_BRANCH_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=fix-wrapper
-EGIT_OVERRIDE_COMMIT_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=77b407b5593fa7c5b269935bb47714fac6eb2539
 #+end_src
 
 # FIXME the ACCT_ and EGIT_OVERRIDE_ should probably be in env, but we rebuild
