@@ -246,10 +246,6 @@ function tangle () {
 return $?
 }
 
-function run-gnu () {
-echo TODO
-}
-
 <<&container-check>>
 
 <<&builder-resnap>>
@@ -263,6 +259,20 @@ echo TODO
 <<&builder-arb-priv>>
 
 <<&builder-debug>>
+
+function run-gnu () {
+local REPOS="${_repos}"
+local SYNC_GENTOO="${_sync_gentoo}"
+local RESNAP="${_resnap}"
+local LIVE_REBUILD="${_live_rebuild}"
+local NOBUILD="${_nopkgbldr}"
+<<&gnu-build-profile>>
+<<&gnu-build-eselect-repo>>
+<<&gnu-build-package-builder>>
+<<&gnu-run-package-builder-quickpkg>>
+[ -z $RESNAP ] || gnu-builder-resnap
+[ ! -z $NOBUILD ] || gnu-builder-bootstrap
+}
 
 function run-musl () {
 local REPOS="${_repos}"
@@ -1082,6 +1092,9 @@ dev-util/cmake -ncurses
 
 # scigraph
 x11-base/xorg-server xvfb
+
+# xdg-utils build time dep pulled in by cups somehow
+app-text/xmlto text
 #+end_src
 
 **** mask
@@ -2022,6 +2035,8 @@ I suggest adding all the =_path_= variables below (and the repo name)
 to your shell rc file if you use any of the docker run commands during
 development so that you can do so in a new shell. These values are
 usually stable per system.
+# FIXME watch out with the use of a=${a:-b} the value of a will persist
+# in the environment when you change the default value
 #+name: &builder-vars
 #+begin_src bash :noweb yes
 export \
@@ -2036,8 +2051,14 @@ export \
 _tm_pb=${_tm_pb:-tgbugs/musl:package-builder}
 _tm_s_pb=${_tm_s_pb:-tgbugs/musl:static-package-builder}
 
-_tm_pbs=${_tm_pbs:-${_tm_pb}-snap} \
-_tm_s_pbs=${_tm_s_pbs:-${_tm_s_pb}-snap} \
+_tm_pbs=${_tm_pbs:-${_tm_pb}-snap}
+_tm_s_pbs=${_tm_s_pbs:-${_tm_s_pb}-snap}
+
+export \
+_tg_pb=${_tg_pb:-tgbugs/gnu:package-builder}
+
+_tg_pbs=${_tg_pbs:-${_tg_pb}-snap}
+
 #+end_src
 
 #+name: &builder-resnap
@@ -2050,6 +2071,10 @@ docker commit $(docker ps -lqf ancestor=${_tm_pb}) ${_tm_pbs}
 function static-builder-resnap () {
 docker run ${_tm_s_pb}
 docker commit $(docker ps -lqf ancestor=${_tm_s_pb}) ${_tm_s_pbs}
+}
+function gnu-builder-resnap () {
+docker run ${_tg_pb}
+docker commit $(docker ps -lqf ancestor=${_tg_pb}) ${_tg_pbs}
 }
 #+end_src
 
@@ -2072,10 +2097,16 @@ docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 # itself with current settings or something
 # FIXME FEATURES and MAKEOPTS are also set assuming the host is gentoo
 
+# FIXME need to mount /var/tmp/portage as a ramdisk most times
 #+name: &builder-args
+#+begin_src bash :noweb yes
+--volumes-from cross-sbcl \
+<<&builder-args-gnu>>
+#+end_src
+
+#+name: &builder-args-gnu
 #+begin_src bash
 --volumes-from local-repos-snap \
---volumes-from cross-sbcl \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
 -v ${_path_distfiles}:/var/cache/distfiles \
 -v ${_path_ssh}:/var/lib/portage/home/.ssh \
@@ -2109,6 +2140,30 @@ ${_tm_pbs} \
 crossdev --stage4 --stable --portage --getbinpkg --target ${target}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+done
+
+}
+
+# FIXME SIGH copy paste
+function gnu-builder-bootstrap () {
+container-check
+
+docker run \
+<<&builder-args-gnu>>
+${_tg_pbs} \
+emerge  --color=y --with-bdeps=y -j4 -q --keep-going --getbinpkg \
+sys-devel/distcc \
+sys-devel/crossdev
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
+
+for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+docker run \
+<<&builder-args-gnu>>
+${_tg_pbs} \
+crossdev --stage4 --stable --portage --getbinpkg --target ${target}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
 done
 
 }
@@ -2294,6 +2349,16 @@ docker run \
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
+# SIGH
+function gnu-builder-debug () {
+container-check
+docker run \
+--privileged \
+<<&builder-args-gnu>>
+-it ${_tg_pbs}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
+}
 #+end_src
 
 #+begin_src bash
@@ -2356,6 +2421,27 @@ FROM tgbugs/musl:xorg
 <<&musl-package-builder-common>>
 #+end_src
 
+*** ghc bootstrap
+https://github.com/redneb/ghc-alt-libc/releases/download/ghc-9.0.2-musl/ghc-9.0.2-x86_64-unknown-linux-musl.tar.xz
+Have to roll with =USE=ghcbootstrap= but mercifully this makes it extremely easy to just plob the binaries on
+the system and get to work.
+also no distcc
+TODO follow sbcl pattern here and stick the stuff we need in =/ghc= probably and provide as a separate image?
+#+begin_src bash
+pushd /tmp/
+PV=9.0.2
+curl -OL https://github.com/redneb/ghc-alt-libc/releases/download/ghc-${PV}-musl/ghc-${PV}-x86_64-unknown-linux-musl.tar.xz
+tar xvJf ghc-${PV}-x86_64-unknown-linux-musl.tar.xz
+pushd ghc-${PV}
+./configure --prefix=/ghc
+make install
+popd
+popd
+#+end_src
+
+#+begin_src ebuild :tangle ./musl/package-builder/ghc.env
+pre_pkg_setup() { export PATH="${PATH}:/ghc/bin"; }
+#+end_src
 *** sbcl bootstrap
 The gentoo ebuilds for sbcl retrieve an existing binary for bootstrapping.
 Due to the fact that the current EAPI (?) is not libc aware for precompiled
@@ -2396,15 +2482,18 @@ In order to fix
 
 This works around the fact that musl uses thin manifests.  See
 https://wiki.gentoo.org/wiki/Custom_ebuild_repository#Crossdev.
+#+name: &crossdev-repo_name
 #+begin_src conf :tangle ./musl/package-builder/repo_name
 crossdev
 #+end_src
 
+#+name: &crossdev-layout
 #+begin_src conf :tangle ./musl/package-builder/layout.conf
 masters = gentoo
 thin-manifests = true
 #+end_src
 
+#+name: &crossdev-conf
 #+begin_src conf :tangle ./musl/package-builder/crossdev.conf
 [crossdev]
 location = /var/db/crossdev
@@ -4588,10 +4677,8 @@ FROM busybox:latest as builder
 
 WORKDIR /build
 
-# we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
-ADD docker-profile/base/docker-profile var/db/docker-profile
-ADD docker-profile/base/docker-profile.conf etc/portage/repos.conf/docker-profile.conf
-ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
+# XXX FIXME this is from musl so we don't want all of these
+<<&profile-adds>>
 
 FROM scratch
 
@@ -4625,6 +4712,133 @@ eselect profile set docker-profile:tgbugs/gnu
 <<&gentoo-file-eselect-repo-common-3>>
 #+end_src
 
+** package-builder
+*** populate 0
+# FIXME code duplication
+#+name: &gnu-run-package-builder-quickpkg
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
+--rm \
+tgbugs/gnu:package-builder \
+/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+#+end_src
+
+*** build
+#+name: &gnu-build-package-builder
+#+begin_src screen
+docker build \
+--tag tgbugs/gnu:package-builder \
+--file gnu/package-builder/Dockerfile gnu/package-builder
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./gnu/package-builder/Dockerfile
+FROM tgbugs/gnu:eselect-repo
+
+<<&musl-package-builder-common>>
+#+end_src
+*** crossdev
+# hack to reuse musl common for file
+#+begin_src conf :tangle ./gnu/package-builder/repo_name
+<<&crossdev-repo_name>>
+#+end_src
+
+#+begin_src conf :tangle ./gnu/package-builder/layout.conf
+<<&crossdev-layout>>
+#+end_src
+
+#+begin_src conf :tangle ./gnu/package-builder/crossdev.conf
+<<&crossdev-conf>>
+#+end_src
+
+#+begin_src conf :tangle ./gnu/package-builder/sbcl.env
+#+end_src
+
+** crossdev
+*** build
+#+begin_src screen
+docker build \
+--tag tgbugs/gnu:crossdev \
+--network host \
+--add-host local.binhost:127.0.0.1 \
+--file gnu/crossdev/Dockerfile gnu/crossdev
+#+end_src
+*** file
+# FIXME masking issues somehow blocking musl ... seems like the issue may be that we haven't dumped stuff, also masked by CHOST? wat?
+#+begin_src dockerfile :tangle ./gnu/crossdev/Dockerfile
+FROM tgbugs/gnu:eselect-repo
+
+#emerge -j4 -q -uDN \  # yeahno
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q \
+   --getbinpkg \
+   --keep-going \
+   sys-devel/crossdev \
+<<&archive-or-rm>>
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge --usepkg --getbinpkgonly \
+   cross-x86_64-pc-linux-musl/musl \
+   cross-x86_64-pc-linux-musl/linux-headers \
+   cross-x86_64-pc-linux-musl/gcc \
+   cross-x86_64-pc-linux-musl/binutils \
+;  crossdev --stable --target x86_64-pc-linux-musl --stage4 \
+<<&archive-or-rm>>
+#+end_src
+
+** ghc-cross
+*** run
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/gnu:ghc-cross
+#+end_src
+
+Test that the cross compiled version is working as expected.
+#+begin_src bash
+docker run \
+-it tgbugs/gnu:ghc-cross \
+/usr/x86_64-pc-linux-musl/usr/bin/ghci
+#+end_src
+*** build
+#+begin_src screen
+docker build \
+--tag tgbugs/gnu:ghc-cross \
+--network host \
+--add-host local.binhost:127.0.0.1 \
+--file gnu/ghc-cross/Dockerfile gnu/ghc-cross
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./gnu/ghc-cross/Dockerfile
+FROM tgbugs/gnu:crossdev
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q \
+   --getbinpkg \
+   --keep-going \
+   dev-lang/ghc \
+<<&archive-or-rm>>
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+x86_64-pc-linux-musl-emerge -j4 -q \
+   --getbinpkg \
+   --keep-going \
+   sys-libs/musl \
+   sys-libs/zlib \
+<<&archive-or-rm>>
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+USE=ghcbootstrap x86_64-pc-linux-musl-emerge -j4 -q --nodeps \
+   dev-lang/ghc \
+<<&archive-or-rm>>
+#+end_src
+
 ** sbcl-cross
 *** run
 #+begin_src bash
@@ -4652,24 +4866,7 @@ docker build \
 #+end_src
 *** file
 #+begin_src dockerfile :tangle ./gnu/sbcl-cross/Dockerfile
-FROM tgbugs/gnu:eselect-repo
-
-#emerge -j4 -q -uDN \  # yeahno
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q \
-   --getbinpkg \
-   --keep-going \
-   sys-devel/crossdev \
-<<&archive-or-rm>>
-
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge --usepkg --getbinpkgonly \
-   cross-x86_64-pc-linux-musl/musl \
-   cross-x86_64-pc-linux-musl/linux-headers \
-   cross-x86_64-pc-linux-musl/gcc \
-   cross-x86_64-pc-linux-musl/binutils \
-;  crossdev --stable --target x86_64-pc-linux-musl --stage4 \
-<<&archive-or-rm>>
+FROM tgbugs/gnu:crossdev
 
 # sbcl crossdev build looks in the wrong place for asdf and uiop
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
