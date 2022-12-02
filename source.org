@@ -330,13 +330,13 @@ echo musl builder start
 <<&musl-run-build-need-priv>>
 [ ! -z $NOBUILD ] || builder-world || return $?
 # TODO smart-live-rebuild
-[ -z $LIVE_REBUILD ] || builder-smart-live-rebuild
+[ -z $LIVE_REBUILD ] || builder-smart-live-rebuild || return $?
 
 echo musl static builder start
 [ -z $RESNAP ] || static-builder-resnap
 # TODO static-builder-bootstrap
-[ ! -z $NOBUILD ] || static-builder-world  # FIXME if this is not run once at the start then something fails above
-[ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild
+[ ! -z $NOBUILD ] || static-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
+# [ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild || return $?  # no live builds right now
 
 # TODO consider whether we need to rebuild baselayout openrc sgml-common due to config issues with quickpkg
 
@@ -3984,13 +3984,18 @@ WORKDIR /build
 <<&musl-user-skel-common>>
 
 RUN \
-mv /build/home/user /home/
+usermod --move-home --home /home/user ${USER_NAME}
+#mv /build/home/user /home/ \
+#&& usermod -d /home/user -m
 
 USER ${USER_NAME}
 
 #ARG HOME=/build/home/${USER_NAME}  # FIXME somehow /build/ lingers ??? do I have a stale file !?? !
 # XXX the issue is &musl-user-skel-common uses /build/home/user in useradd with the expectation that
 # it will not affect the actual image only the builder image
+# FIXME XXXXXXXXXXXXXXXXXXXXXX SO SO SO SO BROKEN ARGH this breaks emacs and everything else
+# it looks like /etc/passwd still has /build/home/user as HOME so setting $HOME doesn't save us?
+# at least during debug that is what it looks like
 ARG HOME=/home/${USER_NAME}
 
 WORKDIR $HOME
