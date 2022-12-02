@@ -597,6 +597,7 @@ ADD ${bp}docker-profile.conf                     etc/portage/repos.conf/docker-p
 ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi.conf
 ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
 ADD ${bp}package.mask                            etc/portage/package.mask/profile
+ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
 ADD ${bp}erlang.env                              etc/portage/env/dev-lang/erlang
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
@@ -649,6 +650,17 @@ app-admin/haskell-updater::gentoo
 dev-java/icedtea-bin::gentoo
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
+#+end_src
+**** package.unmask
+#+begin_src conf :tangle ./docker-profile/base/package.unmask
+dev-haskell/fgl::haskell
+dev-haskell/graphviz::haskell
+dev-haskell/hxt-charproperties::haskell
+dev-haskell/hxt-regex-xmlschema::haskell
+dev-haskell/hxt-unicode::haskell
+dev-haskell/hxt::haskell
+dev-haskell/polyparse::haskell
+dev-haskell/wl-pprint-text::haskell
 #+end_src
 **** env
 ***** no distcc
@@ -970,6 +982,10 @@ gentoo:default/linux/amd64/17.1/hardened
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/parent
 gentoo:default/linux/amd64/17.0/musl/hardened
 ..
+#+end_src
+***** package.use
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/package.use
+dev-lang/ghc ghcbootstrap
 #+end_src
 **** musl/x/
 ***** parent
@@ -2422,6 +2438,26 @@ FROM tgbugs/musl:xorg
 #+end_src
 
 *** ghc bootstrap
+# emerge ghc --only-deps into builder, and then use the builder image as a starting point
+# start from the builder snapshot but do not overwrite the snapshot when we're done
+#+begin_src bash
+pushd /tmp
+curl -L -o ghc-9.0.2-r1.tar.bz http://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/ghc-9.0.2-r1.apk
+pushd /
+tar xvzf ghc-9.0.2-r1.tar.bz  # yes this is crazy, throw the container away when when are done
+#+end_src
++and then we have to modify all the top level entry point scripts to adjust their install location+
+give up and for the bootstrap just extract the alpine build straight into the existing file system
+because we can't set the prefix
+
+but even here the Winline errors are showing up during the build maybe
+they aren't fatal in non-crossbuild settings?
+
+haha! this works! we are good to go, lots of file collisions of
+course, but at least we have the binpkg now this means we aren't going
+to try to get ghc-cross working for the time being because kicking off
+from alpline seems to be working well enough for one auxillary package
+**** old
 https://github.com/redneb/ghc-alt-libc/releases/download/ghc-9.0.2-musl/ghc-9.0.2-x86_64-unknown-linux-musl.tar.xz
 Have to roll with =USE=ghcbootstrap= but mercifully this makes it extremely easy to just plob the binaries on
 the system and get to work.
@@ -2442,6 +2478,11 @@ popd
 #+begin_src ebuild :tangle ./musl/package-builder/ghc.env
 pre_pkg_setup() { export PATH="${PATH}:/ghc/bin"; }
 #+end_src
+
+using this on musl fails because ghc-cabal is segfaulting for some reason
+https://github.com/NixOS/nixpkgs/issues/118731, the solution is to use a
+version of ghc that can target musl 1.2.3, i.e. the one from alpine
+
 *** sbcl bootstrap
 The gentoo ebuilds for sbcl retrieve an existing binary for bootstrapping.
 Due to the fact that the current EAPI (?) is not libc aware for precompiled
@@ -3566,8 +3607,8 @@ media-gfx/feh
 media-gfx/graphviz
 dev-python/ipykernel
 dev-python/pip
+dev-haskell/dot2graphml
 #+end_src
-# dev-haskell/dot2graphml  # ghc broken
 # dev-python/jupyter_server is not needed, dev-python/ipykernel is sufficient for our limited emacs-jupyter use case
 
 # TODO consider including for the python bits in queries
@@ -4789,7 +4830,10 @@ emerge --usepkg --getbinpkgonly \
 <<&archive-or-rm>>
 #+end_src
 
-** ghc-cross
+** ghc-cross :do_not_use:
+This is very much not working right now, our solution to use alpine to
+get a ghc that works with musl 1.2.3 works. I suspect that the ghc
+ebuilds are not set up to work with cross compiling for some reason.
 *** run
 #+begin_src bash
 docker run \
@@ -4834,10 +4878,254 @@ x86_64-pc-linux-musl-emerge -j4 -q \
 <<&archive-or-rm>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-USE=ghcbootstrap x86_64-pc-linux-musl-emerge -j4 -q --nodeps \
+USE=ghcbootstrap x86_64-pc-linux-musl-emerge -j4 -q \
    dev-lang/ghc \
 <<&archive-or-rm>>
 #+end_src
+*** patch
+See https://gitlab.haskell.org/ghc/ghc/-/issues/17944
+and https://gitlab.haskell.org/ghc/ghc/-/issues/12416
+and https://gitlab.haskell.org/ghc/ghc/-/merge_requests/2943
+and https://gitlab.haskell.org/ghc/ghc/-/merge_requests/4466
+**** ignore Winline (fails)
+evil but generalized solution to fatal inline warnings, this is a bootstrap build after all
+#+begin_src diff
+--- a/rts/ghc.mk
++++ b/rts/ghc.mk
+@@ -355,7 +355,6 @@
+ WARNING_OPTS += -Wstrict-prototypes
+ WARNING_OPTS += -Wmissing-prototypes
+ WARNING_OPTS += -Wmissing-declarations
+-WARNING_OPTS += -Winline
+ WARNING_OPTS += -Wpointer-arith
+ WARNING_OPTS += -Wmissing-noreturn
+ WARNING_OPTS += -Wnested-externs
+#+end_src
+
+but then linking fails
+
+#+begin_example
+`x86_64-pc-linux-musl-ld' failed in phase `Merge objects'. (Exit code: 1)
+make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build/GHC/Prim/Ext.o] Error 1
+#+end_example
+
+not sure if related https://gitlab.haskell.org/ghc/ghc/-/issues/17962
+
+also seems to fail at other steps, but the build processes more or less works
+as expected if you go in an just call make as root ... very likely because the
+environment is totally different
+
+**** previous attempts (fails)
+=mkdir -p /usr/x86_64-pc-linux-musl/etc/portage/patches/dev-lang/ghc-9.0.2=
+#+begin_src diff :tangle ./docker-profile/base/ghc-inlining-old-do-not-use.patch
+--- a/rts/sm/Evac.c       2021-09-15 15:27:32.000000000 -0000
++++ b/rts/sm/Evac.c       2022-12-01 19:52:51.123156616 -0000
+@@ -58,7 +58,7 @@
+ #define MAX_THUNK_SELECTOR_DEPTH 16
+ 
+ static void eval_thunk_selector (StgClosure **q, StgSelector *p, bool);
+-STATIC_INLINE void evacuate_large(StgPtr p);
++static void evacuate_large(StgPtr p);
+ 
+ /* -----------------------------------------------------------------------------
+    Allocate some space in which to copy an object.
+
+#+end_src
+
+from ghc fc8a7f8f2aed3420dcbe2c5c25a525634779166f
+#+begin_src diff ./docker-profile/base/ghc-inlining.patch
+diff --git a/includes/Rts.h b/includes/Rts.h
+index 1e5a60262b..027d5173a1 100644
+--- a/includes/Rts.h
++++ b/includes/Rts.h
+@@ -37,12 +37,17 @@ extern "C" {
+ #include "HsFFI.h"
+ #include "RtsAPI.h"
+ 
+-// Turn off inlining when debugging - it obfuscates things
++// Disencourage gcc from inlining when debugging - it obfuscates things
+ #if defined(DEBUG)
+ # undef  STATIC_INLINE
+ # define STATIC_INLINE static
+ #endif
+ 
++// Fine grained inlining control helpers.
++#define ATTR_ALWAYS_INLINE __attribute__((always_inline))
++#define ATTR_NOINLINE      __attribute__((noinline))
++
++
+ #include "rts/Types.h"
+ #include "rts/Time.h"
+ 
+diff --git a/rts/sm/Evac.c b/rts/sm/Evac.c
+index e660fad1d8..8595a80c38 100644
+--- a/rts/sm/Evac.c
++++ b/rts/sm/Evac.c
+@@ -58,7 +58,7 @@
+ #define MAX_THUNK_SELECTOR_DEPTH 16
+ 
+ static void eval_thunk_selector (StgClosure **q, StgSelector *p, bool);
+-STATIC_INLINE void evacuate_large(StgPtr p);
++ATTR_NOINLINE static void evacuate_large(StgPtr p);
+ 
+ /* -----------------------------------------------------------------------------
+    Allocate some space in which to copy an object.
+@@ -134,8 +134,13 @@ alloc_for_copy (uint32_t size, uint32_t gen_no)
+    The evacuate() code
+    -------------------------------------------------------------------------- */
+ 
+-/* size is in words */
+-STATIC_INLINE GNUC_ATTR_HOT void
++/* size is in words
++
++   We want to *always* inline this as often the size of the closure is static,
++   which allows unrolling of the copy loop.
++
++ */
++ATTR_ALWAYS_INLINE GNUC_ATTR_HOT static inline void
+ copy_tag(StgClosure **p, const StgInfoTable *info,
+          StgClosure *src, uint32_t size, uint32_t gen_no, StgWord tag)
+ {
+@@ -194,7 +199,7 @@ copy_tag(StgClosure **p, const StgInfoTable *info,
+ }
+ 
+ #if defined(PARALLEL_GC) && !defined(PROFILING)
+-STATIC_INLINE void
++ATTR_ALWAYS_INLINE static inline void
+ copy_tag_nolock(StgClosure **p, const StgInfoTable *info,
+          StgClosure *src, uint32_t size, uint32_t gen_no, StgWord tag)
+ {
+@@ -231,7 +236,7 @@ copy_tag_nolock(StgClosure **p, const StgInfoTable *info,
+  ,* pointer of an object, but reserve some padding after it.  This is
+  ,* used to optimise evacuation of TSOs.
+  ,*/
+-static bool
++ATTR_ALWAYS_INLINE static inline bool
+ copyPart(StgClosure **p, StgClosure *src, uint32_t size_to_reserve,
+          uint32_t size_to_copy, uint32_t gen_no)
+ {
+@@ -283,7 +288,7 @@ spin:
+ 
+ 
+ /* Copy wrappers that don't tag the closure after copying */
+-STATIC_INLINE GNUC_ATTR_HOT void
++ATTR_ALWAYS_INLINE GNUC_ATTR_HOT static inline void
+ copy(StgClosure **p, const StgInfoTable *info,
+      StgClosure *src, uint32_t size, uint32_t gen_no)
+ {
+@@ -301,7 +306,7 @@ copy(StgClosure **p, const StgInfoTable *info,
+    that has been evacuated, or unset otherwise.
+    -------------------------------------------------------------------------- */
+ 
+-static void
++ATTR_NOINLINE static void
+ evacuate_large(StgPtr p)
+ {
+   bdescr *bd;
+-- 
+2.37.4
+#+end_src
+
+We haven't resolved all the issues yet ...
+#+begin_example
+In file included from includes/Rts.h:244,
+
+                 from rts/Interpreter.c:8:0: error: 
+rts/Interpreter.c: In function ‘interpretBCO’:
+
+includes/rts/StablePtr.h:32:8: error:
+     warning: inlining failed in call to ‘deRefStablePtr’: call is unlikely and code size would grow [-Winline]
+       32 | StgPtr deRefStablePtr(StgStablePtr sp)
+          |        ^~~~~~~~~~~~~~
+   |
+32 | StgPtr deRefStablePtr(StgStablePtr sp)
+   |        ^
+
+rts/Interpreter.c:1112:45: error:
+     note: called from here
+     1112 |                   ioAction = (StgClosure *) deRefStablePtr (
+          |                                             ^~~~~~~~~~~~~~~~
+     1113 |                       rts_breakpoint_io_action);
+          |                       ~~~~~~~~~~~~~~~~~~~~~~~~~
+     |
+1112 |                   ioAction = (StgClosure *) deRefStablePtr (
+     |                                             ^
+
+#+end_example
+
+let's see if 9.2.4 will compile any better
+#+begin_src bash
+mkdir -p /usr/x86_64-pc-linux-musl/etc/portage/repos.conf
+cp /etc/portage/repos.conf/eselect-repo.conf /usr/x86_64-pc-linux-musl/etc/portage/repos.conf/
+ACCEPT_KEYWORDS='**' FEATURES=-distcc USE=ghcbootstrap x86_64-pc-linux-musl-emerge =dev-lang/ghc-9.2.4::haskell   
+#+end_src
+
+... ugh nope, this one fails well before 9.0.2 does
+#+begin_example
+config.status: executing src commands
+# wc on OS X has spaces in its output, which libffi's Makefile
+# doesn't expect, so we tweak it to sed them out
+mv libffi/build/Makefile libffi/build/Makefile.orig
+sed "s#wc -w#wc -w | sed 's/ //g'#" < libffi/build/Makefile.orig > libffi/build/Makefile
+"touch" libffi/stamp.ffi.static-shared.configure
+make: *** [Makefile:128: ghc/stage2/build/tmp/ghc-stage2] Error 2
+#+end_example
+
+when running make in =libraries/ghc-prim= we find +some+ many additional issues
+I have no idea why these are showing up in the musl cross builds when they are not in the native gnu case
+a sampling of the kinds of issues
+#+begin_example
+In function 'updateRemembSetPushTSO':
+
+rts/sm/NonMovingMark.c:693:20: error:
+     warning: inlining failed in call to 'finish_upd_rem_set_mark': --param max-inline-insns-single limit reached [-Winline]
+      693 | STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
+          |                    ^~~~~~~~~~~~~~~~~~~~~~~
+    |
+693 | STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
+    |                    ^
+
+rts/sm/NonMovingMark.c:719:9: error:
+     note: called from here
+      719 |         finish_upd_rem_set_mark((StgClosure *) tso);
+          |         ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    |
+719 |         finish_upd_rem_set_mark((StgClosure *) tso);
+    |         ^
+rts/sm/NonMovingMark.c: In function 'updateRemembSetPushStack':
+
+rts/sm/NonMovingMark.c:693:20: error:
+     warning: inlining failed in call to 'finish_upd_rem_set_mark': --param max-inline-insns-single limit reached [-Winline]
+      693 | STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
+          |                    ^~~~~~~~~~~~~~~~~~~~~~~
+    |
+693 | STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
+    |                    ^
+
+rts/sm/NonMovingMark.c:734:13: error:
+     note: called from here
+      734 |             finish_upd_rem_set_mark((StgClosure *) stack);
+          |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    |
+734 |             finish_upd_rem_set_mark((StgClosure *) stack);
+    |             ^
+
+rts/sm/NonMovingMark.c:693:20: error:
+     warning: inlining failed in call to 'finish_upd_rem_set_mark': --param max-inline-insns-single limit reached [-Winline]
+      693 | STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
+          |                    ^~~~~~~~~~~~~~~~~~~~~~~
+    |
+693 | STATIC_INLINE void finish_upd_rem_set_mark(StgClosure *p)
+    |                    ^
+
+rts/sm/NonMovingMark.c:734:13: error:
+     note: called from here
+      734 |             finish_upd_rem_set_mark((StgClosure *) stack);
+          |             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    |
+734 |             finish_upd_rem_set_mark((StgClosure *) stack);
+    |    
+#+end_example
 
 ** sbcl-cross
 *** run
