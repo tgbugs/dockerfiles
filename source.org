@@ -330,13 +330,13 @@ echo musl builder start
 <<&musl-run-build-need-priv>>
 [ ! -z $NOBUILD ] || builder-world || return $?
 # TODO smart-live-rebuild
-[ -z $LIVE_REBUILD ] || builder-arb @live-rebuild
+[ -z $LIVE_REBUILD ] || builder-smart-live-rebuild
 
 echo musl static builder start
 [ -z $RESNAP ] || static-builder-resnap
 # TODO static-builder-bootstrap
 [ ! -z $NOBUILD ] || static-builder-world  # FIXME if this is not run once at the start then something fails above
-[ -z $LIVE_REBUILD ] || static-builder-arb @live-rebuild
+[ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild
 
 # TODO consider whether we need to rebuild baselayout openrc sgml-common due to config issues with quickpkg
 
@@ -2238,6 +2238,49 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs
 
 #+name: &builder-arb
 #+begin_src bash :noweb yes
+function builder-run () {
+container-check
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+<<&builder-args>>
+${_tm_pbs} \
+${@}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+}
+
+function static-builder-run () {
+container-check
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+<<&builder-args>>
+${_tm_s_pbs} \
+${@}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+}
+
+function builder-smart-live-rebuild () {
+container-check
+docker run \
+<<&builder-args>>
+${_tm_pbs} \
+smart-live-rebuild -- --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+}
+
+function static-builder-smart-live-rebuild () {
+container-check
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+docker run \
+<<&builder-args>>
+${_tm_s_pbs} \
+smart-live-rebuild -- --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+}
+
 function builder-arb () {
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
