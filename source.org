@@ -987,6 +987,10 @@ gentoo:default/linux/amd64/17.0/musl/hardened
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/package.use
 dev-lang/ghc ghcbootstrap
 #+end_src
+***** package.unmask
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/package.unmask
+dev-lisp/sbcl
+#+end_src
 **** musl/x/
 ***** parent
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/x/parent
