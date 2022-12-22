@@ -6,7 +6,7 @@
 #+property: header-args:bash :var BUILDKIT_PROGRESS="plain"
 #+property: header-args:conf :mkdirp yes :noweb yes
 #+property: header-args:dockerfile :noweb yes :mkdirp yes :comments link
-#+property: header-args:screen :session org-session :cmd sh :noweb yes
+#+property: header-args:screen :session org-session :cmd sh :noweb no-export
 
 #+name: orgstrap-shebang
 #+begin_src bash :eval never :results none :exports none
@@ -95,7 +95,7 @@ Eventually this should be baked into the docker in docker top level image.
 You will need to generate ssh keys for the host system if they do not
 already exist, and you will need to register them with the git remote.
 
-This is similar to what we do for [[*portage-maven][portage-maven]].
+This is similar to what we do for [[#portage-maven][portage-maven]].
 
 The default location for the portage home directory is now
 =/var/lib/portage/home/.ssh= which means that the ssh config and
@@ -642,6 +642,7 @@ dev-haskell/*::tgbugs-overlay **
 dev-haskell/*::haskell
 dev-haskell/*::gentoo
 dev-lang/ghc::gentoo
+app-text/pandoc::gentoo
 app-admin/haskell-updater::gentoo
 #+end_src
 # and they say haskell is a safe language
@@ -1344,6 +1345,9 @@ COPY --from=builder /build /
 #+end_src
 
 ** portage-maven
+:PROPERTIES:
+:CUSTOM_ID: portage-maven
+:END:
 Hack to make it possible to install from maven using portage.
 *** build
 #+name: &musl-build-portage-maven
@@ -3833,6 +3837,9 @@ echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
 ENTRYPOINT /etc/entrypoint.sh
 #+end_src
 ** kg-dev
+:PROPERTIES:
+:CUSTOM_ID: kg-dev
+:END:
 *** run
 # scigraph-build-local
 # scigraph-deploy-local
@@ -3886,7 +3893,13 @@ dev-java/robot-bin
 dev-node/apinat-converter
 dev-python/nifstd-tools
 dev-python/sparcur
+app-text/pandoc  # FIXME this is a dev-python/nifstd-tools doc dep :/
 #+end_src
+
+# FIXME and here we are having an annoying time
+# with nifstd-tools and variant use flags sigh
+# maybe build both versions of the package somehow
+# without creating yet another profile variant
 
 # we include pennsieve in world here because
 # it cannot be installed via pip due to a completely
@@ -3903,6 +3916,9 @@ eselect racket set cs
 #+end_src
 
 ** kg-dev-user
+:PROPERTIES:
+:CUSTOM_ID: kg-dev-user
+:END:
 # FIXME somehow msising blazegraph user?
 *** run
 # TODO -v /var/lib/scigraph:/var/lib/scigraph \
@@ -4300,45 +4316,57 @@ build_dir=${1:-build}
 dynapad-build-all build_musl
 #+end_src
 
-** sparcur
+** sparcron
+:PROPERTIES:
+:CUSTOM_ID: sparcron
+:END:
 *** run
 #+begin_src bash
 docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
--it tgbugs/musl:sparcur
+-it tgbugs/musl:sparcron
 #+end_src
 
 *** build
-#+name: &musl-build-sparcur
+#+name: &musl-build-sparcron
 #+begin_src screen
 <<&docker-build>>
---tag tgbugs/musl:sparcur \
---file musl/sparcur/Dockerfile musl/sparcur
+--tag tgbugs/musl:sparcron \
+--file musl/sparcron/Dockerfile musl/sparcron
 #+end_src
 
 *** file
 # when deriving from multiple parent worlds docker does not compose
 # well at all, so we have to pick a primary world line so to speak
-#+name: &musl/sparcur
-#+begin_src dockerfile :tangle ./musl/sparcur/Dockerfile
+#+name: &musl/sparcron
+#+begin_src dockerfile :tangle ./musl/sparcron/Dockerfile
 FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
 #+end_src
 
 *** world
-# probably don't need pip anymore except for debug?
-#+name: world-sparcur
-#+begin_src conf :tangle ./musl/sparcur/world
+# FIXME sparcur ebuild could pull this all in under test + cron or
+# something like that , but the variant use flags issue rears its head,
+# and more to the point, redis and rabbitmq-server could be running
+# elsewhere and are requirements for this image, or meta ebuild but not
+# actually for sparcur. In principle We could move to managing some of
+# these world files as meta ebuilds in some cases.
+# TODO probably don't need pip anymore except for debug?
+#+name: world-sparcron
+#+begin_src conf :tangle ./musl/sparcron/world
 dev-db/redis
-net-misc/rabbitmq-server
 dev-python/pip
 dev-python/sparcur
+net-misc/rabbitmq-server
 www-servers/uwsgi
 #+end_src
 
-** sparcur-user
+** sparcron-user
+:PROPERTIES:
+:CUSTOM_ID: sparcron-user
+:END:
 *** run
 # FIXME SIGH yes indeed chown modifies the parent system permissions
 # somehow this doesn't surprise me given how janky docker is in here
@@ -4360,7 +4388,7 @@ docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -e SCIGRAPH_API=http://192.168.1.207:9000/scigraph \
--it tgbugs/musl:sparcur-user
+-it tgbugs/musl:sparcron-user
 #+end_src
 
 Production =docker run= example. Must be run as root.
@@ -4381,14 +4409,14 @@ docker run \
 -e SCIGRAPH_API=https://scigraph.olympiangods.org/scigraph \
 -e UWSGI_SOCKET_SPARCRON=0.0.0.0:7260 \
 -p 7260:7260 \
--it tgbugs/musl:sparcur-user
+-it tgbugs/musl:sparcron-user
 }
 #+end_src
 
 Production image upgrade.
 #+begin_src bash
 function upgrade-sparcron () {
-_image=tgbugs/musl:sparcur-user
+_image=tgbugs/musl:sparcron-user
 _image_date=$(date -I --date $(docker inspect ${_image} --format '{{.Created}}'))
 _cid_old=$(docker ps -lqf ancestor=${_image})
 docker tag ${_image} ${_image}-${_image_date}
@@ -4402,26 +4430,26 @@ docker logs -f ${_cid_new}
 
 Production image archive.
 #+begin_src bash :eval never :dir /su::
-for img in $(docker image ls tgbugs/musl:sparcur-user-* --format '{{.Repository}}:{{.Tag}}'); do
+for img in $(docker image ls tgbugs/musl:sparcron-user-* --format '{{.Repository}}:{{.Tag}}'); do
 docker save "${img}" | gzip > /mnt/str/sparc/docker-images/"${img//\//-}".tar.gz
 done
 
-for img in $(docker image ls tgbugs/musl:sparcur-user-* --format '{{.Repository}}:{{.Tag}}' | sort | head -n -1); do
+for img in $(docker image ls tgbugs/musl:sparcron-user-* --format '{{.Repository}}:{{.Tag}}' | sort | head -n -1); do
 docker image rm "${img}" || break
 done
 #+end_src
 
 *** build
-#+name: &musl-build-sparcur-user
+#+name: &musl-build-sparcron-user
 #+begin_src screen
 docker build \
---tag tgbugs/musl:sparcur-user \
---file musl/sparcur-user/Dockerfile musl/sparcur-user
+--tag tgbugs/musl:sparcron-user \
+--file musl/sparcron-user/Dockerfile musl/sparcron-user
 #+end_src
 
 *** file
-#+begin_src dockerfile :tangle ./musl/sparcur-user/Dockerfile
-FROM tgbugs/musl:sparcur
+#+begin_src dockerfile :tangle ./musl/sparcron-user/Dockerfile
+FROM tgbugs/musl:sparcron
 
 ADD --chown=836:836 idlib-config.yaml /var/lib/sparc/.config/idlib/config.yaml
 ADD --chown=836:836 sparcur-config.yaml /var/lib/sparc/.config/sparcur/config.yaml
@@ -4439,7 +4467,7 @@ ENTRYPOINT /etc/entrypoint.sh
 This config provides sane defaults, if you need to add a section (such
 as a =datasets-no:=) then use =-v= in docker run to mount over the
 location of this file.
-#+begin_src yaml :tangle ./musl/sparcur-user/sparcur-config.yaml
+#+begin_src yaml :tangle ./musl/sparcron-user/sparcur-config.yaml
 auth-stores:
   secrets:
     path: '{:user-config-path}/orthauth/secrets.yaml'
@@ -4452,7 +4480,7 @@ auth-variables:
 #+end_src
 
 # TODO
-#+begin_src yaml :tangle ./musl/sparcur-user/idlib-config.yaml
+#+begin_src yaml :tangle ./musl/sparcron-user/idlib-config.yaml
 auth-stores:
   secrets:
     path: '{:user-config-path}/orthauth/secrets.yaml'
@@ -4468,7 +4496,7 @@ auth-variables:
 # sigh this really doesn't need the net admin cap just to start rabbit
 Slowly inching toward being able to run this via a service manager.
 #+header: :shebang "#!/usr/bin/env sh"
-#+begin_src bash :tangle ./musl/sparcur-user/entrypoint.sh :mkdirp yes
+#+begin_src bash :tangle ./musl/sparcron-user/entrypoint.sh :mkdirp yes
 if [ -n "${UWSGI_SOCKET_SPARCRON}" ]; then
     echo "UWSGI_SOCKET_SPARCRON=${UWSGI_SOCKET_SPARCRON}" >> /etc/conf.d/sparcron-server
 fi
@@ -4700,7 +4728,7 @@ fi
 }
 #+end_src
 
-#+begin_src bash :noweb yes
+#+begin_src bash :noweb no-export
 <<&fn-sbcl-static-patch>>
 sbcl-static-patch 2.2.6
 sbcl-static-patch 2.2.7
