@@ -3807,7 +3807,7 @@ RUN \
 RUN \
 emacs -batch -eval \
 "(let ((user-init-file (pop argv))) (package-initialize) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
-$HOME/.emacs.d/init.el sckan/{queries,welcome,examples,scratch}.org
+$HOME/.emacs.d/init.el sckan/{queries,welcome,examples,scratch,tutorial}.org
 
 FROM tgbugs/musl:kg-release
 
