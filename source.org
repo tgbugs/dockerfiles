@@ -124,6 +124,8 @@ musl/*
 gnu/*
 other/*
 sckan/*
+bin/*
+helper-repos/*
 #+end_src
 * Ops
 ** CLI
@@ -372,9 +374,9 @@ echo start image builds
 ## interlex
 <<&musl-build-interlex>> || return $?; echo mbilx;
 
-## sparcur
-<<&musl-build-sparcur>> || return $?; echo mbsp;
-<<&musl-build-sparcur-user>> || return $?; echo mbspu;
+## sparcron
+<<&musl-build-sparcron>> || return $?; echo mbsp;
+<<&musl-build-sparcron-user>> || return $?; echo mbspu;
 
 }
 #+end_src
@@ -1481,6 +1483,7 @@ echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge --info 2>&1 | { grep Invalid\ atom && exit 1; exit 0; }
 
+# FIXME shouldn't we be using binhosts for this step as well?
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge -j4 -q \
    --getbinpkg \
@@ -2628,7 +2631,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-kg-dev>>
 <<world-docker>>
 <<world-interlex>>
-<<world-sparcur>>
+<<world-sparcron>>
 <<world-package-builder-common>>
 x11-base/xorg-server
 x11-libs/gtk+
@@ -2895,11 +2898,11 @@ app-containers/docker-cli
 ** testing-python
 Python testing.
 *** world
-# gentoo no longer has 3.6 in the main tree, going to be a pain test back there
+# gentoo no longer has 3.{6,7} in the main tree, going to be a pain test back there
 # dev-lang/python:3.6
+# dev-lang/python:3.7
 #+name: world-python
 #+begin_src conf :tangle ./musl/testing-python/world
-dev-lang/python:3.7
 dev-lang/python:3.8
 dev-lang/python:3.9
 dev-lang/python:3.10
@@ -3882,17 +3885,18 @@ docker run \
 #+name: world-kg-dev
 #+begin_src conf :tangle ./musl/kg-dev/world
 <<world-kg-release>>
-app-misc/screen
-dev-scheme/racket
-net-libs/nodejs
 app-arch/zip
+app-misc/screen
 app-misc/yq
+app-text/pandoc
 dev-java/robot-bin
 dev-node/apinat-converter
 dev-python/nifstd-tools
 dev-python/sparcur
-app-text/pandoc  # FIXME this is a dev-python/nifstd-tools doc dep :/
+dev-scheme/racket
+net-libs/nodejs
 #+end_src
+# FIXME pandoc is a dev-python/nifstd-tools doc dep :/
 
 # FIXME and here we are having an annoying time
 # with nifstd-tools and variant use flags sigh
