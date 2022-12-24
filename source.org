@@ -4346,6 +4346,12 @@ docker run \
 FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
+
+RUN echo 1  # if you need to remerge without the world bump the number
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q -uDN dev-python/sparcur \
+<<&archive-or-rm>>
 #+end_src
 
 *** world
