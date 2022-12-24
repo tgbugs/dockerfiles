@@ -4425,13 +4425,14 @@ Production image upgrade.
 #+begin_src bash
 function upgrade-sparcron () {
 _image=tgbugs/musl:sparcron-user
+_image_new=${_image}
 _image_date=$(date -I --date $(docker inspect ${_image} --format '{{.Created}}'))
-_cid_old=$(docker ps -lqf ancestor=${_image})
+_cid_old=$(docker ps -lqf ancestor=${_image} -f status=running)
 docker tag ${_image} ${_image}-${_image_date}
-docker pull ${_image}
-docker stop ${_cid_old}
+docker pull ${_image_new} || return $?
+docker stop ${_cid_old} || return $?
 docker-run-sparcron
-_cid_new=$(docker ps -lqf ancestor=${_image})
+_cid_new=$(docker ps -lqf ancestor=${_image_new})
 docker logs -f ${_cid_new}
 }
 #+end_src
