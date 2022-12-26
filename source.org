@@ -2403,6 +2403,7 @@ container-check
 docker run \
 --privileged \
 <<&builder-args>>
+"${@}" \
 -it ${_tm_pbs}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
@@ -2413,6 +2414,7 @@ container-check
 docker run \
 --privileged \
 <<&builder-args>>
+"${@}" \
 -it ${_tm_s_pbs}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
@@ -2423,6 +2425,7 @@ container-check
 docker run \
 --privileged \
 <<&builder-args-gnu>>
+"${@}" \
 -it ${_tg_pbs}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
