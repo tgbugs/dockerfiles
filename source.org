@@ -1515,6 +1515,13 @@ them across rebuilds. This will take more work, but ultimately might
 be a bit more reproducible since we would avoid the issues with having
 an image building =FROM= a prior version of itself.
 
+Sometimes this can fail if we try to run updates during the window in
+time between tgbugs-overlay updating a Manifest and the gentoo portage
+snapshot image catching up with the main tree. I really do not want to
+add a sync step when creating the repos image, but it seems like that
+is by far the safest and most general solution. Which is exactly what
+the =--sync-gentoo= option is for!
+
 #+name: &musl/updated
 #+begin_src dockerfile :tangle ./musl/updated/Dockerfile
 FROM tgbugs/musl:eselect-repo
