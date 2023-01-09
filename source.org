@@ -1172,8 +1172,10 @@ perspective the exact ebuilds are stored in file:/var/db/pkg/.
 
 *** debug
 #+begin_src bash
+docker create -v /var/db/repos --name portage-snap gentoo/portage:latest /bin/true
 docker run \
---entrypoint /bin/sh \
+--volumes-from portage-snap \
+--entrypoint /bin/bash \
 -it tgbugs/repos:latest
 #+end_src
 *** build
@@ -1191,6 +1193,8 @@ docker build \
 #+begin_src dockerfile :tangle ./repos/Dockerfile
 FROM tgbugs/musl:eselect-repo as builder
 
+COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
+
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
    emaint sync --repo musl \
 && emaint sync --repo lisp \
@@ -1200,8 +1204,15 @@ RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/d
 # manual sync in cases where there is a showstopper blocking progress
 ARG SYNC_GENTOO
 
+# FIXME rsync hangs forever in this build environment?
+# FIXME as is with the mv and cp this is extremely broken due to docker braindeath
+# FIXME BUT SOMEHOW move the COPY --from above and trying emaint sync also hangs forever
+# but not after the mv cp crazyness !?
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-   test -z $SYNC_GENTOO || emaint sync --repo gentoo
+   test -z $SYNC_GENTOO || \
+ #mv /var/db/repos /var/db/repos-sigh; \
+ #cp -a /var/db/repos-sigh /var/db/repos; \
+ emaint sync --repo gentoo
 
 # emergency backup
 ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
@@ -1217,7 +1228,7 @@ FROM busybox:latest
 
 WORKDIR /
 COPY --from=builder /var/db/repos /var/db/repos
-COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
+# COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
 COPY --from=builder /usr/local/portage /usr/local/portage
 CMD /bin/true
 VOLUME /var/db/repos
@@ -1875,6 +1886,10 @@ be built and deposited into musl-x. The less good news is that this is
 not fully implemented yet as noted in <https://wiki.gentoo.org/wiki/
 Binary_package_guide#Pulling_packages_from_a_binary_package_host>.
 
+If you need to work around a broken ~USE="-harfbuzz -truetype"~ case
+build them in a container rather than a builder and then quickpkg them
+and then run the builder again.
+
 #+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
 ARG PROFILE_IMAGE=tgbugs/musl:profile-x
 ARG START_IMAGE=tgbugs/musl:pypy3
@@ -1889,6 +1904,8 @@ ARG PROFILE=docker-profile:tgbugs/musl/x
 
 RUN \
 eselect profile set $PROFILE
+
+# cut here if you need to quickpkg to avoid some brokeness
 
 # FIXME I think we have to update binhosts here
 
