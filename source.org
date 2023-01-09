@@ -1195,7 +1195,7 @@ FROM tgbugs/musl:eselect-repo as builder
 
 COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
 
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+RUN \
    emaint sync --repo musl \
 && emaint sync --repo lisp \
 && emaint sync --repo haskell \
@@ -1204,15 +1204,12 @@ RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/d
 # manual sync in cases where there is a showstopper blocking progress
 ARG SYNC_GENTOO
 
-# FIXME rsync hangs forever in this build environment?
-# FIXME as is with the mv and cp this is extremely broken due to docker braindeath
-# FIXME BUT SOMEHOW move the COPY --from above and trying emaint sync also hangs forever
-# but not after the mv cp crazyness !?
-RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-   test -z $SYNC_GENTOO || \
- #mv /var/db/repos /var/db/repos-sigh; \
- #cp -a /var/db/repos-sigh /var/db/repos; \
- emaint sync --repo gentoo
+RUN \
+   test -z $SYNC_GENTOO \
+# WOULD SOMEONE CARE TO EXPLAIN TO ME HOW THIS SOLVES THE ISSUE !??!?!
+|| { mv /var/db/repos /var/db/repos-wat; cp -a /var/db/repos-wat /var/db/repos; rm -r /var/db/repos-wat; emaint sync --repo gentoo; }
+# why this by itself hangs forever but a simple mv and cp -a resolves the issue we may never know
+# || emaint sync --repo gentoo
 
 # emergency backup
 ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
@@ -1228,7 +1225,6 @@ FROM busybox:latest
 
 WORKDIR /
 COPY --from=builder /var/db/repos /var/db/repos
-# COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
 COPY --from=builder /usr/local/portage /usr/local/portage
 CMD /bin/true
 VOLUME /var/db/repos
