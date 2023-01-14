@@ -651,6 +651,8 @@ app-admin/haskell-updater::gentoo
 dev-java/icedtea-bin::gentoo
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
+>=dev-lang/rust-1.66  # cc issue https://bugs.gentoo.org/888936
+>=dev-lang/rust-bin-1.66
 #+end_src
 **** package.unmask
 #+begin_src conf :tangle ./docker-profile/base/package.unmask
@@ -1204,6 +1206,8 @@ RUN \
 # manual sync in cases where there is a showstopper blocking progress
 ARG SYNC_GENTOO
 
+# FIXME if you ever have to fix a broken profile and sync at the same time
+# this is horribly inefficient, and we should probably add a separate image
 RUN \
    test -z $SYNC_GENTOO \
 # WOULD SOMEONE CARE TO EXPLAIN TO ME HOW THIS SOLVES THE ISSUE !??!?!
@@ -2240,14 +2244,38 @@ int main(void)
 #+name: &builder-world
 #+begin_src bash :noweb yes
 function builder-world () {
+local OUT
 container-check
-cat ./musl/package-builder/world | xargs \
+
+# get targets
+targets=$(cat ./musl/package-builder/world | xargs \
+docker run \
+--rm \
+<<&builder-args>>
+${_tm_pbs} \
+emerge --color=n --with-bdeps=y -q -uDN -p | grep '\(^\[ebuild\|acct-\)' | awk '{ print "="$4 }')
+# XXX acct- is a workaround for https://bugs.gentoo.org/890777
+
+OUT=$?
+[ ${OUT} -eq 0 ] || return ${OUT}
+
+# emerge only build dependencies of targets
 docker run \
 <<&builder-args>>
 ${_tm_pbs} \
-emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
-local OUT=$?
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN ${targets}
 
+OUT=$?
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+[ ${OUT} -eq 0 ] || return ${OUT}
+
+# emerge only targets
+docker run \
+<<&builder-args>>
+${_tm_pbs} \
+emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets}
+
+OUT=$?
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 return $OUT
 }
@@ -2499,7 +2527,7 @@ ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
-&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --usepkg"' >> /etc/portage/make.conf
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
 #+end_src
 
 We don't add distcc until we get to the builder here to avoid issues
