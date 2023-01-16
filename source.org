@@ -2527,7 +2527,7 @@ ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
-&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=n --usepkg"' >> /etc/portage/make.conf
 #+end_src
 
 We don't add distcc until we get to the builder here to avoid issues
