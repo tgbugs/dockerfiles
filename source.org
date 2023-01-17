@@ -3995,6 +3995,7 @@ docker run \
 -v /tmp/build:/tmp/build \
 -v /tmp/scigraph-build:/tmp/scigraph-build \
 -v /home/tom/.ssh:/home/user/.ssh \
+-v /home/tom/.ssh_tmp:/home/user/.ssh_tmp \
 -v /home/tom/git/misc:/home/user/git/misc \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -v $(dirname ${SSH_AUTH_SOCK}):$(dirname ${SSH_AUTH_SOCK}) \
