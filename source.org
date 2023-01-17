@@ -2259,6 +2259,8 @@ emerge --color=n --with-bdeps=y -q -uDN -p | grep '\(^\[ebuild\|acct-\)' | awk '
 OUT=$?
 [ ${OUT} -eq 0 ] || return ${OUT}
 
+[ "${targets}" ] || return 0  # we're done here
+
 # emerge only build dependencies of targets
 docker run \
 <<&builder-args>>
