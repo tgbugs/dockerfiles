@@ -3988,6 +3988,23 @@ docker run \
 
 #+end_src
 
+Example of how to use the image for the SCKAN release workflow.
+#+begin_src bash
+docker run \
+--volumes-from sckan-data \
+-v /tmp/build:/tmp/build \
+-v /tmp/scigraph-build:/tmp/scigraph-build \
+-v /home/tom/.ssh:/home/user/.ssh \
+-v /home/tom/git/misc:/home/user/git/misc \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v $(dirname ${SSH_AUTH_SOCK}):$(dirname ${SSH_AUTH_SOCK}) \
+-e SSH_AUTH_SOCK=${SSH_AUTH_SOCK} \
+-e SSH_AGENT_PID=${SSH_AGENT_PID} \
+-e DISPLAY=$DISPLAY \
+-e SCIGRAPH_API=http://localhost:9000/scigraph \
+-it tgbugs/musl:kg-dev-user
+#+end_src
+
 #+begin_src screen
 docker run \
 -v /var/lib/blazegraph:/var/lib/blazegraph \
@@ -4078,7 +4095,9 @@ WORKDIR $HOME
 <<&emacs-sanity>>
 
 RUN \
-mkdir ~/git
+mkdir ~/git \
+&& mkdir ~/.ssh_tmp \
+&& chmod 0700 ~/.ssh_tmp
 
 # FIXME that is going to need to go in .bashrc or something
 ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
@@ -4098,15 +4117,18 @@ pushd git \
 RUN \
 pushd git \
 &&     pushd pyontutils \
-&&         pip install --user -e . \
+&&         python -m pip install --user -e . \
+&&         pypy3 -m pip install --user -e . \
 &&         pushd nifstd \
-&&             pip install --user -e . \
 &&             python setup.py --release || true \
+&&             python -m pip install --user -e . \
+&&             pypy3 -m pip install --user -e . \
 &&         popd \
 &&     popd \
 &&     pushd sparc-curation \
-&&         pip install --user -e . \
 &&         python setup.py --release || true \
+&&         python -m pip install --user -e . \
+&&         pypy3 -m pip install --user -e . \
 &&     popd \
 && popd \
 && ln -s ../../git/sparc-curation/docs/apinatomy.org ~/.local/bin/apinat-build \
