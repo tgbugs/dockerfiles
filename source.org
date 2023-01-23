@@ -3974,9 +3974,12 @@ eselect racket set cs
 :PROPERTIES:
 :CUSTOM_ID: kg-dev-user
 :END:
-# FIXME somehow msising blazegraph user?
+# FIXME somehow missing blazegraph user?
 *** run
 # TODO -v /var/lib/scigraph:/var/lib/scigraph \
+reminder: localhost:9000 tells the image to use its own internal
+scigraph not the host scigraph specifically it prevents it from using
+the scicrunch production api endpoint
 #+begin_src screen
 # docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
 docker run \
@@ -4734,6 +4737,7 @@ ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 #+name: world-static-sbcl-c-libs
 #+begin_src conf
 dev-libs/openssl
+dev-libs/libgit2
 dev-libs/gmp
 dev-libs/capstone
 dev-libs/mpfr
@@ -4866,6 +4870,175 @@ COPY --from=tgbugs/musl:user / /
 <<&emacs-sanity>>
 #+end_src
 
+** sbcl-stripped
+*** run
+#+begin_src bash
+docker run \
+-v /home/tom/code/lisp/quicklisp.lisp:/quicklisp.lisp \
+--rm \
+-it tgbugs/musl:sbcl-stripped
+#+end_src
+
+It is BEYOND stupid how difficult it is to configure iptables to be
+able to connect to 4009 when =--network host= produces the desired
+result immediately. No quick solution so moving on as usual. Sigh.
+
+#+begin_src bash
+docker run \
+--network host \
+-v /home/tom/code/lisp/quicklisp.lisp:/quicklisp.lisp \
+--rm \
+-it tgbugs/musl:sbcl-stripped \
+--load /quicklisp.lisp \
+--eval "(quicklisp-quickstart:install)" \
+--eval "(ql:quickload :swank)" \
+--eval '(defvar *swank-server* (swank:create-server :port 4009))' \
+--eval '(sb-posix:readlink "/proc/1/exe")'
+
+#+end_src
+
+TODO figure out minimal requirements to safely bootstrap to dexador
+so we can use ssl from within common lisp ... the most obvious answer
+is to use curl which is tiny by comparison, or embed a known hash for
+a specific dexador version? ... or make that a prerequisite? urg
+more likely the correct thing to do is to grab dex, use it to grab
+quicklisp-https, except that given how we are generating these images
+there is zero reason not to just use git to securely retrieve the code
+we need for bootstrap and leave it as an exercise for the reader if they
+want to ... alternately libgit2 and cl-git are another way I think, but
+still need to be side loaded if we don't have curl, so we use an existing
+
+# --eval "(ql:quickload (:swank :dexador))" \
+
+#+begin_src lisp
+swank-api:*emacs-connection*
+#+end_src
+
+*** build
+#+name: &musl-build-sbcl
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:sbcl-stripped \
+--file musl/sbcl-stripped/Dockerfile musl/sbcl-stripped
+#+end_src
+*** file
+# TODO add libgit2 so we can use cl-git
+#+begin_src dockerfile :tangle ./musl/sbcl-stripped/Dockerfile
+FROM tgbugs/musl:sbcl as builder
+
+WORKDIR /build
+
+RUN \
+lddtree -l /usr/bin/sbcl /usr/bin/openssl       | \
+xargs -n 1 qfile -q                             | \
+xargs      qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+xargs -n 1 qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+xargs -n 1 qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+xargs -n 1 qdepends -rpq -F '%{CATEGORY}/%{PN}' | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+cut -d':' -f1                                   | \
+xargs qlist | xargs -P8 -I{} -n 1 rsync -aR {} /build
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+ENTRYPOINT ["/usr/bin/sbcl"]
+#+end_src
+*** extra :noexport:
+extras
+#+begin_src bash
+lddtree -l /usr/bin/sbcl | xargs -n 1 qfile -q | xargs qlist
+qdepends -rp -q sbcl | xargs -n 1 qdepends -rp | xargs -n 1 qdepends -rp
+
+qdepends -rp -q sbcl | xargs -n 1 qdepends -rp | xargs -n 1 qdepends -rpq | xargs -n 1 qdepends -rp -q -F '%{CATEGORY}/%{PN}' | sort -u | cut -d':' -f1 | qlist
+
+qlist /usr/bin/sbcl
+qlist openssl
+lddtree -l /usr/bin/sbcl
+#+end_src
+
+some insights into relative runtime sizes the results for these are
+compressed and I have made zero effort to strip these builds for light
+weight images because the point of is to be fully functional with the
+source code and whatever documentation comes along in most cases, more
+to the point what this means is that baring some serious work to slim
+down these things, a full polyglot runtime is annoyingly large
+
+the above written before I check haskell ... LOL HASKELL
+racket has 3 full implementations in my distribution, but still, very, very large
+for comparison the other schemes are all tiny under 10M
+gcc and llvm both pushing 70M, rust 91M ... anyway ... no way are we going to be
+able to optimize the size of these things, so the minimal sbcl image is for other
+projects, not for prrequaestor which depends on far too many other runtimes
+
+#+begin_src bash
+pushd ~/files/binpkgs/multi
+ls -alh \
+dev-lisp/sbcl \
+net-libs/nodejs \
+dev-lang/python \
+dev-python/pypy3 \
+app-editors/emacs \
+dev-lang/ghc \
+dev-scheme/racket \
+sys-devel/gcc \
+sys-devel/llvm \
+dev-lang/rust \
+dev-lang/erlang \
+dev-lang/perl \
+dev-vcs/git \
+dev-libs/openssl
+
+#+end_src
+
+#+begin_src dockerfile
+# ugh python is huge ... so is emacs
+RUN \
+   mkdir /cpython \
+&& qlist python-3.10 | xargs -P8 -I{} -n 1 rsync -aR {} /cpython \
+&& du -hxd1 /cpython \
+&& mkdir /pypy3
+&& qlist pypy3       | xargs -P8 -I{} -n 1 rsync -aR {} /pypy3 \
+&& du -hxd1 /pypy3 \
+&& mkdir /emacs \
+&& qlist emacs       | xargs -P8 -I{} -n 1 rsync -aR {} /emacs \
+&& du -hxd1 /emacs
+&& mkdir /nodejs \
+&& qlist nodejs       | xargs -P8 -I{} -n 1 rsync -aR {} /nodejs \
+&& du -hxd1 /nodejs
+# 123M /cpython
+# 194M /pypy3
+# 162M /emacs
+# 49M  /nodejs
+# 4.0M /curl
+
+# TODO keep other things needed for e.g. prrequaestor
+RUN \
+echo git nifstd-tools neurondm |
+xargs      qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+xargs -n 1 qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+xargs -n 1 qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+xargs -n 1 qdepends -rpq -F '%{CATEGORY}/%{PN}' | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+cut -d':' -f1
+
+#+end_src
+
+#+begin_src lisp
+sb-sys:*linkage-info*
+(defun linfo (&key (make-undefined nil))
+  (let ((ht (car sb-sys:*linkage-info*))
+        (undefined-entries (cdr sb-sys:*linkage-info*))
+        out)
+    (loop
+      :for key :being :the :hash-keys :in ht :using (hash-value idx)
+      :for datap := (listp key)
+      :for name := (if datap (first key) key)
+      :for undefinedp := (not (null (or (member key undefined-entries :test #'equal)
+                                        (member name make-undefined :test #'equal))))
+      :do (push (cons idx (list name datap undefinedp)) out))
+    (let ((*print-pretty* nil))
+      (prin1 (mapcar #'cdr (sort out #'< :key #'car))))))
+#+end_src
 * gnu
 may not need this if we can use crossdev to build glibc sbcl on musl that that seems a stretch
 ** profile
