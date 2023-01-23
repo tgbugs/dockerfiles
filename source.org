@@ -4874,23 +4874,30 @@ COPY --from=tgbugs/musl:user / /
 *** run
 #+begin_src bash
 docker run \
--v /home/tom/code/lisp/quicklisp.lisp:/quicklisp.lisp \
+--network host \
 --rm \
--it tgbugs/musl:sbcl-stripped
+-it tgbugs/musl:sbcl-stripped \
+--load /quicklisp/setup.lisp \
+--eval '(asdf:load-system :dexador)' \
+--eval '(push :dexador *features*)'
+--eval '(asdf:load-system :quicklisp-https)'
 #+end_src
 
 It is BEYOND stupid how difficult it is to configure iptables to be
 able to connect to 4009 when =--network host= produces the desired
 result immediately. No quick solution so moving on as usual. Sigh.
 
+old
 #+begin_src bash
 docker run \
 --network host \
--v /home/tom/code/lisp/quicklisp.lisp:/quicklisp.lisp \
 --rm \
 -it tgbugs/musl:sbcl-stripped \
+--eval '(asdf:initialize-source-registry (list :source-registry (list :tree #p"/dexador") (list :tree #p"/quicklisp-https") :inherit-configuration))' \
+--eval '(asdf:load-system :dexador)' \
 --load /quicklisp.lisp \
 --eval "(quicklisp-quickstart:install)" \
+--eval '(asdf:load-system :quicklisp-https)' \
 --eval "(ql:quickload :swank)" \
 --eval '(defvar *swank-server* (swank:create-server :port 4009))' \
 --eval '(sb-posix:readlink "/proc/1/exe")'
@@ -4908,6 +4915,8 @@ we need for bootstrap and leave it as an exercise for the reader if they
 want to ... alternately libgit2 and cl-git are another way I think, but
 still need to be side loaded if we don't have curl, so we use an existing
 
+XXX dex has a bunch of deps ...
+
 # --eval "(ql:quickload (:swank :dexador))" \
 
 #+begin_src lisp
@@ -4923,7 +4932,8 @@ docker build \
 #+end_src
 *** file
 # TODO add libgit2 so we can use cl-git
-#+begin_src dockerfile :tangle ./musl/sbcl-stripped/Dockerfile
+#+begin_src dockerfile :tangle ./musl/sbcl-stripped/Dockerfile :comments no
+# syntax=docker/dockerfile:experimental
 FROM tgbugs/musl:sbcl as builder
 
 WORKDIR /build
@@ -4938,10 +4948,59 @@ xargs -n 1 qdepends -rpq -F '%{CATEGORY}/%{PN}' | sort -u | tr ' ' '\n' | grep -
 cut -d':' -f1                                   | \
 xargs qlist | xargs -P8 -I{} -n 1 rsync -aR {} /build
 
+#RUN \
+#curl -O https://beta.quicklisp.org/quicklisp.lisp
+
+#RUN \
+#curl -O https://beta.quicklisp.org/quicklisp.lisp.asc
+
+# amazing how utterly bad the ux is for gpg that it actively makes things less secure
+#RUN \
+#gpg --verify quicklisp.lisp.asc quicklisp.lisp
+
+RUN \
+git clone --branch version-2021-02-13 --depth=1 https://github.com/quicklisp/quicklisp-client.git quicklisp
+
+RUN \
+git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /ql-https
+
+RUN \
+git clone --depth=1 https://github.com/snmsts/quicklisp-https.git quicklisp/local-projects/quicklisp-https
+
+RUN --network=none \
+sbcl --no-userinit --disable-debugger \
+--eval '(asdf:initialize-source-registry (list :source-registry (list :tree #p"/ql-https") (list :tree #p"/build/quicklisp") :inherit-configuration))' \
+--eval '(defpackage #:ql-setup)' \
+# don't forget the trailing slash for files >_<
+--eval '(defvar ql-setup::*quicklisp-home* (probe-file "/build/quicklisp/"))' \
+--eval '(load "/ql-https/ql-setup.lisp")' \
+--eval '(asdf:load-system :ql-https)' \
+--eval '(save-lisp-and-die "/continue.core" :purify nil)'
+
+RUN \
+sbcl --core /continue.core --no-userinit --disable-debugger \
+--eval '(setf ql-https::*quietly-use-https* t)' \
+--eval '(quicklisp:setup)' \
+--eval '(ql:quickload :dexador)' \
+--eval '(format t "YOU WHAT NOW??")' \
+--quit
+
 FROM scratch
 
 WORKDIR /
+
 COPY --from=builder /build /
+
+RUN --network=none \
+["/usr/bin/sbcl", \
+"--non-interactive", \
+"--no-userinit", "--disable-debugger", \
+#"--eval", "(asdf:initialize-source-registry (list :source-registry (list :tree #p\"/quicklisp-https\") :inherit-configuration))", \
+"--load", "/quicklisp/setup.lisp", \
+"--eval", "(asdf:load-system :dexador :verbose nil)", \
+"--eval", "(asdf:load-system :quicklisp-https :verbose nil)", \
+"--quit"]
+
 ENTRYPOINT ["/usr/bin/sbcl"]
 #+end_src
 *** extra :noexport:
