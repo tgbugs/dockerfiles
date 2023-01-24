@@ -4047,8 +4047,23 @@ su user -
 /etc/init.d/blazegraph stop
 #+end_src
 
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-dev-user/entrypoints/sync.sh :mkdirp yes
+/etc/init.d/scigraph start
+# do prrequaestor things
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-dev-user/entrypoints/test.sh :mkdirp yes
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-dev-user/entrypoints/sckan-release.sh :mkdirp yes
+su user -c 'sh ~/git/sparc-curation/docs/developer-guide.org sckan-release'
+#+end_src
+
 *** file
-# XXX note the using builder means that the command history
+# XXX note that using builder means that the command history
 # that is used to create the /build/ directory are lost
 # sigh bad trade offs for multi stage builds
 # HOORAY pip install --user -e and /build/ are incompatable! >_<
@@ -4139,6 +4154,9 @@ pushd git \
 && rm -r ~/.cache/pip
 
 RUN \
+sh ./git/pyontutils/nifstd/scigraph/README.org --tangle
+
+RUN \
 ./git/sparc-curation/docs/queries.org
 
 RUN \
@@ -4155,6 +4173,7 @@ FROM tgbugs/musl:kg-dev
 
 COPY --from=builder /home/${USER_NAME} /home/${USER_NAME}
 
+ADD entrypoints /etc/entrypoints
 ADD entrypoint.sh /etc/entrypoint.sh
 
 <<&musl-file-user-base>>
