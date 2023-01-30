@@ -918,6 +918,10 @@ dev-python/pypy3 sqlite
 # uwsgi needs at least one backend enabled
 www-servers/uwsgi python
 
+# needed for matplotlib apparently
+media-gfx/imagemagick jpeg tiff
+virtual/imagemagick-tools jpeg tiff
+
 # keep ipykernel deps minimal for emacs-jupyter
 dev-python/ipython -smp
 
@@ -6060,6 +6064,131 @@ packages you forgot but don't want to rebuild the whole world.
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN \
 #+end_src
+
+* automatic image dependency resolution
+yeah we could do it with make or something
+but technically all the contents are in this file
+so we can use org to do it as well
+#+begin_src bash
+grep -r FROM --include='*Dockerfile'
+#+end_src
+
+we're going to need context so we can find the build command
+and then work backwards from the build commands to the Dockerfile
+and then to the tangle target to the block contents
+#+begin_src elisp :lexical yes :results none
+(defun find-build-command (libc name)
+  (let ((blockname (format "&%s-build-%s" libc name)))
+    '()))
+
+(setq
+ docker-file-depends-on-tag
+ (let (out)
+   (save-excursion
+     (org-babel-map-executables nil
+       ;; (language body arguments switches name start coderef)
+       (let* ((info (org-babel-get-src-block-info))
+              (lang (nth 0 info))
+              (body (orgstrap--expand-body info))
+              (params (nth 2 info))
+              (name (nth 4 info ))
+              (tangle (cdr (assoc :tangle params))))
+         (when (and (string= lang "dockerfile") tangle (not (string= tangle "no")))
+           (setq out (cons
+                      (cons
+                       (substring tangle 2) ; drop ./ ; XXX FIXME error if doesnot start with ./
+                       (with-temp-buffer
+                         (insert body)
+                         ;; TODO need to handle these kinds of cases
+                         ;; ARG PROFILE_IMAGE=tgbugs/musl:profile-x
+                         ;; ARG START_IMAGE=tgbugs/musl:pypy3
+                         ;; don't bother trying to replicate this, it is
+                         ;; vastly easier to just use evil-ex-global for now
+                         (evil-ex-global (point-min) (point-max) "^FROM" "d" t)
+                         (split-string (replace-regexp-in-string "^FROM\\| as .+$" "" (buffer-string)) "\n" t " +")))
+                      out))
+           ))))
+   out))
+
+(setq
+ tag-produced-by-docker-file
+ (let (out)
+   (save-excursion
+     (org-babel-map-executables nil
+       ;; (language body arguments switches name start coderef)
+       (let* ((info (org-babel-get-src-block-info))
+              (lang (nth 0 info))
+              (body (orgstrap--expand-body info))
+              (params (nth 2 info))
+              (name (nth 4 info))
+              (tangle (cdr (assoc :tangle params)))
+              )
+         (when (and name
+                    (or (string= lang "screen")
+                        (string= lang "bash"))
+                    (string-match "&\\([^-]+\\)-build-\\(.+\\)" name))
+           (setq out (cons
+                      (cons
+                       name
+                       (with-temp-buffer
+                         (insert (replace-regexp-in-string "\\\\\n" " " body))
+                         (goto-char (point-min))
+                         ;;(evil-ex-substitute (point-min) (point-max) '("\\\\n") " " "g") ; why doesn't this work ???
+                         (evil-ex-global (point-min) (point-max) "^docker build" "d" t)
+                         (goto-char (point-min))
+                         ;;(re-search-forward "^--tag \\([^ ]+\\)[ \n]")
+                         ;;(re-search-forward "^--file \\([^ ]+\\)[ \n]")
+
+                         ;; TODO need to handle these kinds of cases
+                         ;; --build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
+                         ;; --build-arg START_IMAGE='tgbugs/musl:updated' \
+                         (cl-loop
+                          for s in (split-string (replace-regexp-in-string " --" "\t" (buffer-string)) "\t" t " +")
+                          when (string-match "^\\(tag\\|file\\) \\([^ ]+\\)" s)
+                          collect (cons (match-string 1 s) (match-string 2 s)))))
+                      out)))))
+     (cl-loop for (name . alist) in out
+              collect (cons
+                       (cdr (assoc "tag" alist))
+                       (cdr (assoc "file" alist)))))))
+
+(setq
+ tag-depends-on-tag
+ (cl-loop
+  for (tag . file) in tag-produced-by-docker-file
+  collect
+  (cons
+   tag
+   (cdr (assoc file docker-file-depends-on-tag)))))
+
+(setq
+ docker-file-depends-on-docker-file
+ (cl-loop
+  for (file . tags) in docker-file-depends-on-tag
+  collect
+  (cons
+   file
+   (cl-loop
+    for tag in tags
+    collect (or (cdr (assoc tag tag-produced-by-docker-file)) tag)))))
+#+end_src
+
+#+begin_src lisp :results none
+(load "~/ni/dev/lisp/trees.lisp")
+#+end_src
+
+#+header: :var tag-depends-on-tag=(or tag-depends-on-tag)
+#+header: :var docker-file-depends-on-docker-file=(or docker-file-depends-on-docker-file)
+#+begin_src lisp
+(let ((adj (multi-to-adj tag-depends-on-tag)))
+  (apply
+   #'concatenate
+   'string
+   (loop for r in '(nil t)
+         collect
+         (format-tree nil (adj->nested adj :reverse r) :layout :down))))
+#+end_src
+
 * Bootstrap :noexport:
 
 #+name: orgstrap
