@@ -6187,22 +6187,6 @@ and then to the tangle target to the block contents
     (format-tree nil (adj->nested adj :reverse r) :layout :down :node-formatter (lambda (n) (format "%s" n))))))
 #+end_src
 
-#+begin_src lisp :results none
-(load "~/ni/dev/lisp/trees.lisp")
-#+end_src
-
-#+header: :var tag-depends-on-tag=(or tag-depends-on-tag)
-#+header: :var docker-file-depends-on-docker-file=(or docker-file-depends-on-docker-file)
-#+begin_src lisp
-(let ((adj (multi-to-adj tag-depends-on-tag)))
-  (apply
-   #'concatenate
-   'string
-   (loop for r in '(nil t)
-         collect
-         (format-tree nil (adj->nested adj :reverse r) :layout :down :node-formatter #'princ-to-string))))
-#+end_src
-
 * Bootstrap :noexport:
 
 #+name: orgstrap
