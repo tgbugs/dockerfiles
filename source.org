@@ -472,6 +472,13 @@ appears to be for implementation convenience.
 # if you use =makunbound= defvar-local will fail ... and even then there are issues
 # so sometimes you just have to kill and reopen the buffer (sigh)
 * Next
+** TODO meta packages instead of world files
+Proper factoring for this system suggests that we should probably be
+maintaining these world files as meta ebuilds in an overlay so that
+the process in this file can remain mostly static and we just name the
+meta package that we want to build for a particular use case. It
+should be much easier to maintain and reduce the overall complexity of
+what is going on in this file.
 ** TODO ebuilds changing behind the scenes
 :PROPERTIES:
 :CREATED:  [2022-03-21 Mon 20:50]
@@ -3942,6 +3949,7 @@ docker run \
 #+name: world-kg-dev
 #+begin_src conf :tangle ./musl/kg-dev/world
 <<world-kg-release>>
+<<world-tex>>
 app-arch/zip
 app-misc/screen
 app-misc/yq
@@ -3952,8 +3960,10 @@ dev-python/nifstd-tools
 dev-python/sparcur
 dev-scheme/racket
 net-libs/nodejs
+dev-python/seaborn
 #+end_src
 # FIXME pandoc is a dev-python/nifstd-tools doc dep :/
+# FIXME seaborn for generating figures, not clear whether this is the right place, but here for now
 
 # FIXME and here we are having an annoying time
 # with nifstd-tools and variant use flags sigh
@@ -3963,6 +3973,16 @@ net-libs/nodejs
 # we include pennsieve in world here because
 # it cannot be installed via pip due to a completely
 # braindead handling of 2.7 vs 3.0 issues
+
+#+name: world-tex
+#+begin_src conf
+app-tex/texlive
+dev-tex/biblatex
+dev-texlive/texlive-latexextra
+dev-texlive/texlive-music
+#+end_src
+We specify =texlive-latexextra= and =texlive-music= explicitly instead
+of as use flags on texlive to avoid pulling in xetex as a dependency.
 
 *** file
 #+name: &musl/kg-dev
@@ -4400,8 +4420,8 @@ local build_dir SUBPATH SO_SUFFIX
 build_dir=${1:-build}
     mkdir ${build_dir}
     pushd ${build_dir}
-        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug
-        ninja
+        cmake .. -G Ninja -DCMAKE_BUILD_TYPE=Debug || return $?
+        ninja || return $?
     popd
     SUBPATH=$(racketcgc -e "(display (path->string (system-library-subpath)))")
     SO_SUFFIX=$(racketcgc -e "(display (bytes->string/utf-8 (system-type 'so-suffix)))")
@@ -5718,7 +5738,7 @@ docker run -v /var/run/docker.sock:/var/run/docker.sock -u ${UID} -it tgbugs/oth
 --file other/alpine-bootstrap/Dockerfile other/alpine-bootstrap
 #+end_src
 
-#+begin_src dockerfile :tangle other/alpine-bootstrap/Dockerfile
+#+begin_src dockerfile :tangle ./other/alpine-bootstrap/Dockerfile
 FROM alpine:latest
 
 ARG DUID=48
