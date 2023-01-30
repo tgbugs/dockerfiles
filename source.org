@@ -6171,6 +6171,20 @@ and then to the tangle target to the block contents
    (cl-loop
     for tag in tags
     collect (or (cdr (assoc tag tag-produced-by-docker-file)) tag)))))
+
+#+end_src
+
+#+begin_src elisp
+(load "~/ni/dev/elisp/trees.el")
+#+end_src
+
+#+begin_src elisp
+(let ((adj (multi-to-adj tag-depends-on-tag)))
+  (string-join
+   (cl-loop
+    for r in '(nil t)
+    collect
+    (format-tree nil (adj->nested adj :reverse r) :layout :down :node-formatter (lambda (n) (format "%s" n))))))
 #+end_src
 
 #+begin_src lisp :results none
@@ -6186,7 +6200,7 @@ and then to the tangle target to the block contents
    'string
    (loop for r in '(nil t)
          collect
-         (format-tree nil (adj->nested adj :reverse r) :layout :down))))
+         (format-tree nil (adj->nested adj :reverse r) :layout :down :node-formatter #'princ-to-string))))
 #+end_src
 
 * Bootstrap :noexport:
