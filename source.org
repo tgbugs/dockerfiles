@@ -6063,7 +6063,7 @@ ADD world /var/lib/portage/world
 # -ebuild locks is so much faster building acct-* ebuilds first is MUCH faster
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(cat /var/lib/portage/world | xargs emerge -p | grep -o 'acct-.\+$' | sed 's/^/=/') \
-;  cat /var/lib/portage/world | xargs emerge -j4 -q -uDN \
+;  cat /var/lib/portage/world | xargs emerge -j4 -q --backtrack=99 -uDN \
 <<&archive-or-rm>>
 #+end_src
 
