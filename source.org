@@ -3976,7 +3976,7 @@ dev-python/seaborn
 
 #+name: world-tex
 #+begin_src conf
-app-tex/texlive
+app-text/texlive
 dev-tex/biblatex
 dev-texlive/texlive-latexextra
 dev-texlive/texlive-music
