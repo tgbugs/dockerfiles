@@ -3978,7 +3978,9 @@ dev-python/seaborn
 #+begin_src conf
 app-text/texlive
 dev-tex/biblatex
+dev-tex/latexmk
 dev-texlive/texlive-latexextra
+dev-texlive/texlive-luatex
 dev-texlive/texlive-music
 #+end_src
 We specify =texlive-latexextra= and =texlive-music= explicitly instead
