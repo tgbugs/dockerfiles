@@ -3827,6 +3827,7 @@ Default interactive entrypoint.
 #+begin_src bash :tangle ./musl/kg-release-user/entrypoint.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
+echo 'GENTOO_VM=icedtea-bin-8' >> /etc/conf.d/scigraph
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
 su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sckan/welcome.org'
