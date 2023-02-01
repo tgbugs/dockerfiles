@@ -4471,7 +4471,7 @@ FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
 
-RUN echo 1  # if you need to remerge without the world bump the number
+RUN echo 1  # if you need to remerge without the world bump the number (ref:sparcron-echo)
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN dev-python/sparcur \
@@ -4546,6 +4546,7 @@ docker run \
 #+end_src
 
 Production image upgrade.
+#+name: &upgrade-sparcron
 #+begin_src bash
 function upgrade-sparcron () {
 _image=tgbugs/musl:sparcron-user
@@ -4570,6 +4571,29 @@ done
 for img in $(docker image ls tgbugs/musl:sparcron-user-* --format '{{.Repository}}:{{.Tag}}' | sort | head -n -1); do
 docker image rm "${img}" || break
 done
+#+end_src
+**** An example of how to rapidly redeploy changes using the tools here.
+1. There is a bug. Oh no! e.g. you forgot to bump __internal_version__ so nothing reruns.
+2. Chance sparcur code, commit, push.
+3. bump ~echo~ in [[(sparcron-echo)]]
+4. ~C-ucvt~ aka src_elisp[:eval never]{(org-babel-tangle '(4))} or ~./source.org tangle~
+
+On the build machine.
+#+begin_src bash :noweb yes
+builder-arb --getbinpkg=y --onlydeps --onlydeps-with-rdeps=n sparcur
+builder-arb --nodeps sparcur
+
+<<&musl-build-sparcron>> &&
+
+<<&musl-build-sparcron-user>> &&
+docker push tgbugs/musl:sparcron; docker push tgbugs/musl:sparcron-user
+#+end_src
+
+On prod as root.
+#+begin_src bash :noweb yes :eval never
+<<&run-sparcron>>
+<<&upgrade-sparcron>>
+upgrade-sparcron
 #+end_src
 
 *** build
