@@ -367,7 +367,6 @@ echo start image builds
 #<<&musl-build-dynapad>> || return $?; # needs to be done by hand
 
 ## NIF-ontology
-<<&musl-build-icedtea>> || return $?; echo mbicdt;
 <<&musl-build-protege>> || return $?; echo mbp;
 <<&musl-build-NIF-ontology>> || return $?; echo mbno;
 
@@ -655,11 +654,13 @@ app-admin/haskell-updater::gentoo
 # and they say haskell is a safe language
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
-dev-java/icedtea-bin::gentoo
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
 >=dev-lang/rust-1.66  # cc issue https://bugs.gentoo.org/888936
 >=dev-lang/rust-bin-1.66
+dev-java/openjdk-bin  # libc linking issues, must compile openjdk
+<virtual/jdk-17
+<virtual/jre-17
 #+end_src
 **** package.unmask
 #+begin_src conf :tangle ./docker-profile/base/package.unmask
@@ -817,7 +818,7 @@ ACCT_GROUP_METABASE_ID=841
 ACCT_USER_METABASE_ID="${ACCT_GROUP_METABASE_ID}"
 
 EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
-EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=cypher-execute-fix
+EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=jvm-17
 
 # temporary commit override until the converter fixes are merged
 EGIT_OVERRIDE_BRANCH_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=fix-wrapper
@@ -848,7 +849,6 @@ app-misc/yq ~amd64
 # tgbugs-overlay
 dev-db/blazegraph-bin ~amd64
 dev-db/pguri **
-dev-java/icedtea-bin ~amd64  # hacked to avoid musl blocking on gnu systems
 dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
 dev-node/apinat-converter **
@@ -1174,6 +1174,7 @@ COPY --from=builder /build /
 **** package.use
 #+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/package.use
 dev-java/icedtea headless-awt
+dev-java/openjdk headless-awt
 #+end_src
 
 * repos
@@ -1226,21 +1227,10 @@ RUN \
 # why this by itself hangs forever but a simple mv and cp -a resolves the issue we may never know
 # || emaint sync --repo gentoo
 
-# emergency backup
-ARG BASE="https://github.com/tgbugs/musl/releases/download/icedtea-bin-3.18.0-alpine-helper-0/"
-ARG TMCH=34581ad0f14b5898abfb8d0a7ad89d560270a2e5
-RUN \
-mkdir -p /usr/local/portage/dev-java/icedtea-bin \
-&& pushd /usr/local/portage/dev-java/icedtea-bin \
-&& ln -s /var/db/repos/musl/dev-java/icedtea-bin/files \
-&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/icedtea-bin-3.18.0.ebuild" \
-&& curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/Manifest"
-
 FROM busybox:latest
 
 WORKDIR /
 COPY --from=builder /var/db/repos /var/db/repos
-COPY --from=builder /usr/local/portage /usr/local/portage
 CMD /bin/true
 VOLUME /var/db/repos
 #+end_src
@@ -3186,7 +3176,7 @@ docker commit $(docker ps -lq) tgbugs/musl:protege
 *** world
 #+name: world-protege
 #+begin_src conf :tangle ./musl/protege/world
-<<world-icedtea>>
+virtual/jre:17
 dev-python/pip
 #+end_src
 *** file
@@ -3195,10 +3185,10 @@ tgbugs/musl:protege= default to =protegeuser=.
 # TODO FIXME we should be able to install protege as root
 #+name: &musl/protege
 #+begin_src dockerfile :tangle ./musl/protege/Dockerfile
-FROM tgbugs/musl:icedtea as builder
+FROM tgbugs/musl:xorg as builder
 
 ARG ARCHIVE
-ARG PROTEGE_VERSION="5.5.0"
+ARG PROTEGE_VERSION="5.6.1"
 
 WORKDIR /build
 
@@ -3211,8 +3201,7 @@ ARG HOME=/build/home/${USER_NAME}
 WORKDIR $HOME
 
 # phase two protege and reasoners
-ARG URL_PROTEGE="https://github.com/protegeproject/protege-distribution/releases/download/v5.5.0/Protege-5.5.0-linux.tar.gz"
-ARG URL_ELK="https://github.com/liveontologies/elk-reasoner/releases/download/v0.4.3/elk-distribution-0.4.3-protege-plugin.zip"
+ARG URL_PROTEGE="https://github.com/protegeproject/protege-distribution/releases/download/protege-5.6.1/Protege-5.6.1-linux.tar.gz"
 ARG URL_FACT="https://bitbucket.org/dtsarkov/factplusplus/downloads/uk.ac.manchester.cs.owl.factplusplus-P5.x-v1.6.5.jar"
 
 RUN \
@@ -3220,18 +3209,14 @@ cd ~/ \
 && curl -L -O ${URL_PROTEGE} \
 && tar xvzf Protege-${PROTEGE_VERSION}-linux.tar.gz \
 && pushd Protege-${PROTEGE_VERSION} \
+# remove the glibc linked jre
 && rm jre/ -r \
-&& sed -i 's/^jre\/bin\/java/\/usr\/bin\/java/' run.sh \
-&& sed -i 's/500M/12G/' run.sh \
-&& sed -i 's/200M/5G/' run.sh \
-&& sed -i 's/16M/160M/' run.sh \
+&& sed -i 's/^\$EFFECTIVE_JAVA_HOME\/bin\/java/\/usr\/bin\/java\ --add-opens java.xml\/com.sun.org.apache.xml.internal.serialize=ALL-UNNAMED/' run.sh \
+#&& sed -i 's/500M/12G/' run.sh \
+#&& sed -i 's/200M/5G/' run.sh \
+#&& sed -i 's/16M/160M/' run.sh \
 && pushd plugins \
 && curl -L -O ${URL_FACT} \
-&& curl -L -O ${URL_ELK} \
-&& unzip -p elk-distribution-0.4.3-protege-plugin.zip \
-   elk-distribution-0.4.3-protege-plugin/org.semanticweb.elk.jar \
-   > org.semanticweb.elk-0.4.3.jar \
-&& rm elk-distribution-0.4.3-protege-plugin.zip \
 && popd; popd \
 && mkdir -p ~/.local/share ~/.local/bin \
 && mv Protege-${PROTEGE_VERSION} ~/.local/share/ \
@@ -3261,7 +3246,7 @@ pushd ~/ \
 && echo '</map>' >> ".java/.userPrefs/${PATH_CFU}/prefs.xml" \
 && popd
 
-FROM tgbugs/musl:icedtea
+FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
 
@@ -3629,7 +3614,6 @@ ENTRYPOINT /etc/entrypoint.sh
 *** world
 #+name: world-blazegraph
 #+begin_src conf :tangle ./musl/blazegraph/world
-<<world-icedtea-nox>>
 dev-db/blazegraph-bin
 #+end_src
 
@@ -3668,7 +3652,6 @@ ENTRYPOINT /etc/entrypoint.sh
 *** world
 #+name: world-scigraph
 #+begin_src conf :tangle ./musl/scigraph/world
-<<world-icedtea>>
 dev-java/scigraph-bin
 #+end_src
 
@@ -3716,7 +3699,6 @@ FROM tgbugs/musl:emacs
 #+name: world-kg-release
 #+begin_src conf :tangle ./musl/kg-release/world
 <<world-emacs>>
-<<world-icedtea>>
 dev-db/blazegraph-bin
 dev-java/scigraph-bin
 media-gfx/feh
@@ -3827,7 +3809,6 @@ Default interactive entrypoint.
 #+begin_src bash :tangle ./musl/kg-release-user/entrypoint.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
-echo 'GENTOO_VM=icedtea-bin-8' >> /etc/conf.d/scigraph
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
 su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sckan/welcome.org'
