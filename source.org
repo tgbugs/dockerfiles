@@ -933,6 +933,12 @@ virtual/imagemagick-tools jpeg tiff
 # keep ipykernel deps minimal for emacs-jupyter
 dev-python/ipython -smp
 
+# needed for scipy
+dev-python/numpy lapack
+
+# tgbugs-overlay added the stats keyword to avoid scipy but it works on pypy3 now
+dev-python/seaborn stats
+
 # tgbugs-overlay python
 dev-python/interlex alt database
 dev-python/orthauth yaml
