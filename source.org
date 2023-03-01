@@ -613,6 +613,7 @@ ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/py
 ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3-exe/musl-include-sys-time.patch
 ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3-exe/musl-fix-stdio-defs.patch
 ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3/json-str-subclass-safety.patch
+ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
 #+end_src
 
 #+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
@@ -1843,6 +1844,24 @@ diff -r 05fbe3aa5b08 lib-python/3/json/encoder.py
              elif value is True:
 #+end_src
 
+**** patchelf musl patch
+#+begin_src diff :tangle ./docker-profile/base/patchelf-musl-no-dt-mips-xhash.patch :mkdirp yes
+diff --git a/src/patchelf.cc b/src/patchelf.cc
+index 5dd320d..7c528d9 100644
+--- a/src/patchelf.cc
++++ b/src/patchelf.cc
+@@ -1184,10 +1184,6 @@ void ElfFile<ElfFileParamNames>::rewriteHeaders(Elf_Addr phdrAddress)
+                 // some binaries might this section stripped
+                 // in which case we just ignore the value.
+                 if (shdr) dyn->d_un.d_ptr = (*shdr).get().sh_addr;
+-            } else if (d_tag == DT_MIPS_XHASH) {
+-                // the .MIPS.xhash section was added to the glibc-ABI
+-                // in commit 23c1c256ae7b0f010d0fcaff60682b620887b164
+-                dyn->d_un.d_ptr = findSectionHeader(".MIPS.xhash").sh_addr;
+             } else if (d_tag == DT_JMPREL) {
+                 auto shdr = tryFindSectionHeader(".rel.plt");
+                 if (!shdr) shdr = tryFindSectionHeader(".rela.plt");
+#+end_src
 ** xorg
 # FIXME why is this not being built from binpkg only? is it for layer
 # efficiency?
