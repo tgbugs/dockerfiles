@@ -2544,7 +2544,19 @@ FROM tgbugs/musl:xorg
 #+end_src
 
 *** ghc bootstrap
-# emerge ghc --only-deps into builder, and then use the builder image as a starting point
+FIXME issue with needing to install the prior version to bootstrap the next
+ideally we would be able to test for that
+FIXME when ghc gets updated we have to reinstall all haskell packages and rebuild them
+what a nightmare, fortunately just pandoc and dot2graphml for now, but that is 163 packages
+that we have to rebuild, sometimes haskell-updater will miss some packages and you will
+have to rebuild them manually
+#+begin_src bash
+emerge -q -j12 app-text/pandoc dev-haskell/dot2graphml
+emerge -q --usepkg=n haskell-updater
+haskell-updater --all --no-deep -- --usepkg=n
+#+end_src
+# must emerge -1q =dev-lang/ghc-{previous-revision} prior to bootstrap
+# emerge ghc --onlydeps into builder, and then use the builder image as a starting point
 # start from the builder snapshot but do not overwrite the snapshot when we're done
 #+begin_src bash
 pushd /tmp
