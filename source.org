@@ -868,6 +868,7 @@ dev-python/semver ~amd64
 
 # emacs
 app-emacs/vterm ~amd64
+app-emacs/zmq ~amd64
 
 # sbcl
 dev-lisp/asdf ~amd64
@@ -3081,6 +3082,7 @@ Error relocating /usr/lib/libXdmcp.so.6: arc4random_buf: symbol not found
 #+name: world-emacs
 #+begin_src conf :tangle ./musl/emacs/world
 app-emacs/vterm
+app-emacs/zmq
 app-editors/emacs
 #+end_src
 
@@ -4147,6 +4149,7 @@ pushd ~/.emacs.d \
 && ln -s reval/cache/*/*-ow.el ow.el \
 && ln -s reval/cache/*/*-reval.el reval.el \
 && ln -s reval/cache/*/*-init-content.el init-content.el \
+&& echo "(setq site-packages '(vterm zmq))" >> init.el \
 && echo "(load (expand-file-name \"ow.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"reval.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"init-content.el\" user-emacs-directory))" >> init.el \
