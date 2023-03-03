@@ -4149,7 +4149,7 @@ pushd ~/.emacs.d \
 && ln -s reval/cache/*/*-ow.el ow.el \
 && ln -s reval/cache/*/*-reval.el reval.el \
 && ln -s reval/cache/*/*-init-content.el init-content.el \
-&& echo "(setq site-packages '(vterm zmq))" >> init.el \
+&& echo "(defvar ow-site-packages '(vterm zmq))" >> init.el \
 && echo "(load (expand-file-name \"ow.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"reval.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"init-content.el\" user-emacs-directory))" >> init.el \
