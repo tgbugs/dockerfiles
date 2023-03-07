@@ -3412,9 +3412,9 @@ pushd ~/ \
 ;   pushd git \
 ;       git clone https://github.com/tgbugs/pyontutils.git \
 ;       pushd pyontutils \
-;           pip install --user -e . \
+;           pip install --user --break-system-packages -e . \
 ;           pushd neurondm \
-;               pip install --user -e . \
+;               pip install --user --break-system-packages -e . \
 ;           popd \
 ;       popd \
 ;   popd
@@ -3908,12 +3908,20 @@ COPY --chown=${UID}:${UID} sckan sckan
 USER ${USER_NAME}
 
 RUN \
-./sckan/queries.org
+sed -i 's/-no-site-file//' ./sckan/queries.org \
+&& ./sckan/queries.org
+
+RUN \
+pushd ./.emacs.d/ \
+&& ln -s reval/cache/*/*-ow.el ow.el
+
+ADD --chown=1000:1000 early-init.el ./.emacs.d/early-init.el
+ADD --chown=1000:1000 init.el ./.emacs.d/init.el
 
 RUN \
 emacs -batch -eval \
-"(let ((user-init-file (pop argv))) (package-initialize) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
-$HOME/.emacs.d/init.el sckan/{queries,welcome,examples,scratch,tutorial}.org
+"(let ((user-init-file (pop argv))) (load (pop argv) (load user-init-file)) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
+$HOME/.emacs.d/init.el $HOME/.emacs.d/early-init.el sckan/{queries,welcome,examples,scratch,tutorial}.org
 
 FROM tgbugs/musl:kg-release
 
@@ -3942,6 +3950,23 @@ echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
 ENTRYPOINT /etc/entrypoint.sh
+#+end_src
+
+*** emacs init
+Must disable early loading of =package.el= because it makes it
+impossible for site-lisp to add packages which breaks the activation
+of any dependent packages.
+#+begin_src elisp :tangle ./musl/kg-release-user/early-init.el
+(setq package-enable-at-startup nil)
+#+end_src
+Calling =ow-enable-use-package= makes it possible to load site-lisp
+and call =package-initialize= with =no-activate= set so that site
+dependencies can be loaded correctly. This is all a dance to work
+around the fundamentally broken design of =normal-top-level= and
+=early-init= with regard to site-lisp.
+#+begin_src elisp :tangle ./musl/kg-release-user/init.el
+(load (expand-file-name "ow.el" user-emacs-directory))
+(ow-enable-use-package nil '(vterm zmq))
 #+end_src
 ** kg-dev
 :PROPERTIES:
@@ -4141,7 +4166,7 @@ ARG INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simpl
 
 RUN \
 emacs --batch --quick --eval \
-"(progn (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
+"(progn (setq ow-site-packages '(vterm zmq)) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
 "${INIT_URL}"
 
 RUN \
@@ -4149,6 +4174,7 @@ pushd ~/.emacs.d \
 && ln -s reval/cache/*/*-ow.el ow.el \
 && ln -s reval/cache/*/*-reval.el reval.el \
 && ln -s reval/cache/*/*-init-content.el init-content.el \
+&& echo "(setq package-enable-at-startup nil)" >> early-init.el \
 && echo "(defvar ow-site-packages '(vterm zmq))" >> init.el \
 && echo "(load (expand-file-name \"ow.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"reval.el\" user-emacs-directory))" >> init.el \
@@ -4205,18 +4231,18 @@ pushd git \
 RUN \
 pushd git \
 &&     pushd pyontutils \
-&&         python -m pip install --user -e . \
-&&         pypy3 -m pip install --user -e . \
+&&         python -m pip install --user --break-system-packages -e . \
+&&         pypy3 -m pip install --user --break-system-packages -e . \
 &&         pushd nifstd \
 &&             python setup.py --release || true \
-&&             python -m pip install --user -e . \
-&&             pypy3 -m pip install --user -e . \
+&&             python -m pip install --user --break-system-packages -e . \
+&&             pypy3 -m pip install --user --break-system-packages -e . \
 &&         popd \
 &&     popd \
 &&     pushd sparc-curation \
 &&         python setup.py --release || true \
-&&         python -m pip install --user -e . \
-&&         pypy3 -m pip install --user -e . \
+&&         python -m pip install --user --break-system-packages -e . \
+&&         pypy3 -m pip install --user --break-system-packages -e . \
 &&     popd \
 && popd \
 && ln -s ../../git/sparc-curation/docs/apinatomy.org ~/.local/bin/apinat-build \
