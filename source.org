@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 986e87117f1d0cf14c0803e79695cc51928cde1d11b681c5882fa424dc5ad6bf; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 3a6728d320bbb8529d37c7f1551f5c477fb9587a485ba9216dfc69e68d7d19c1; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -2556,6 +2556,7 @@ ADD repo_name /var/db/crossdev/profiles/repo_name
 ADD layout.conf /var/db/crossdev/metadata/layout.conf
 ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
 ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
+ADD world /etc/portage/sets/docker
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
@@ -3808,8 +3809,19 @@ docker run \
 -e FORWARD_URL_PORT=59213 \
 -it tgbugs/musl:kg-release-user
 #+end_src
-
+*** test
+#+name: &test-kg-release-user
+#+begin_src screen
+docker run \
+--volumes-from sckan-data \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+--entrypoint /etc/entrypoints/test.sh \
+--rm \
+-it tgbugs/musl:kg-release-user
+#+end_src
 *** build
+# FIXME move this into a container
 #+name: &musl-build-kg-release-user
 #+begin_src screen
 unset _devel _docd _sckand _docsfsc
@@ -3860,7 +3872,7 @@ su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sck
 
 Entrypoint to start services and run in the background.
 #+header: :shebang "#!/usr/bin/env sh"
-#+begin_src bash :tangle ./musl/kg-release-user/services.sh :mkdirp yes
+#+begin_src bash :tangle ./musl/kg-release-user/entrypoints/services.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
@@ -3930,7 +3942,7 @@ FROM tgbugs/musl:kg-release
 
 COPY --from=builder /build /
 
-ADD services.sh /etc/services.sh
+ADD entrypoints /etc/entrypoints
 ADD entrypoint.sh /etc/entrypoint.sh
 
 <<&musl-file-user-base>>
@@ -4113,6 +4125,19 @@ docker run \
 -it tgbugs/musl:kg-dev-user
 #+end_src
 
+*** test
+#+name: &test-kg-dev-user
+#+begin_src screen
+docker run \
+--volumes-from sckan-data \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-e SCIGRAPH_API=http://localhost:9000/scigraph \
+-v ${PWD}/musl/kg-dev-user/test.sh:/etc/entrypoints/test.sh \
+--entrypoint /etc/entrypoints/test.sh \
+--rm \
+-it tgbugs/musl:kg-dev-user
+#+end_src
 *** build
 #+name: &musl-build-kg-dev-user
 #+begin_src screen
@@ -4151,6 +4176,7 @@ su user -
 
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./musl/kg-dev-user/entrypoints/test.sh :mkdirp yes
+echo TODO testing ...
 #+end_src
 
 #+header: :shebang "#!/usr/bin/env sh"
@@ -6157,6 +6183,7 @@ FROM tgbugs/musl:binpkg-only-nox
 ARG ARCHIVE
 
 ADD world /var/lib/portage/world
+ADD world /etc/portage/sets/docker
 
 # -ebuild locks is so much faster building acct-* ebuilds first is MUCH faster
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
@@ -6369,37 +6396,43 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
 
 (fix-ocbe)
 
+(defun execute-src-block (name)
+  (save-excursion ; can't use org-sbe because it calls some other random block !?
+    (org-babel-goto-named-src-block name)
+    (org-babel-execute-src-block)))
+
 (when noninteractive
   (let ((setup (member "setup" argv))
         (build (member "build" argv))
-        (tangle (member "tangle" argv)))
+        (tangle (member "tangle" argv))
+        (test (member "test" argv)))
     (let ((no-screen    (and build (member "--no-screen" argv)))
           (refresh      (and build (member "--refresh" argv)))
           (repos        (and build (member "--repos" argv)))
           (sync-gentoo  (and build (member "--sync-gentoo" argv)))
           (resnap       (and build (member "--resnap" argv)))
+          ;;(static       (and build (member "--static" argv)))
           (live-rebuild (and build (member "--live-rebuild" argv)))
           (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv))))
       (setq argv nil)
+      (when (or build test)
+        (org-babel-do-load-languages
+         'org-babel-load-languages
+         '((screen . t)
+           (shell . t))))
       (when setup
         (run-setup))
       (when build
         ;; either use bash internally here (bad) or try to use screen
         ;; currently going with screen since we have a hack for passing vars
         ;;(message "build:\n%s" (make-screen-vars))
-        (org-babel-do-load-languages
-         'org-babel-load-languages
-         '((screen . t)
-           (shell . t)))
         ;; check that setup was run correctly, if not, fail
         ;; start screen
         ;; start up the packages server
         ;; run build
         ;; TODO block until build finishes or fails
         (fix-ocbe)
-        (save-excursion ; can't use org-sbe because it calls some other random block !?
-          (org-babel-goto-named-src-block "workflow-cli")
-          (org-babel-execute-src-block)))
+        (execute-src-block "workflow-cli"))
       (when tangle
         (unless (fboundp #'dockerfile-mode)
           (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
@@ -6410,7 +6443,21 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           (revert-buffer nil t nil)
           (setq-local find-file-literally nil))
         (fix-ocbe)
-        (org-babel-tangle)))))
+        (org-babel-tangle))
+      (when test
+        ;; sckan
+        ;; kg-dev
+        ;; kg-release
+        ;; sparcron (probably not? should do it)
+        (fix-ocbe)
+        ;; collect named test blocks by pattern
+        (let (blocks)
+          (save-excursion
+            (goto-char (point-min))
+            (while (re-search-forward "#\\+name: \\(&test-.+\\)" nil t)
+              (setq blocks (cons (match-string 1) blocks))
+              (ignore-errors (org-babel-execute-src-block))))
+          (message "test blocks run: %s" blocks))))))
 #+end_src
 
 Helper block to make it easier to use elisp functions as noweb inputs.
