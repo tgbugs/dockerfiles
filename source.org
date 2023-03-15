@@ -3816,6 +3816,7 @@ docker run \
 --volumes-from sckan-data \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
+-v ${PWD}/musl/kg-release-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
 -it tgbugs/musl:kg-release-user
@@ -3890,14 +3891,14 @@ touch /run/openrc/softlevel
 SCIG_OOPS=$?
 /etc/init.d/blazegraph start
 BLAZ_OOPS=$?
-[ ${SCIG_OOPS} -ne 0 && ${BLAZ_OOPS} -ne 0 ] || {echo scigraph and blazegraph failed to start; exit 1;}
-[ ${SCIG_OOPS} -ne 0 ] || {echo scigraph failed to start; exit 2;}
-[ ${BLAZ_OOPS} -ne 0 ] || {echo blazegraph failed to start; exit 3;}
+[ ${SCIG_OOPS} -eq 0 ] && [ ${BLAZ_OOPS} -eq 0 ] || { echo scigraph ${SCIG_OOPS} and blazegraph ${BLAZ_OOPS} failed to start; exit 1;}
+[ ${SCIG_OOPS} -eq 0 ] || { echo scigraph failed to start; exit 2;}
+[ ${BLAZ_OOPS} -eq 0 ] || { echo blazegraph failed to start; exit 3;}
 
 # check elisp config
-su user -c 'sckan/queries.org test config' || {echo basic config test failed cannot continue; exit 4;}
+su user -c 'sckan/queries.org test config' || { echo basic config test failed cannot continue; exit 4;}
 # run data sanity check queries
-su user -c 'sckan/queries.org test query neurons datasets protocols' || {echo at least one query test failed; exit 5}
+su user -c 'sckan/queries.org test query neurons datasets protocols' || { echo at least one query test failed; exit 5;}
 #+end_src
 
 *** file
@@ -3935,7 +3936,7 @@ ADD --chown=1000:1000 init.el ./.emacs.d/init.el
 
 RUN \
 emacs -batch -eval \
-"(let ((user-init-file (pop argv))) (load (pop argv) (load user-init-file)) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
+"(let ((user-init-file (pop argv))) (load (pop argv)) (load user-init-file) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
 $HOME/.emacs.d/init.el $HOME/.emacs.d/early-init.el sckan/{queries,welcome,examples,scratch,tutorial}.org
 
 FROM tgbugs/musl:kg-release
@@ -4133,7 +4134,7 @@ docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -e SCIGRAPH_API=http://localhost:9000/scigraph \
--v ${PWD}/musl/kg-dev-user/test.sh:/etc/entrypoints/test.sh \
+-v ${PWD}/musl/kg-dev-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
 -it tgbugs/musl:kg-dev-user
