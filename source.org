@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 3a6728d320bbb8529d37c7f1551f5c477fb9587a485ba9216dfc69e68d7d19c1; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 4b748276fde4953578336920f8baf2e34b22f76e60baab8548dd52872bfb9950; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -1331,6 +1331,9 @@ RUN \
 USER $USER_NAME
 
 WORKDIR /home/${USER_NAME}
+
+RUN \
+{ command -v xdg-user-dirs-update && xdg-user-dirs-update;} || true
 
 ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 #+end_src
@@ -3221,6 +3224,7 @@ docker commit $(docker ps -lq) tgbugs/musl:protege
 #+begin_src conf :tangle ./musl/protege/world
 virtual/jre:17
 dev-python/pip
+x11-misc/xdg-user-dirs
 #+end_src
 *** file
 We install pip during this step because any builds that =FROM
@@ -3749,6 +3753,7 @@ media-gfx/graphviz
 dev-python/ipykernel
 dev-python/pip
 dev-haskell/dot2graphml
+x11-misc/xdg-user-dirs
 #+end_src
 # dev-python/jupyter_server is not needed, dev-python/ipykernel is sufficient for our limited emacs-jupyter use case
 
@@ -3922,6 +3927,9 @@ WORKDIR $HOME
 COPY --chown=${UID}:${UID} sckan sckan
 
 USER ${USER_NAME}
+
+RUN \
+xdg-user-dirs-update
 
 RUN \
 sed -i 's/-no-site-file//' ./sckan/queries.org \
@@ -4235,6 +4243,9 @@ USER ${USER_NAME}
 ARG HOME=/home/${USER_NAME}
 
 WORKDIR $HOME
+
+RUN \
+xdg-user-dirs-update
 
 <<&emacs-sanity>>
 
@@ -4585,6 +4596,9 @@ emerge -j4 -q -uDN dev-python/sparcur \
 # actually for sparcur. In principle We could move to managing some of
 # these world files as meta ebuilds in some cases.
 # TODO probably don't need pip anymore except for debug?
+# FIXME ideally we wouldn't need xdg-user-dirs at runtime, only during build
+# but that would likely require the use of a generic builder instead of
+# reuse of the base image for the -user variant as the builder
 #+name: world-sparcron
 #+begin_src conf :tangle ./musl/sparcron/world
 dev-db/redis
@@ -4592,6 +4606,7 @@ dev-python/pip
 dev-python/sparcur
 net-misc/rabbitmq-server
 www-servers/uwsgi
+x11-misc/xdg-user-dirs
 #+end_src
 
 ** sparcron-user
@@ -4696,13 +4711,42 @@ upgrade-sparcron
 #+end_src
 
 *** test
+Since tests currently use screen, the suggestion mentioned in
+=*musl**package-builder***run= to add the =_path_= vars to your shell
+rc file (e.g. [[~/.bashrc]]) applies here as well. In the future if we
+move away from using =ob-screen= then passing via =--user-init-file=
+on the command line is also and option.
 #+name: &test-sparcron-user
 #+begin_src screen
+<<&screen-set-vars>>
 docker run \
+\
+-v ${_path_sparcron_sparcur_config}:/var/lib/sparc/.config/sparcur/config.yaml \
+-v ${_path_sparcron_secrets}:/var/lib/sparc/.config/orthauth/secrets.yaml \
+-v ${_path_sparcron_gsaro}:/var/lib/sparc/.config/orthauth/$(basename ${_path_sparcron_gsaro}) \
+\
 -v ${PWD}/musl/sparcron-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
 -it tgbugs/musl:sparcron-user
+#+end_src
+**** unused :noexport:
+Since we are passing these via ref:&screen-set-vars at the moment we
+do not need these, and if we switch to running via bash or something
+then we can use =:var _path_sparcron_sparcur_config=asdf= directly.
+#+name: &var-sparcron-sparcur-config
+#+begin_src elisp
+path-sparcron-sparcur-config
+#+end_src
+
+#+name: &var-sparcron-secrets
+#+begin_src elisp
+path-sparcron-secrets
+#+end_src
+
+#+name: &var-sparcron-gsaro
+#+begin_src elisp
+path-sparcron-gsaro
 #+end_src
 *** build
 #+name: &musl-build-sparcron-user
@@ -4722,6 +4766,9 @@ ADD --chown=836:836 sparcur-config.yaml /var/lib/sparc/.config/sparcur/config.ya
 ARG HOME=/var/lib/sparc
 
 WORKDIR $HOME
+
+RUN \
+su "$(id -nu 836)" -c "xdg-user-dirs-update"
 
 ADD entrypoints /etc/entrypoints
 ADD entrypoint.sh /etc/entrypoint.sh
@@ -5922,6 +5969,9 @@ USER $USER_NAME
 WORKDIR /home/${USER_NAME}
 
 RUN \
+xdg-user-dirs-update
+
+RUN \
 git clone https://github.com/tgbugs/dockerfiles.git
 
 RUN \
@@ -6384,16 +6434,30 @@ and then to the tangle target to the block contents
 (defvar-local path-binpkgs (concat path-binpkgs-root "/" "<<&host-binpkgs-repo-name()>>"))
 (defvar-local path-distcc-hosts (expand-file-name "<<&host-distcc-hosts-path()>>"))
 (defvar-local path-ssh (expand-file-name "<<&host-ssh-path()>>"))
+
+(defvar-local path-sparcron-sparcur-config nil)
+(defvar-local path-sparcron-secrets nil)
+(defvar-local path-sparcron-gsaro nil)
 ; FIXME should we only mount the key itself to avoid config issues internally ? probably yes ? also known_hosts issues, the docker build ssh-agent doesn't really help here
 
 (defun make-screen-vars ()
   (apply #'format
          "export _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s \\
-_path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S _path_ssh=%S;"
+_path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S _path_ssh=%S \\
+%s %s %s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
                   (list refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr))
-          (list path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh))))
+          (append
+           (list path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
+           ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
+           ;; the difference seems to be whether it makes sense to embed default paths in this file
+           ;; because in some cases e.g. paths with identifiers in their name, defaults are not helpful
+           (mapcar (lambda (s)
+                     (if (symbol-value s)
+                         (format "_%s=%S" (string-replace "-" "_" (symbol-name s)) (symbol-value s))
+                       ""))
+                   '(path-sparcron-sparcur-config path-sparcron-secrets path-sparcron-gsaro))))))
 
 (defun run-setup ()
 ;; docker daemon config ; XXX this can't be done due to bad design of docker (investigate podman)
@@ -6437,6 +6501,10 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
     (org-babel-goto-named-src-block name)
     (org-babel-execute-src-block)))
 
+(defun cli-opt (opt)
+  (let ((index (cl-position opt argv :test #'string=)))
+    (and index (elt argv (1+ index)))))
+
 (when noninteractive
   (let ((setup (member "setup" argv))
         (build (member "build" argv))
@@ -6449,51 +6517,67 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           (resnap       (and build (member "--resnap" argv)))
           ;;(static       (and build (member "--static" argv)))
           (live-rebuild (and build (member "--live-rebuild" argv)))
-          (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv))))
-      (setq argv nil)
-      (when (or build test)
-        (org-babel-do-load-languages
-         'org-babel-load-languages
-         '((screen . t)
-           (shell . t))))
-      (when setup
-        (run-setup))
-      (when build
-        ;; either use bash internally here (bad) or try to use screen
-        ;; currently going with screen since we have a hack for passing vars
-        ;;(message "build:\n%s" (make-screen-vars))
-        ;; check that setup was run correctly, if not, fail
-        ;; start screen
-        ;; start up the packages server
-        ;; run build
-        ;; TODO block until build finishes or fails
-        (fix-ocbe)
-        (execute-src-block "workflow-cli"))
-      (when tangle
-        (unless (fboundp #'dockerfile-mode)
-          (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
-            "Stub to avoid comment-start issues"
-            (set (make-local-variable 'comment-start) "#")))
-        (let (enable-local-eval)
-          ;; this pattern is required when tangling to avoid infinite loops
-          (revert-buffer nil t nil)
-          (setq-local find-file-literally nil))
-        (fix-ocbe)
-        (org-babel-tangle))
-      (when test
-        ;; sckan
-        ;; kg-dev
-        ;; kg-release
-        ;; sparcron (probably not? should do it)
-        (fix-ocbe)
-        ;; collect named test blocks by pattern
-        (let (blocks)
-          (save-excursion
-            (goto-char (point-min))
-            (while (re-search-forward "#\\+name: \\(&test-.+\\)" nil t)
-              (setq blocks (cons (match-string 1) blocks))
-              (ignore-errors (org-babel-execute-src-block))))
-          (message "test blocks run: %s" blocks))))))
+          (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv)))
+          (cli-uif (cli-opt "--user-init-file"))
+          (cli-ued (cli-opt "--user-emacs-directory"))
+          (cli-ssc (cli-opt "--path-sparcron-sparcur-config"))
+          (cli-ss  (cli-opt "--path-sparcron-secrets"))
+          (cli-sg  (cli-opt "--path-sparcron-gsaro")))
+      (setq argv nil) ; FIXME should we allow the uif to see argv? probably not?
+      (when cli-uif
+        (load cli-uif)
+        (setq user-init-file cli-uif))
+      (let ((path-sparcron-sparcur-config (or cli-ssc path-sparcron-sparcur-config ""))
+            (path-sparcron-secrets (or cli-ss path-sparcron-secrets ""))
+            (path-sparcron-gsaro (or cli-sg path-sparcron-gsaro "")))
+        ;; FIXME need an extensible way to handle this probably? see prrequaestor for inspiration?
+        ;; or not quite because we need a way to pass variable values from options, but that means
+        ;; that the elisp does have to explicitly make the bridge unless we come up with a fully
+        ;; dynamic/generative option, see how frequently we actually need it, vs using cli-uif
+        (when (or build test)
+          (org-babel-do-load-languages
+           'org-babel-load-languages
+           '((screen . t)
+             (shell . t))))
+        (when setup
+          (run-setup))
+        (when build
+          ;; either use bash internally here (bad) or try to use screen
+          ;; currently going with screen since we have a hack for passing vars
+          ;;(message "build:\n%s" (make-screen-vars))
+          ;; check that setup was run correctly, if not, fail
+          ;; start screen
+          ;; start up the packages server
+          ;; run build
+          ;; TODO block until build finishes or fails
+          (fix-ocbe)
+          (execute-src-block "workflow-cli"))
+        (when tangle
+          (unless (fboundp #'dockerfile-mode)
+            (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
+              "Stub to avoid comment-start issues"
+              (set (make-local-variable 'comment-start) "#")))
+          (let (enable-local-eval)
+            ;; this pattern is required when tangling to avoid infinite loops
+            (revert-buffer nil t nil)
+            (setq-local find-file-literally nil))
+          (fix-ocbe)
+          (org-babel-tangle))
+        (when test
+          ;; sckan
+          ;; kg-dev
+          ;; kg-release
+          ;; sparcron (probably not? should do it)
+          (fix-ocbe)
+          ;; collect named test blocks by pattern
+          (let (blocks)
+            (save-excursion
+              (goto-char (point-min))
+              (while (re-search-forward "#\\+name: \\(&test-.+\\)" nil t)
+                (setq blocks (cons (match-string 1) blocks))
+                ;; FIXME in screen these kind of need to block??? FIXME alternately forward stdout/err instead of capturing?
+                (ignore-errors (org-babel-execute-src-block))))
+            (message "test blocks run: %s" blocks)))))))
 #+end_src
 
 Helper block to make it easier to use elisp functions as noweb inputs.
