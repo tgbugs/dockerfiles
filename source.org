@@ -4695,6 +4695,15 @@ On prod as root.
 upgrade-sparcron
 #+end_src
 
+*** test
+#+name: &test-sparcron-user
+#+begin_src screen
+docker run \
+-v ${PWD}/musl/sparcron-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
+--entrypoint /etc/entrypoints/test.sh \
+--rm \
+-it tgbugs/musl:sparcron-user
+#+end_src
 *** build
 #+name: &musl-build-sparcron-user
 #+begin_src screen
@@ -4714,6 +4723,7 @@ ARG HOME=/var/lib/sparc
 
 WORKDIR $HOME
 
+ADD entrypoints /etc/entrypoints
 ADD entrypoint.sh /etc/entrypoint.sh
 
 ENTRYPOINT /etc/entrypoint.sh
@@ -4747,7 +4757,7 @@ auth-variables:
     path: protocols-io api store-file
 #+end_src
 
-*** entrypoint
+*** entrypoints
 # https://forums.gentoo.org/viewtopic-t-1014086-start-0.html
 # sigh this really doesn't need the net admin cap just to start rabbit
 Slowly inching toward being able to run this via a service manager.
@@ -4773,6 +4783,31 @@ su sparc -c 'EPYTHON=pypy3 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron work
 
 #/etc/init.d/redis stop
 #/etc/init.d/rabbitmq stop
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/sparcron-user/entrypoints/test.sh :mkdirp yes
+if [ -n "${UWSGI_SOCKET_SPARCRON}" ]; then
+    echo "UWSGI_SOCKET_SPARCRON=${UWSGI_SOCKET_SPARCRON}" >> /etc/conf.d/sparcron-server
+fi
+
+rc-status
+touch /run/openrc/softlevel
+
+# check that services are working as expected
+/etc/init.d/redis start
+RED_OOPS=$?
+/etc/init.d/rabbitmq start
+RAB_OOPS=$?
+/etc/init.d/sparcron-server start
+SVR_OOPS=$?
+
+[ ${RED_OOPS} -eq 0 ] || { echo redis failed to start;}
+[ ${RAB_OOPS} -eq 0 ] || { echo rabbitmq failed to start;}
+[ ${SVR_OOPS} -eq 0 ] || { echo sparcron-server failed to start;}
+[ ${RED_OOPS} -ne 0 ] || [ ${RAB_OOPS} -ne 0 ] || [ ${SVR_OOPS} -ne 0 ] && { echo at least on service failed; exit 1;}
+
+su sparc -c 'pypy3 -m sparcur.sparcron' || { echo startup check failed; exit 2;}
 #+end_src
 
 ** protc
