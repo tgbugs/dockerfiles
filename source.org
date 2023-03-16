@@ -3763,7 +3763,7 @@ x11-misc/xdg-user-dirs
 
 ** kg-release-user
 *** run
-Quick link to [[create-sckan-data]] useful if =sckan-data= has not
+Quick link to [[&create-sckan-data]] useful if =sckan-data= has not
 been created or was wiped in a purge.
 
 #+begin_src screen
@@ -3817,6 +3817,7 @@ docker run \
 *** test
 #+name: &test-kg-release-user
 #+begin_src screen
+<<&create-sckan-data-if-not-exists>>
 docker run \
 --volumes-from sckan-data \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
@@ -4137,6 +4138,7 @@ docker run \
 *** test
 #+name: &test-kg-dev-user
 #+begin_src screen
+<<&create-sckan-data-if-not-exists>>
 docker run \
 --volumes-from sckan-data \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
@@ -6145,10 +6147,16 @@ Note that the image names for these are shifted so that they don't confuse users
 The logic is that base + services = data, but users don't know anything about services.
 *** container
 Test this with tgbugs/musl:kg-release-user
-#+name: create-sckan-data
+#+name: &create-sckan-data
 #+begin_src bash
 docker container inspect sckan-data > /dev/null && \
 docker rm sckan-data
+docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
+#+end_src
+
+#+name: &create-sckan-data-if-not-exists
+#+begin_src bash
+docker container inspect sckan-data > /dev/null || \
 docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
 #+end_src
 
