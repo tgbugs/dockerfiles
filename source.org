@@ -4982,6 +4982,7 @@ ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 *** world
 #+name: world-static-package-builder
 #+begin_src conf :tangle ./musl/static-package-builder/world
+<<world-package-builder-common>>
 <<world-sbcl>>
 <<world-static-sbcl-c-libs>>
 #+end_src
