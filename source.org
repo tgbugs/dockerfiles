@@ -151,6 +151,7 @@ _sync_gentoo=   # run emaint sync for gentoo repo
 _resnap=        # snap package build containers set this if you changed the profile or you will have a bad time
 _live_rebuild=  # rebuild 9999 ebuilds e.g. from git
 _nopkgbldr=     # do not run package building steps
+_only_static=   # only build static images
 
 <<&workflow-vars>>
 <<&workflow-common>>
@@ -266,6 +267,7 @@ local SYNC_GENTOO="${_sync_gentoo}"
 local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
+local ONLY_STATIC="${_only_static}"
 <<&gnu-build-profile>>
 <<&gnu-build-eselect-repo>>
 <<&gnu-build-package-builder>>
@@ -280,6 +282,8 @@ local SYNC_GENTOO="${_sync_gentoo}"
 local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
+local ONLY_STATIC="${_only_static}"
+
 echo start bootstrap
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
@@ -321,6 +325,8 @@ echo start bootstrap
         <<&musl-build-static-binpkg-only>> || return $?; echo mbsbo;
 
 
+if [ -z $ONLY_STATIC ]; then
+
 # TODO build any new packages
 echo musl builder start
 [ -z $RESNAP ] || builder-resnap
@@ -332,15 +338,25 @@ echo musl builder start
 # TODO smart-live-rebuild
 [ -z $LIVE_REBUILD ] || builder-smart-live-rebuild || return $?
 
+fi
+
 echo musl static builder start
 [ -z $RESNAP ] || static-builder-resnap
 # TODO static-builder-bootstrap
 [ ! -z $NOBUILD ] || static-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
-# [ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild || return $?  # no live builds right now
+[ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild || return $?  # no live builds right now
 
 # TODO consider whether we need to rebuild baselayout openrc sgml-common due to config issues with quickpkg
 
 # image builds
+
+echo start static image builds
+
+## sbcl
+<<&musl-build-sbcl>> || return $?; echo mbsbcl;
+<<&musl-build-sbcl-user>> || return $?; echo mbsbclu;
+
+if [ -z $ONLY_STATIC ]; then
 
 echo start image builds
 
@@ -376,6 +392,8 @@ echo start image builds
 ## sparcron
 <<&musl-build-sparcron>> || return $?; echo mbsp;
 <<&musl-build-sparcron-user>> || return $?; echo mbspu;
+
+fi
 
 }
 #+end_src
@@ -6450,6 +6468,7 @@ and then to the tangle target to the block contents
 (defvar-local resnap       nil)
 (defvar-local live-rebuild nil)
 (defvar-local no-pkg-bldr  nil)
+(defvar-local only-static  nil)
 
 (defvar-local path-distfiles (expand-file-name "<<&host-distfiles-path()>>"))
 (defvar-local path-binpkgs-root (expand-file-name "<<&host-binpkgs-root-path()>>")) ; FIXME multi
@@ -6464,12 +6483,12 @@ and then to the tangle target to the block contents
 
 (defun make-screen-vars ()
   (apply #'format
-         "export _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s \\
+         "export _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
 _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S _path_ssh=%S \\
 %s %s %s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
-                  (list refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr))
+                  (list refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
           (append
            (list path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
            ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
@@ -6537,7 +6556,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           (repos        (and build (member "--repos" argv)))
           (sync-gentoo  (and build (member "--sync-gentoo" argv)))
           (resnap       (and build (member "--resnap" argv)))
-          ;;(static       (and build (member "--static" argv)))
+          (only-static  (and build (member "--only-static" argv)))
           (live-rebuild (and build (member "--live-rebuild" argv)))
           (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv)))
           (cli-uif (cli-opt "--user-init-file"))
