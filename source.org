@@ -206,9 +206,14 @@ function package-server () {
 # FIXME needs to run in another terminal, container, or daemon
 # but for now it blocks other commands which is ok
 curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
-    pushd ${_path_binpkgs_root}
-    python -m http.server 8089 --bind 127.0.0.1
-    popd
+    _error=$?
+    # curl returns a 22 if the server is up but there is some other issue e.g. 404
+    # that we might hit during first run when the repo doesn't exist
+    if [ ${_error} -ne 22 ]; then
+        pushd ${_path_binpkgs_root}
+        python -m http.server 8089 --bind 127.0.0.1
+        popd
+    fi
 }
 }
 
@@ -248,6 +253,8 @@ return $?
 }
 
 <<&container-check>>
+
+<<&quickpkg-image>>
 
 <<&builder-resnap>>
 
@@ -291,6 +298,8 @@ echo start bootstrap
 <<&musl-build-profile-x>> || return $?;
 <<&musl-build-profile-nox>> || return $?;
 <<&musl-build-profile-static-x>> || return $?;
+  # TODO figure out how to build the binary packages at this stage without
+  # so that we don't have to wait for quickpkg?
   <<&musl-build-eselect-repo>> || return $?;
     [ -z $REPOS ] || {
     <<&repos-build-repos>> || return $?;
@@ -304,8 +313,16 @@ echo start bootstrap
       <<&musl-build-updated-user>> || return $?; echo mbuu;
       <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
 
+      <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
+
       <<&musl-build-pypy3>> || return $?; echo mbpypy3;
         <<&musl-run-pypy3-quickpkg>> || return $?; echo mrpypy3q;
+
+        <<&musl-build-nox>> || return $?; echo mbnox;
+        <<&musl-run-nox-quickpkg>> || return $?; echo mrnoxq;
+
+        <<&musl-build-openjdk-nox>> || return $?; echo mbnoxjdk;
+          <<&musl-run-openjdk-nox-quickpkg>> || return $?; echo mrnoxjdkq;
 
         <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
         <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
@@ -313,6 +330,9 @@ echo start bootstrap
         # XXX this is the point at which things split into musl and musl/x
         <<&musl-build-xorg>> || return $?; echo mbx;
         <<&musl-run-xorg-quickpkg>> || return $?; echo mrxq;
+
+        <<&musl-build-openjdk>> || return $?; echo mbjdk;
+          <<&musl-run-openjdk-quickpkg>> || return $?; echo mrjdkq;
 
         <<&musl-build-package-builder>> || return $?; echo mbpb;
         <<&musl-build-binpkg-only>> || return $?; echo mbpo;
@@ -324,6 +344,9 @@ echo start bootstrap
         <<&musl-build-static-package-builder>> || return $?; echo mbspb;
         <<&musl-build-static-binpkg-only>> || return $?; echo mbsbo;
 
+
+# TODO need to conditionally run the gnu builds for sbcl cross compile
+# TODO also need to have a working ghc around, probably stick it in a release
 
 if [ -z $ONLY_STATIC ]; then
 
@@ -669,6 +692,7 @@ dev-haskell/*::gentoo
 dev-lang/ghc::gentoo
 app-text/pandoc::gentoo
 app-admin/haskell-updater::gentoo
+dev-util/shellcheck::gentoo
 #+end_src
 # and they say haskell is a safe language
 **** package.mask
@@ -722,6 +746,8 @@ the old behavior.
 post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/rabbitmq; }
 #+end_src
 **** package.env
+# some continusing nonsense, a manual build in builder-debug is somehow different enough that it works?
+# dev-util/lapack no-distcc
 # dev-python/numpy no-distcc
 # XXX manually setting FEATURES=-distcc worked, but it seems that stacking features in make.conf doesn't?
 #+begin_src conf :tangle ./docker-profile/base/package.env
@@ -741,14 +767,18 @@ docker-profile
 
 # NOTE that tgbugs/musl/x is listed here but not populated until later
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/profiles.desc
-amd64 tgbugs               dev
-amd64 tgbugs/x             dev
-amd64 tgbugs/gnu           dev
-amd64 tgbugs/gnu/x         dev
-amd64 tgbugs/musl          dev
-amd64 tgbugs/musl/x        dev
-amd64 tgbugs/musl/static   dev
-amd64 tgbugs/musl/static/x dev
+amd64 tgbugs                 dev
+amd64 tgbugs/x               dev
+amd64 tgbugs/nox             dev
+amd64 tgbugs/gnu             dev
+amd64 tgbugs/gnu/x           dev
+amd64 tgbugs/gnu/nox         dev
+amd64 tgbugs/musl            dev
+amd64 tgbugs/musl/x          dev
+amd64 tgbugs/musl/nox        dev
+amd64 tgbugs/musl/static     dev
+amd64 tgbugs/musl/static/x   dev
+amd64 tgbugs/musl/static/nox dev
 #+end_src
 **** packages
 Useful to keep these out of file:/var/lib/portage/world so that individual
@@ -788,6 +818,10 @@ INSTALL_MASK="${INSTALL_MASK}
 -/usr/share/locale/en@quot
 -/usr/share/locale/en@shaw
 -/usr/share/locale/en_US"
+
+BINPKG_FORMAT="gpkg"
+BINPKG_COMPRESS="zstd"
+BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
 
 FEATURES="${FEATURES} binpkg-multi-instance"
 
@@ -948,6 +982,7 @@ www-servers/uwsgi python
 # needed for matplotlib apparently
 media-gfx/imagemagick jpeg tiff
 virtual/imagemagick-tools jpeg tiff
+dev-python/pillow webp
 
 # keep ipykernel deps minimal for emacs-jupyter
 dev-python/ipython -smp
@@ -1081,7 +1116,7 @@ USE="${USE} static-libs"
 #+end_src
 ***** package.use :ARCHIVE:
 #+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/package.use :tangle no
-# don't build openssh with static libs because it conflicts with the
+# don't build openssh with static because it conflicts with the
 # pie use flag for hardened which cannot be unset
 net-misc/openssh -static
 
@@ -1128,7 +1163,7 @@ emerge -uDN @world
 *media-libs/freetype
 #+end_src
 **** make.defaults
-#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/x/make.defaults
+#+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/make.defaults
 USE="${USE} X"
 VIDEO_CARDS="-*"
 #+end_src
@@ -1169,28 +1204,6 @@ app-text/xmlto text
 #+end_src
 ** nox
 Explicit nox profile.
-*** build
-#+name: &musl-build-profile-nox
-#+begin_src screen
-docker build \
---tag tgbugs/musl:profile-nox \
---file docker-profile/nox/Dockerfile docker-profile/nox
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./docker-profile/nox/Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-ADD docker-profile var/db/docker-profile
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
-
 *** profiles
 **** parent
 #+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/parent
@@ -1201,6 +1214,7 @@ COPY --from=builder /build /
 #+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/package.use
 dev-java/icedtea headless-awt
 dev-java/openjdk headless-awt
+dev-java/openjdk-bin headless-awt
 #+end_src
 
 * repos
@@ -1314,6 +1328,30 @@ FROM scratch
 WORKDIR /
 COPY --from=builder /build /
 #+end_src
+** profile-nox
+*** build
+#+name: &musl-build-profile-nox
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:profile-nox \
+--file musl/profile-nox/Dockerfile .
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/profile-nox/Dockerfile
+FROM busybox:latest as builder
+
+WORKDIR /build
+
+ADD docker-profile/nox/docker-profile var/db/docker-profile
+ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
+#+end_src
+
 ** user
 #+name: &musl-build-user
 #+begin_src screen
@@ -1644,6 +1682,49 @@ COPY --from=tgbugs/musl:user / /
 <<&musl-file-user-base>>
 #+end_src
 
+** package-builder-musl
+*** notes
+there are a number of packages that we need to build variants of
+before we get our fully configured builder(s) up and running this
+should simplify many of the bootstrapping circularity issues that we
+have, particularly with pypy3, harfbuzz/freetype, openjdk, and
+anything else that has circular dependencies or long build times, it
+does mean that flags on the target profile must be known in advance
+
+but those can be calculated quickly by hopping through =eselect
+profile docker-profile:*= and running =emerge --info= and then
+taking the set intersection between those and the flags on our
+troublesome packages ... in some cases we might be able to move
+quite a bit of package building to use this process, except for
+cases where
+
+*** run
+#+name: &musl-run-free-harf-nonsense
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v "${_path_binpkgs}":/var/cache/binpkgs \
+-v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
+-v "${PWD}"/bin/harfbuzz-freetype-sigh.sh:/etc/entrypoint.sh \
+--entrypoint /etc/entrypoint.sh \
+-it tgbugs/musl:updated
+#+end_src
+*** entrypoints
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./bin/harfbuzz-freetype-sigh.sh :mkdirp yes
+USE="-harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+quickpkg $(/tmp/quickpkg-new)
+
+# have to set -cairo here otherwise harfbuzz -truetype will fail to build
+USE="-cairo -truetype" emerge -j4 -1q --getbinpkg media-libs/harfbuzz
+quickpkg $(/tmp/quickpkg-new)
+
+USE="harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+quickpkg $(/tmp/quickpkg-new)
+
+USE="cairo truetype" emerge -j4 -1q --getbinpkg media-libs/harfbuzz
+quickpkg $(/tmp/quickpkg-new)
+#+end_src
 ** pypy3
 *** run
 #+name: &musl-run-pypy3
@@ -1941,7 +2022,8 @@ If you need to work around a broken ~USE="-harfbuzz -truetype"~ case
 build them in a container rather than a builder and then quickpkg them
 and then run the builder again.
 
-#+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
+#+name: &xorg-nox-common
+#+begin_src dockerfile
 ARG PROFILE_IMAGE=tgbugs/musl:profile-x
 ARG START_IMAGE=tgbugs/musl:pypy3
 
@@ -1957,6 +2039,10 @@ RUN \
 eselect profile set $PROFILE
 
 # cut here if you need to quickpkg to avoid some brokeness
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
+<<&xorg-nox-common>>
 
 # FIXME I think we have to update binhosts here
 
@@ -1967,13 +2053,17 @@ eselect profile set $PROFILE
 # XXX NOTE when harfbuzz and freetype are installed from binpkgs sometimes fontconfig
 # will scream about missing libs, this is because the good harfbuzz is installed after
 # fontconfig, confusing and scary, but apparently not fatal
+
+# FIXME may need to break this out into a binpkg builder ala what we now do for openjdk
+# that can be use by any profile that modifies useflags on these and thus needs a rebuild
+# e.g. openjdk-nox pulls these all in, and only by sheer luck have they already been built
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -1q \
    --getbinpkgonly \
    media-libs/freetype \
    media-libs/harfbuzz \
-# FIXME these do not get repackaged correctly
-|| USE="-harfbuzz -truetype" emerge -j4 -1q \
+# have to set -cairo here otherwise harfbuzz -truetype will fail to build
+|| USE="-cairo -harfbuzz -truetype" emerge -j4 -1q \
    --getbinpkg \
    media-libs/freetype \
    media-libs/harfbuzz \
@@ -2013,7 +2103,103 @@ some logic which is that in order to disable some feature there is
 some default that is enabled so there winds up being a difference
 between there being no reference to a feature and a reference to it to
 explicitly disable it. Sigh.
+** nox
+*** run
+#+name: &musl-run-nox
+#+begin_src screen
+docker run \
+--volumes-from local-repos-snap \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+-it tgbugs/musl:nox
+#+end_src
+debug
+#+begin_src screen
+docker run \
+--net host \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from local-repos-snap \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
+--rm \
+-it \
+tgbugs/musl:nox
+#+end_src
+*** build
+#+name: &musl-build-nox
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:nox \
+--build-arg PROFILE_IMAGE='tgbugs/musl:profile-nox' \
+--build-arg PROFILE='docker-profile:tgbugs/musl/nox' \
+--file musl/nox/Dockerfile musl/nox
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./musl/nox/Dockerfile
+<<&xorg-nox-common>>
 
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -q -uDN @world \
+   --getbinpkg \
+   --exclude sys-process/procps \
+   --keep-going \
+|| echo $? > /emerge-fail \
+<<&archive-or-rm>>
+
+RUN \
+test ! -e /emerge-fail
+#+end_src
+** openjdk
+*** run
+debug
+#+begin_src screen
+docker run \
+--volumes-from local-repos-snap \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
+-it tgbugs/musl:openjdk-nox
+#+end_src
+*** build
+#+name: &musl-build-openjdk
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:openjdk \
+--file musl/openjdk/Dockerfile musl/openjdk
+#+end_src
+
+#+name: &musl-build-openjdk-nox
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:openjdk-nox \
+--build-arg START_IMAGE='tgbugs/musl:nox' \
+--file musl/openjdk/Dockerfile musl/openjdk
+#+end_src
+
+*** file
+inherits from tgbugs/musl:xorg
+TODO handle the nox case
+#+begin_src dockerfile :tangle ./musl/openjdk/Dockerfile
+ARG START_IMAGE=tgbugs/musl:xorg
+
+FROM ${START_IMAGE}
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -1q \
+   --getbinpkgonly \
+   dev-java/openjdk \
+# remove openjdk-bin mask for just this bootstrap if openjdk is not present
+|| { sed -i "/openjdk-bin/d" /etc/portage/package.mask/profile \
+;  emerge -j4 -q -uDN dev-java/openjdk-bin \
+   --getbinpkg \
+   --keep-going;} \
+&& emerge -j4 -q -uDN openjdk \
+   --getbinpkg \
+   --keep-going \
+|| echo $? > /emerge-fail \
+<<&archive-or-rm>>
+
+RUN \
+test ! -e /emerge-fail
+#+end_src
 ** package-builder
 *** populate 0
 Yes it is kind of annoying to fully split the packages here when many of them don't actually
@@ -2032,17 +2218,28 @@ of packages compiled with =-bindist= is not an issue.
 For =freetype= it seems that most of the patents https://freetype.org/patents.html
 have expired as well. The latest ebuild in the tree has removed bindist entirely.
 
+# these two are technically x/nox agnostic
+#+name: &musl-run-updated-quickpkg
+#+begin_src bash
+quickpkg-image tgbugs/musl:updated
+#+end_src
+
+#+name: &musl-run-pypy3-quickpkg
+#+begin_src bash
+quickpkg-image tgbugs/musl:pypy3
+#+end_src
+
+
 # it is safe to use --include-config here becauseit is done before any modifications are made
 # FIXME TODO need a way to ignore existing exact matches unless we override
 #+name: &musl-run-xorg-quickpkg
 #+begin_src bash
-docker run \
---volumes-from local-repos-snap \
--v ${_path_binpkgs}:/var/cache/binpkgs \
--v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
---rm \
-tgbugs/musl:xorg \
-/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+quickpkg-image tgbugs/musl:xorg
+#+end_src
+
+#+name: &musl-run-openjdk-quickpkg
+#+begin_src bash
+quickpkg-image tgbugs/musl:openjdk
 #+end_src
 
 **** quickpkg dedupe
@@ -2295,16 +2492,26 @@ int main(void)
 #+name: &builder-world
 #+begin_src bash :noweb yes
 function builder-world () {
-local OUT
+local OUT _builder _image _static
 container-check
 
+_static=${1}
+
+if [ -z ${_static} ]; then
+_builder=${_tm_pbs}
+_image=package-builder
+else
+_builder=${_tm_s_pbs}
+_image=static-package-builder
+fi
+
 # get targets
-targets=$(cat ./musl/package-builder/world | xargs \
+targets=$(\
 docker run \
 --rm \
 <<&builder-args>>
-${_tm_pbs} \
-emerge --color=n --with-bdeps=y -q -uDN -p | grep '\(^\[ebuild\|acct-\)' | awk '{ print "="$4 }')
+${_builder} \
+sh -c 'set -o pipefail; emerge --color=n --with-bdeps=y -q -uDN -p @docker | grep "\(^\[ebuild\|acct-\)" | cut -b17- | awk '"'"'{ print "="$1 }'"'")
 # XXX acct- is a workaround for https://bugs.gentoo.org/890777
 
 OUT=$?
@@ -2315,34 +2522,27 @@ OUT=$?
 # emerge only build dependencies of targets
 docker run \
 <<&builder-args>>
-${_tm_pbs} \
+${_builder} \
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN ${targets}
 
 OUT=$?
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
 [ ${OUT} -eq 0 ] || return ${OUT}
 
 # emerge only targets
 docker run \
 <<&builder-args>>
-${_tm_pbs} \
+${_builder} \
 emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets}
 
 OUT=$?
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
 return $OUT
 }
 
 # FIXME SIGH code dupe
 function static-builder-world () {
-container-check
-cat ./musl/static-package-builder/world | xargs \
-docker run \
-<<&builder-args>>
-${_tm_s_pbs} \
-emerge --color=y --with-bdeps=y -j4 -q --keep-going -uDN
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+   builder-world static
 }
 #+end_src
 
@@ -2509,6 +2709,14 @@ docker run \
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
+function builder-debug-nowrite () {
+container-check
+docker run \
+--privileged \
+<<&builder-args>>
+"${@}" \
+-it ${_tm_pbs}
+}
 # XXX FIXME code dupe
 function static-builder-debug () {
 container-check
@@ -2608,13 +2816,29 @@ haskell-updater --all --no-deep -- --usepkg=n
 #+end_src
 # must emerge -1q =dev-lang/ghc-{previous-revision} prior to bootstrap
 # emerge ghc --onlydeps into builder, and then use the builder image as a starting point
-# start from the builder snapshot but do not overwrite the snapshot when we're done
+# start from the builder snapshot but do not overwrite the snapshot when we're done i.e. use builder-debug-nowrite
+# check here for latest version: https://pkgs.alpinelinux.org/package/edge/community/x86_64/ghc
+# FIXME except ... that 9.4.4 seeminly can't bootstrap 9.0.2 ... what utter nonsense
 #+begin_src bash
-pushd /tmp
-curl -L -o ghc-9.0.2-r1.tar.bz http://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/ghc-9.0.2-r1.apk
-pushd /
-tar xvzf ghc-9.0.2-r1.tar.bz  # yes this is crazy, throw the container away when when are done
+# curl -L -o ghc-9.0.2-r1.tar.bz http://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/ghc-9.0.2-r1.apk
+# tar xvzf ghc-9.0.2-r1.tar.bz  # yes this is crazy, throw the container away when when are done
+curl -L -o ghc-9.4.4-r1.tar.bz http://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/ghc-9.4.4-r1.apk
+tar xvzf ghc-9.4.4-r1.tar.bz  # yes this is crazy, throw the container away when when are done
+FEATURES=-distcc emerge -1q dev-lang/ghc
 #+end_src
+since we are lucky enough to have an existing ghc xpak file from another system we can use that sigh
+technically can skip the emerge dev-lang/ghc bit if the versions match ...
+#+begin_src screen
+docker run \
+-v ~/files/binpkgs/ghc-9.0.2-r4-1.xpak:/tmp/multi/dev-lang/ghc/ghc-9.0.2-r4-1.xpak \
+-e PKGDIR=/tmp/multi \
+--privileged \
+<<&builder-args>>
+"${@}" \
+-it ${_tm_pbs} \
+sh -c "emerge -K =dev-lang/ghc-9.0.2-r4; unset PKGDIR; emerge dev-lang/ghc; quickpkg dev-lang/ghc"
+#+end_src
+
 +and then we have to modify all the top level entry point scripts to adjust their install location+
 give up and for the bootstrap just extract the alpine build straight into the existing file system
 because we can't set the prefix
@@ -2768,37 +2992,38 @@ media-fonts/dejavu
 
 ** package-builder-nox
 *** populate 0
-#+name: &musl-run-updated-quickpkg
+#+name: &quickpkg-image
 #+begin_src bash
+function quickpkg-image () {
 docker run \
 --volumes-from local-repos-snap \
--v ${_path_binpkgs}:/var/cache/binpkgs \
--v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
+-v "${_path_binpkgs}":/var/cache/binpkgs \
+-v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
-tgbugs/musl:updated \
+${1} \
 /bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+}
 #+end_src
 
-#+name: &musl-run-pypy3-quickpkg
+#+name: &musl-run-nox-quickpkg
 #+begin_src bash
-docker run \
---volumes-from local-repos-snap \
--v ${_path_binpkgs}:/var/cache/binpkgs \
--v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
---rm \
-tgbugs/musl:pypy3 \
-/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+quickpkg-image tgbugs/musl:nox
 #+end_src
+
+#+name: &musl-run-openjdk-nox-quickpkg
+#+begin_src bash
+quickpkg-image tgbugs/musl:openjdk-nox
+#+end_src
+
 *** run
 #+begin_src bash
-cat ./musl/package-builder/nox.world | xargs \
 docker run \
 --volumes-from local-repos-snap \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
 -v ${_path_distfiles}:/var/cache/distfiles \
 --rm \
 tgbugs/musl:package-builder-nox \
-emerge --color=y -j4 -q --keep-going
+emerge --color=y -j4 -q --keep-going @docker
 #+end_src
 *** world
 If there is a new package that one of your images needs add it here.
@@ -2847,9 +3072,12 @@ docker build \
 
 *** file
 #+begin_src dockerfile :tangle ./musl/package-builder/nox.Dockerfile
-FROM tgbugs/musl:pypy3
+FROM tgbugs/musl:nox
 
 <<&musl-package-builder-common>>
+
+# overwrite the regular world file
+ADD nox.world /etc/portage/sets/docker
 #+end_src
 
 ** package-binhost
@@ -2903,9 +3131,8 @@ docker build \
 #+end_src
 
 *** file
-# FIXME not quite right, this is the vanilla, which leaves X enabled for some things
 #+begin_src dockerfile :tangle ./musl/binpkg-only/nox.Dockerfile
-FROM tgbugs/musl:pypy3
+FROM tgbugs/musl:nox
 <<&musl-binpkg-only-common>>
 #+end_src
 
@@ -4069,6 +4296,7 @@ dev-node/apinat-converter
 dev-python/nifstd-tools
 dev-python/sparcur
 dev-scheme/racket
+dev-util/shellcheck
 net-libs/nodejs
 dev-python/seaborn
 #+end_src
@@ -4969,27 +5197,20 @@ tgbugs/musl:static-xorg
 *** populate 0
 #+name: &musl-run-static-xorg-quickpkg
 #+begin_src bash
-docker run \
---volumes-from local-repos-snap \
--v ${_path_binpkgs}:/var/cache/binpkgs \
--v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
---rm \
-tgbugs/musl:static-xorg \
-/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+quickpkg-image tgbugs/musl:static-xorg
 #+end_src
 *** run
 #+begin_src bash
 docker run tgbugs/musl:static-package-builder
 docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 
-cat ./musl/package-builder/world | xargs \
 docker run \
 --volumes-from local-repos-snap \
 --volumes-from cross-sbcl \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
 -v ${_path_distfiles}:/var/cache/distfiles \
 tgbugs/musl:static-package-builder-snap \
-emerge --color=y -j4 -q --keep-going -uDN
+emerge --color=y -j4 -q --keep-going -uDN @docker
 
 docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 #+end_src
@@ -6308,13 +6529,12 @@ FROM tgbugs/musl:binpkg-only-nox
 
 ARG ARCHIVE
 
-ADD world /var/lib/portage/world
 ADD world /etc/portage/sets/docker
 
 # -ebuild locks is so much faster building acct-* ebuilds first is MUCH faster
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(cat /var/lib/portage/world | xargs emerge -p | grep -o 'acct-.\+$' | sed 's/^/=/') \
-;  cat /var/lib/portage/world | xargs emerge -j4 -q --backtrack=99 -uDN \
+FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(emerge -p @docker | grep -o 'acct-.\+$' | sed 's/^/=/') \
+;  emerge -j4 -q --backtrack=99 -uDN @docker \
 <<&archive-or-rm>>
 #+end_src
 
@@ -6324,7 +6544,8 @@ FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(cat /var/lib/portage/world | xargs
 ;  echo CODE $CODE \
 ;  [[ -n ${ARCHIVE} ]] \
 || { rm -r /var/cache/distfiles/* > /dev/null 2>&1 \
-   ; rm -r /var/cache/binpkgs/* > /dev/null 2>&1; } \
+   ; rm -r /var/cache/binpkgs/* > /dev/null 2>&1 \
+   ; rm -r /var/log/emerge.log > /dev/null 2>&1;} \
 ;  exit $CODE
 #+end_src
 
@@ -6343,6 +6564,11 @@ so we can use org to do it as well
 #+begin_src bash
 grep -r FROM --include='*Dockerfile'
 #+end_src
+
+TODO also need to track cases where artifacts have a cryptic dependencies
+on other images e.g. openjdk, pypy3, sbcl-cross, etc. where we break strict
+dependency tracking by e.g. building a package in a every so slightly tweaked
+environment to avoid circular dependencies and then quickpkg to get the result
 
 we're going to need context so we can find the build command
 and then work backwards from the build commands to the Dockerfile
