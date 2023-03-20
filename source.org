@@ -313,7 +313,8 @@ echo start bootstrap
       <<&musl-build-updated-user>> || return $?; echo mbuu;
       <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
 
-      <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
+      # TODO conditional to speed things up
+      # <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
 
       <<&musl-build-pypy3>> || return $?; echo mbpypy3;
         <<&musl-run-pypy3-quickpkg>> || return $?; echo mrpypy3q;
@@ -747,13 +748,15 @@ post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/rabbitmq; }
 #+end_src
 **** package.env
 # some continusing nonsense, a manual build in builder-debug is somehow different enough that it works?
-# dev-util/lapack no-distcc
-# dev-python/numpy no-distcc
 # XXX manually setting FEATURES=-distcc worked, but it seems that stacking features in make.conf doesn't?
 #+begin_src conf :tangle ./docker-profile/base/package.env
 dev-python/pypy3 no-distcc
 dev-util/cmake no-distcc
 dev-util/colm no-distcc
+# cases where the issue disappears in builder-debug
+dev-util/lapack no-distcc
+dev-python/numpy no-distcc
+dev-scheme/racket no-distcc  # somehow cc to compile zuo is broken and produces a segfault
 #+end_src
 *** profiles
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/metadata/layout.conf
@@ -1709,7 +1712,13 @@ docker run \
 --entrypoint /etc/entrypoint.sh \
 -it tgbugs/musl:updated
 #+end_src
+*** file
+1. all profiles
+2. emerge settings for building binary packages
+#+begin_src dockerfile :tangle ./musl/package-builder-musl/Dockerfile
+#+end_src
 *** entrypoints
+TODO only build if the package has not already been built
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./bin/harfbuzz-freetype-sigh.sh :mkdirp yes
 USE="-harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
@@ -1724,7 +1733,29 @@ quickpkg $(/tmp/quickpkg-new)
 
 USE="cairo truetype" emerge -j4 -1q --getbinpkg media-libs/harfbuzz
 quickpkg $(/tmp/quickpkg-new)
+
+# the static-libs variants of freetype
+USE="static-libs -harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+quickpkg $(/tmp/quickpkg-new)
+
+USE="static-libs harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+quickpkg $(/tmp/quickpkg-new)
 #+end_src
+
+- axes
+  - package
+  - use flag
+    - global (not clear we actually need this even for the static-libs case?, but probably desirable?)
+    - package specific
+  - profile (alternative to use flags)
+    should be done separately from the =--onlydeps --only-deps-with-rdeps=n= run
+
+#+begin_src bash
+{media-libs/freetype,metia-libs/harfbuzz}
+{"harfbuzz"}
+{"cairo truetype"}
+#+end_src
+
 ** pypy3
 *** run
 #+name: &musl-run-pypy3
@@ -2492,20 +2523,18 @@ int main(void)
 #+name: &builder-world
 #+begin_src bash :noweb yes
 function builder-world () {
-local OUT _builder _image _static
-container-check
+local OUT _builder _static
 
 _static=${1}
 
 if [ -z ${_static} ]; then
 _builder=${_tm_pbs}
-_image=package-builder
 else
 _builder=${_tm_s_pbs}
-_image=static-package-builder
 fi
 
 # get targets
+container-check
 targets=$(\
 docker run \
 --rm \
@@ -2520,6 +2549,7 @@ OUT=$?
 [ "${targets}" ] || return 0  # we're done here
 
 # emerge only build dependencies of targets
+container-check
 docker run \
 <<&builder-args>>
 ${_builder} \
@@ -2530,6 +2560,7 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}
 [ ${OUT} -eq 0 ] || return ${OUT}
 
 # emerge only targets
+container-check
 docker run \
 <<&builder-args>>
 ${_builder} \
@@ -2549,8 +2580,8 @@ function static-builder-world () {
 #+name: &builder-arb
 #+begin_src bash :noweb yes
 function builder-run () {
-container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+container-check
 docker run \
 <<&builder-args>>
 ${_tm_pbs} \
@@ -2560,8 +2591,8 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs})
 }
 
 function static-builder-run () {
-container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+container-check
 docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
@@ -2581,8 +2612,8 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs})
 }
 
 function static-builder-smart-live-rebuild () {
-container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+container-check
 docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
@@ -2592,8 +2623,8 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs
 }
 
 function builder-arb () {
-container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+container-check
 docker run \
 <<&builder-args>>
 ${_tm_pbs} \
@@ -2604,8 +2635,8 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs})
 }
 # XXX FIXME code dupe
 function static-builder-arb () {
-container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+container-check
 docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
@@ -5183,6 +5214,8 @@ docker run \
 tgbugs/musl:static-xorg
 #+end_src
 *** build
+# XXX warning, the harfbuzz/freetype issue can probably be avoided here
+# because only freetype has the static-libs use flag
 #+name: &musl-build-static-xorg
 #+begin_src screen
 <<&docker-build>>
@@ -5229,11 +5262,14 @@ FROM tgbugs/musl:static-xorg
 
 <<&musl-package-builder-common>>
 
+# overwrite the regular world file
+ADD static.world /etc/portage/sets/docker
+
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 #+end_src
 *** world
 #+name: world-static-package-builder
-#+begin_src conf :tangle ./musl/static-package-builder/world
+#+begin_src conf :tangle ./musl/package-builder/static.world
 <<world-package-builder-common>>
 <<world-sbcl>>
 <<world-static-sbcl-c-libs>>
@@ -5657,16 +5693,9 @@ eselect profile set docker-profile:tgbugs/gnu
 
 ** package-builder
 *** populate 0
-# FIXME code duplication
 #+name: &gnu-run-package-builder-quickpkg
 #+begin_src bash
-docker run \
---volumes-from local-repos-snap \
--v ${_path_binpkgs}:/var/cache/binpkgs \
--v "$(pwd)"/bin/quickpkg-new:/tmp/quickpkg-new \
---rm \
-tgbugs/gnu:package-builder \
-/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+quickpkg-image tgbugs/gnu:package-builder
 #+end_src
 
 *** build
@@ -6142,6 +6171,16 @@ git checkout daewok/static-executable
 #+end_src
 
 ** musl/cross/sbcl
+TODO loop this in so that we can keep the cross build image up to date so that
+we aren't bootstrapping cross builds with ancient versions of sbcl, not sure
+the extent to which that matters, but at a certain point musl might update and
+the we could be in trouble, also requires that we loop in gnu sbcl-cross and
+have some logic for new sbcl releases
+
+the general objective here is to avoid the situation where there is rot in the
+bootstrapping process because we always use the docker image the same way there
+has been rot with clojure pulling everything from maven, less of a risk in this
+case but still something to keep an eye on
 *** build
 #+begin_src screen
 docker build \
