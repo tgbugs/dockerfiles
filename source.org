@@ -4326,6 +4326,8 @@ dev-java/robot-bin
 dev-node/apinat-converter
 dev-python/nifstd-tools
 dev-python/sparcur
+dev-db/redis
+net-misc/rabbitmq-server
 dev-scheme/racket
 dev-util/shellcheck
 net-libs/nodejs
