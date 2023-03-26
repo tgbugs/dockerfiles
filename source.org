@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: a7728c5e26ea4f853adbf827f17717299bcfe8b5b01da0a84591584ee5489aa9; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 96b295f42abe1ed9c979ae0e133106184542c2bada66c5057a3e9d844b22989b; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -6858,10 +6858,11 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
 (defmacro with-error-on-fail (&rest body)
   `(cl-letf (((symbol-function 'org-babel-eval-error-notify)
               (lambda (exit-code stderr)
-                (error "Babel evaluation failed with %s%s%s"
-                       exit-code
-                       (if stderr "\n" "")
-                       (if stderr stderr "")))))
+                (when (> exit-code 0)
+                  (error "Babel evaluation failed with %s%s%s"
+                         exit-code
+                         (if stderr "\n" "")
+                         (if stderr stderr ""))))))
      ,@body))
 
 (defun find-tag-build-scr-block (tag &optional execute)
@@ -7006,16 +7007,23 @@ Note that all screen blocks have an implicit eval.
 #+end_src
 
 *** test with-error-on-fail
-#+name: bash-exit-test
+#+name: bash-exit-0-test
+#+begin_src bash
+exit 0
+#+end_src
+
+#+RESULTS: bash-exit-0-test
+
+#+name: bash-exit-1-test
 #+begin_src bash
 exit 1
 #+end_src
 
-#+begin_src elisp
-(progn
+#+begin_src elisp :lexical yes
+(let ((org-confirm-babel-evaluate (lambda (_l _b))))
+  (with-error-on-fail (execute-src-block "bash-exit-0-test"))
   (message "before")
-  (with-error-on-fail
-   (execute-src-block "bash-exit-test"))
+  (with-error-on-fail (execute-src-block "bash-exit-1-test"))
   (message "after"))
 #+end_src
 
