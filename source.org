@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 4b748276fde4953578336920f8baf2e34b22f76e60baab8548dd52872bfb9950; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 444bdae22607f9c6db6c4994466754cdaaed0363fbcdc8e001e87f61fdff6036; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -6424,8 +6424,9 @@ frequently).
 ** save
 To save a gzipped archive run
 #+name: &sckan-save-image
-#+begin_src bash
+#+begin_src screen
 # first run the following to find the latest build, then
+# --tag run:sckan-save-image # XXX hack to run non-image blocks
 docker image ls tgbugs/sckan:data-*
 _datetime=$(docker image ls tgbugs/sckan:data-* | sort | tail -n 1 | awk '{ print $2 }')
 docker save tgbugs/sckan:${_datetime} | gzip > /tmp/docker-sckan-${_datetime}.tar.gz
@@ -6457,6 +6458,11 @@ docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbu
 *** build
 #+name: &musl-build-sckan-services
 #+begin_src screen
+function d-build-sckan-services () {
+[ -f ./source.org ] || { echo not in dockerfiles; return 1;}
+
+local _sckanl _image_date
+
 mkdir -p ./sckan/services/blazegraph
 
 [ -d ./sckan/services/scigraph ] && rm -r ./sckan/services/scigraph
@@ -6465,20 +6471,26 @@ mkdir -p ./sckan/services/scigraph
 pushd ./sckan/services
 
 # blazegraph
+# TODO from zip
 _sckanl="$(ls -d /tmp/build/release-*-sckan | sort -u | tail -n 1)"
-rsync -a ${_sckanl}/data/prefixes.conf blazegraph/
+rsync -a ${_sckanl}/data/prefixes.conf blazegraph/ || return $?
 
 # scigraph
-~/git/pyontutils/nifstd/scigraph/bin/run-build-services-sparc
-rsync -a /tmp/scigraph-build/sparc/services.yaml scigraph/
-rsync -a /tmp/scigraph-build/sparc/$(head -n 1 scigraph/services.yaml | cut -b3-) scigraph/
+sh ~/git/pyontutils/nifstd/scigraph/README.org tangle  # FIXME bad, assumes ~/git/pyontutils present on the host :/
+~/git/pyontutils/nifstd/scigraph/bin/run-build-services-sparc || return $?
+rsync -a /tmp/scigraph-build/sparc/services.yaml scigraph/ || return $?
+rsync -a /tmp/scigraph-build/sparc/$(head -n 1 scigraph/services.yaml | cut -b3-) scigraph/ || return $?
 
 popd
 
+_image_date=$(date --utc +%Y-%m-%dT%H%M%SZ)
+
 docker build \
---tag tgbugs/sckan:data-$(date --utc +%Y-%m-%dT%H%M%SZ) \
+--tag tgbugs/sckan:data-${_image_date} \
 --tag tgbugs/sckan:latest \
 --file sckan/services/Dockerfile sckan/services
+}
+d-build-sckan-services
 #+end_src
 
 *** file
@@ -6501,6 +6513,11 @@ COPY --from=builder /build /
 # FIXME scigraph log folder ownership is still fucked after all these years ffs
 #+name: &musl-build-sckan-base
 #+begin_src screen
+function d-build-sckan-base () {
+[ -f ./source.org ] || { echo not in dockerfiles; return 1;}
+
+local _sckanl _zip _path _scigr _image_date
+
 mkdir -p ./sckan/base/blazegraph
 
 [ -d ./sckan/base/scigraph ] && rm -r ./sckan/base/scigraph
@@ -6508,22 +6525,27 @@ mkdir -p ./sckan/base/scigraph
 
 pushd ./sckan/base
 
+# TODO from zip
 _sckanl="$(ls -d /tmp/build/release-*-sckan | sort -u | tail -n 1)"
-rsync -a ${_sckanl}/data/blazegraph.jnl blazegraph/
+rsync -a ${_sckanl}/data/blazegraph.jnl blazegraph/ || return $?
 
-# TODO run-load-graph-sparc-sckan
+# TODO from zip
 _zip=$(realpath /tmp/scigraph-build/sparc-sckan/LATEST)
 _path="${_zip%.*}"
 _scigr="${_path##*/}"
-rsync -a ${_path} scigraph/
-ln -s /var/lib/scigraph/${_scigr} scigraph/graph
+rsync -a ${_path} scigraph/ || return $?
+ln -s /var/lib/scigraph/${_scigr} scigraph/graph || return $?
 
 popd
 
+_image_date=$(date --utc +%Y-%m-%dT%H%M%SZ)
+
 docker build \
---tag tgbugs/sckan:base-$(date --utc +%Y-%m-%dT%H%M%SZ) \
+--tag tgbugs/sckan:base-${_image_date} \
 --tag tgbugs/sckan:base-latest \
 --file sckan/base/Dockerfile sckan/base
+}
+d-build-sckan-base
 #+end_src
 
 *** file
@@ -6685,10 +6707,14 @@ and then to the tangle target to the block contents
                           when (string-match "^\\(tag\\|file\\) \\([^ ]+\\)" s)
                           collect (cons (match-string 1 s) (match-string 2 s)))))
                       out)))))
-     (cl-loop for (name . alist) in out
-              collect (cons
-                       (cdr (assoc "tag" alist))
-                       (cdr (assoc "file" alist)))))))
+     (cl-loop
+      for (name . alist) in out append
+      (cl-loop
+       with file = (cdr (assoc "file" alist)) ; there can be multiple tag
+       for tag-pair in (cl-remove-if-not (lambda (p) (string= (car p) "tag")) alist)
+       collect (cons
+                (cdr tag-pair)
+                file))))))
 
 (setq
  tag-depends-on-tag
@@ -6712,7 +6738,7 @@ and then to the tangle target to the block contents
 
 #+end_src
 
-#+begin_src elisp
+#+begin_src elisp :results none
 (load "~/ni/dev/elisp/trees.el")
 #+end_src
 
@@ -6777,7 +6803,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
 (make-directory)
 )
 
-(defun fix-ocbe ()
+(defun fix-ocbe-source ()
   "it would seem that blanking `enable-local-eval' resets this"
   (setq-local
    org-confirm-babel-evaluate
@@ -6802,7 +6828,21 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
                        #'string<)
                  "\n")))
 
-(fix-ocbe)
+(fix-ocbe-source)
+
+(defun find-tag-build-scr-block (tag &optional execute)
+  (save-excursion
+    (goto-char (point-min))
+    (re-search-forward (concat "--tag " tag " ")) ; trailing space to avoid shared prefix issues
+    (let ((info (org-babel-get-src-block-info)))
+      (when execute
+        (org-babel-execute-src-block))
+      ;; always return the name we we execute build blocks they are nearly always screen
+      ;; and the return value is thus nil
+      (nth 4 info))))
+
+(defun execute-tag-build-src-block (tag)
+  (find-tag-build-scr-block 'execute))
 
 (defun execute-src-block (name)
   (save-excursion ; can't use org-sbe because it calls some other random block !?
@@ -6817,6 +6857,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
   (let ((setup (member "setup" argv))
         (build (member "build" argv))
         (tangle (member "tangle" argv))
+        (build-image (member "build-image" argv)) ; FIXME yes the naming is annoying
         (test (member "test" argv)))
     (let ((no-screen    (and build (member "--no-screen" argv)))
           (refresh      (and build (member "--refresh" argv)))
@@ -6826,6 +6867,8 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           (only-static  (and build (member "--only-static" argv)))
           (live-rebuild (and build (member "--live-rebuild" argv)))
           (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv)))
+          (cli-images  (cdr build-image)) ; must come last will build all listed images in order they are listed
+          (cli-pretend (member "--pretend" argv)) ; FIXME sequencing wrt build-image and cli-images
           (cli-uif (cli-opt "--user-init-file"))
           (cli-ued (cli-opt "--user-emacs-directory"))
           (cli-ssc (cli-opt "--path-sparcron-sparcur-config"))
@@ -6842,7 +6885,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
         ;; or not quite because we need a way to pass variable values from options, but that means
         ;; that the elisp does have to explicitly make the bridge unless we come up with a fully
         ;; dynamic/generative option, see how frequently we actually need it, vs using cli-uif
-        (when (or build test)
+        (when (or build build-image test)
           (org-babel-do-load-languages
            'org-babel-load-languages
            '((screen . t)
@@ -6858,8 +6901,25 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           ;; start up the packages server
           ;; run build
           ;; TODO block until build finishes or fails
-          (fix-ocbe)
+          (fix-ocbe-source)
           (execute-src-block "workflow-cli"))
+        (when build-image
+          (fix-ocbe-source)
+          (if cli-images
+              (let* ((max-iml 0)
+                     (image-blocks
+                      (cl-loop
+                       for image in cli-images
+                       do (let ((iml (length image)))
+                            (when (> iml max-iml)
+                              (setq max-iml iml))) ; FIXME consider collecting image names, printing them and only then executing them
+                       collect (cons image (find-tag-build-scr-block image (not cli-pretend))))))
+                (message "image src blocks:")
+                (cl-loop
+                 for (image . block) in image-blocks do
+                 (message "%s %s %s" image (make-string (- max-iml (length image)) ?\s) block)))
+            (let (backtrace-on-error-noninteractive)
+              (user-error "no images to build"))))
         (when tangle
           (unless (fboundp #'dockerfile-mode)
             (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
@@ -6869,14 +6929,14 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
             ;; this pattern is required when tangling to avoid infinite loops
             (revert-buffer nil t nil)
             (setq-local find-file-literally nil))
-          (fix-ocbe)
+          (fix-ocbe-source)
           (org-babel-tangle))
         (when test
           ;; sckan
           ;; kg-dev
           ;; kg-release
           ;; sparcron (probably not? should do it)
-          (fix-ocbe)
+          (fix-ocbe-source)
           ;; collect named test blocks by pattern
           (let (blocks)
             (save-excursion
