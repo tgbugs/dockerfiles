@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 444bdae22607f9c6db6c4994466754cdaaed0363fbcdc8e001e87f61fdff6036; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: a7728c5e26ea4f853adbf827f17717299bcfe8b5b01da0a84591584ee5489aa9; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -6421,12 +6421,27 @@ DISPLAY=:3.0; ./genera -coldloadgeometry 640x480+0+0 -geometry 1280x1024+0+0 &
 reading the docker files but doesn't jump out and is the inverse of
 the order of specification (because services is rebuilt more
 frequently).
+** build and save
+This is the block that has better flow control and will block until finished.
+However, setting the return value to be non-zero on failure is not done yet.
+#+name: &sckan-build-save-image
+#+begin_src bash :noweb yes
+# --tag run:sckan-build-save-image # XXX hack to run non-image blocks
+set -e
+<<&musl-def-build-sckan-base>>
+
+<<&musl-def-build-sckan-services>>
+
+d-build-sckan-base
+d-build-sckan-services
+
+<<&sckan-save-image>>
+#+end_src
 ** save
 To save a gzipped archive run
 #+name: &sckan-save-image
 #+begin_src screen
 # first run the following to find the latest build, then
-# --tag run:sckan-save-image # XXX hack to run non-image blocks
 docker image ls tgbugs/sckan:data-*
 _datetime=$(docker image ls tgbugs/sckan:data-* | sort | tail -n 1 | awk '{ print $2 }')
 docker save tgbugs/sckan:${_datetime} | gzip > /tmp/docker-sckan-${_datetime}.tar.gz
@@ -6456,8 +6471,8 @@ docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbu
 #+end_src
 
 *** build
-#+name: &musl-build-sckan-services
-#+begin_src screen
+#+name: &musl-def-build-sckan-services
+#+begin_src bash
 function d-build-sckan-services () {
 [ -f ./source.org ] || { echo not in dockerfiles; return 1;}
 
@@ -6490,6 +6505,11 @@ docker build \
 --tag tgbugs/sckan:latest \
 --file sckan/services/Dockerfile sckan/services
 }
+#+end_src
+
+#+name: &musl-build-sckan-services
+#+begin_src screen
+<<&musl-def-build-sckan-services>>
 d-build-sckan-services
 #+end_src
 
@@ -6511,7 +6531,7 @@ COPY --from=builder /build /
 # TODO release snapshots for these images
 
 # FIXME scigraph log folder ownership is still fucked after all these years ffs
-#+name: &musl-build-sckan-base
+#+name: &musl-def-build-sckan-base
 #+begin_src screen
 function d-build-sckan-base () {
 [ -f ./source.org ] || { echo not in dockerfiles; return 1;}
@@ -6545,6 +6565,11 @@ docker build \
 --tag tgbugs/sckan:base-latest \
 --file sckan/base/Dockerfile sckan/base
 }
+#+end_src
+
+#+name: &musl-build-sckan-base
+#+begin_src screen
+<<&musl-def-build-sckan-base>>
 d-build-sckan-base
 #+end_src
 
@@ -6830,6 +6855,15 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
 
 (fix-ocbe-source)
 
+(defmacro with-error-on-fail (&rest body)
+  `(cl-letf (((symbol-function 'org-babel-eval-error-notify)
+              (lambda (exit-code stderr)
+                (error "Babel evaluation failed with %s%s%s"
+                       exit-code
+                       (if stderr "\n" "")
+                       (if stderr stderr "")))))
+     ,@body))
+
 (defun find-tag-build-scr-block (tag &optional execute)
   (save-excursion
     (goto-char (point-min))
@@ -6906,14 +6940,19 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
         (when build-image
           (fix-ocbe-source)
           (if cli-images
-              (let* ((max-iml 0)
+              (let* ((org-confirm-babel-evaluate (lambda (_l _b))) ; XXX BEWARE THESE WILL RUN WITHOUT PROMPTING
+                     (max-iml 0)
+                     backtrace-on-error-noninteractive ; we mostly know where the error is if we hit this
                      (image-blocks
                       (cl-loop
                        for image in cli-images
                        do (let ((iml (length image)))
                             (when (> iml max-iml)
                               (setq max-iml iml))) ; FIXME consider collecting image names, printing them and only then executing them
-                       collect (cons image (find-tag-build-scr-block image (not cli-pretend))))))
+                       collect (cons
+                                image
+                                (with-error-on-fail ; FIXME sequencing here is a bit off, so we fail to get the block name
+                                 (find-tag-build-scr-block image (not cli-pretend)))))))
                 (message "image src blocks:")
                 (cl-loop
                  for (image . block) in image-blocks do
@@ -6965,6 +7004,21 @@ Note that all screen blocks have an implicit eval.
 #+begin_src screen
 <<&screen-pass-vars()>>
 #+end_src
+
+*** test with-error-on-fail
+#+name: bash-exit-test
+#+begin_src bash
+exit 1
+#+end_src
+
+#+begin_src elisp
+(progn
+  (message "before")
+  (with-error-on-fail
+   (execute-src-block "bash-exit-test"))
+  (message "after"))
+#+end_src
+
 ** Local Variables :ARCHIVE:
 # close powershell comment #>
 # Local Variables:
