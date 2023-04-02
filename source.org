@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 96b295f42abe1ed9c979ae0e133106184542c2bada66c5057a3e9d844b22989b; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: c49d7aafbde863f449ab36a5482d52a5715bd4b0d9b8d130aeff899f3199b68e; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -6467,7 +6467,7 @@ docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbu
 #+name: &create-sckan-data-if-not-exists
 #+begin_src bash
 docker container inspect sckan-data > /dev/null || \
-docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
+{ echo creating sckan-data image 1>&2; docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true;}
 #+end_src
 
 *** build
@@ -6901,7 +6901,9 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           (resnap       (and build (member "--resnap" argv)))
           (only-static  (and build (member "--only-static" argv)))
           (live-rebuild (and build (member "--live-rebuild" argv)))
-          (no-pkg-bldr  (and build (member "--no-pkg-bldr" argv)))
+          (no-pkg-bldr  (and build (or
+                                    (member "--no-build" argv)
+                                    (member "--no-pkg-bldr" argv))))
           (cli-images  (cdr build-image)) ; must come last will build all listed images in order they are listed
           (cli-pretend (member "--pretend" argv)) ; FIXME sequencing wrt build-image and cli-images
           (cli-uif (cli-opt "--user-init-file"))
