@@ -429,6 +429,7 @@ fi
 <<&musl-run-updated-user>>
 #+end_src
 ** Debug build
+*** failures
 Sometimes a build will fail.
 As long as you aren't using buildkit features such as mount you can
 rerun a build command with ~DOCKER_BUILDKIT=0~ prepended which will
@@ -437,7 +438,11 @@ known good layer and try to run things yourself.
 
 Alternately, it may be a better approach to simply truncate the docker
 file directly after the last known good step
-
+*** binpkg quirks
+Sometimes may have to rebuild individual packages when they depend on a specific slot
+e.g. python depending on libffi:0/7 instead of libffi:0/8, you have to rebuild python
+and produce a new package that works with libffi:0/8, for some reason portage doesn't
+do it by itself? Possibly missing =--with-bdeps=y= or something?
 ** Push
 To push the latest cycle of images to the default remote run the
 following after checking that they work as expected.
@@ -472,6 +477,25 @@ docker container prune --force
 docker volume    prune --force
 docker image     prune --force
 docker builder   prune --force
+#+end_src
+** package maint
+sometimes you might have a case where a package gets renamed and
+the old package keeps getting pulled in the solution is as follows
+(example was for setuptools_scm when it was renamed to setuptools-scm)
+it might be possible with the new gpkg format to rewrite the embedded metadata
+but for now doing a full rebuild is guaranteed safe
+#+begin_src bash
+function clean-moved-deps () {
+pushd /var/cache/binpkgs
+local _pkgname
+_pkgname=${1}
+echo ${_pkgname}
+echo rm $(grep -ral ${_pkgname} --include='*.xpak' --include='*.gpkg.tar')
+echo emaint binhost
+# make sure it looks right
+echo emaint binhost --fix
+popd
+}
 #+end_src
 * Default variables
 Default variable values that will eventually have cli overrides.
@@ -520,6 +544,25 @@ the process in this file can remain mostly static and we just name the
 meta package that we want to build for a particular use case. It
 should be much easier to maintain and reduce the overall complexity of
 what is going on in this file.
+** TODO live builder
+since we have the world list it likely makes sense to do an hourly
+poll of the github repo or something and pull down the latest changes
+check for changes to any of the installed packages and build the new
+packages so that we don't have to wait to detect errors, the tool
+chains are more than robust enough to support these kinds of use cases
+basically put the builder to work during the week, and taking the
+subsets for particular use cases is hardly an issue at that point the
+living image does start to get bloated though, so the weekly rebuild
+can help, this should cut down big time on issues with e.g. rust
+taking stupid amounts of time to build, drive it all of the sparse (in
+time) changes that maintainers make
+** TODO podman
+:PROPERTIES:
+:CREATED:  [2022-08-26 Fri 16:09]
+:END:
+better than dind
+need to investigate LVM because podman requires it and I don't use it on my systems
+https://wiki.gentoo.org/wiki/LVM
 ** TODO ebuilds changing behind the scenes
 :PROPERTIES:
 :CREATED:  [2022-03-21 Mon 20:50]
@@ -1604,6 +1647,11 @@ add a sync step when creating the repos image, but it seems like that
 is by far the safest and most general solution. Which is exactly what
 the =--sync-gentoo= option is for!
 
+# FIXME I think we need to add buildpkg here to limit rebuilds during
+# bootstrap in the event of errors? ah except that we can't mount that
+# with docker build because of the docker design flaws ... I think we
+# just accept that first bootstrap takes longer unless we switch to
+# podman or something like that
 #+name: &musl/updated
 #+begin_src dockerfile :tangle ./musl/updated/Dockerfile
 FROM tgbugs/musl:eselect-repo
@@ -1701,6 +1749,18 @@ troublesome packages ... in some cases we might be able to move
 quite a bit of package building to use this process, except for
 cases where
 
+we will actually have to create an image that has access to all the
+profiles for this because individual profiles do set use flags per
+package (the obvious example being nox setting headless-awt on
+specific packages) in theory we could try to avoid setting per package
+use flags in derived profiles, but that is a very strong constraint
+that it is not clear we actually need to follow
+
+this early in the process the cost of having to rebuild due to changes
+in the unified profile is low because literally no work has been done
+beyond the base update and we would have to build anyway, the good news
+is that by doing this after updated we don't have to rebuild updated
+so updates to the early builder become more or less free
 *** run
 #+name: &musl-run-free-harf-nonsense
 #+begin_src bash
@@ -2426,6 +2486,10 @@ docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 # FIXME FEATURES and MAKEOPTS are also set assuming the host is gentoo
 
 # FIXME need to mount /var/tmp/portage as a ramdisk most times
+# FIXME need a pre-test to ensure that the distcc config points to hosts that
+# are actually accessible and/or that we are running with network host
+# the issue was actually that the ssh connections timed out and reset
+# so there were no hosts and distcc was segfaulting as a result, fun bug
 #+name: &builder-args
 #+begin_src bash :noweb yes
 --volumes-from cross-sbcl \
@@ -4340,6 +4404,10 @@ dev-python/seaborn
 # with nifstd-tools and variant use flags sigh
 # maybe build both versions of the package somehow
 # without creating yet another profile variant
+
+# FIXME issue with robot-bin building against openjdk-bin-17
+# and then running against openjdk-17, that shouldn't matter
+# but it seems that something got baked in by accident
 
 # we include pennsieve in world here because
 # it cannot be installed via pip due to a completely
@@ -6444,6 +6512,7 @@ To save a gzipped archive run
 # first run the following to find the latest build, then
 docker image ls tgbugs/sckan:data-*
 _datetime=$(docker image ls tgbugs/sckan:data-* | sort | tail -n 1 | awk '{ print $2 }')
+echo writing docker image to /tmp/docker-sckan-${_datetime}.tar.gz
 docker save tgbugs/sckan:${_datetime} | gzip > /tmp/docker-sckan-${_datetime}.tar.gz
 #+end_src
 
