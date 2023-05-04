@@ -1012,6 +1012,7 @@ sys-devel/gdb -nls -python
 
 # pyzmq
 net-libs/zeromq drafts
+dev-python/pyzmq drafts
 
 dev-scheme/racket cs bc cgc jit
 
@@ -1040,6 +1041,7 @@ dev-python/numpy lapack
 dev-python/seaborn stats
 
 # tgbugs-overlay python
+app-arch/brotli python  # needed by aiohttp by elasticsearch-py
 dev-python/interlex alt database
 dev-python/orthauth yaml
 dev-python/pint babel uncertainties
@@ -3340,9 +3342,9 @@ Python testing.
 # gentoo no longer has 3.{6,7} in the main tree, going to be a pain test back there
 # dev-lang/python:3.6
 # dev-lang/python:3.7
+# dev-lang/python:3.8
 #+name: world-python
 #+begin_src conf :tangle ./musl/testing-python/world
-dev-lang/python:3.8
 dev-lang/python:3.9
 dev-lang/python:3.10
 dev-lang/python:3.11
@@ -3356,10 +3358,10 @@ dev-python/pipenv
 ** testing-emacs
 Emacs testing.
 *** world
+# app-editors/emacs:23
+# app-editors/emacs:24
 #+begin_src conf :tangle ./musl/testing-emacs/world
 app-editors/emacs:18
-app-editors/emacs:23
-app-editors/emacs:24
 app-editors/emacs:25
 app-editors/emacs:26
 app-editors/emacs:27
@@ -4381,6 +4383,7 @@ docker run \
 #+name: world-kg-dev
 #+begin_src conf :tangle ./musl/kg-dev/world
 <<world-kg-release>>
+<<world-sbcl-base>>
 <<world-tex>>
 app-arch/zip
 app-misc/screen
@@ -5386,6 +5389,10 @@ FROM tgbugs/musl:static-binpkg-only
 #+name: world-sbcl
 #+begin_src conf :tangle ./musl/sbcl/world
 <<world-emacs>>
+<<world-sbcl-base>>
+#+end_src
+#+name: world-sbcl-base
+#+begin_src conf
 dev-lisp/uiop
 dev-lisp/asdf
 dev-lisp/sbcl
