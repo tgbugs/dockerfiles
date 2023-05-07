@@ -1221,6 +1221,12 @@ COPY --from=builder /build /
 #+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.use
 dev-lang/ghc ghcbootstrap
 #+end_src
+**** package.use.force
+We have a cross compile bootstrap and the clisp build is broken.
+Have to use =package.use.force= because the main gentoo musl profile sets it there.
+#+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.use.force
+dev-lisp/sbcl -system-bootstrap
+#+end_src
 **** package.unmask
 #+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.unmask
 dev-lisp/sbcl
@@ -2033,6 +2039,7 @@ TODO mount =/tmp/= and =/var/tmp/= to ramdisk to avoid blasting the ssd more tha
 #+begin_src screen
 docker run \
 --volumes-from local-repos-snap \
+--volumes-from cross-sbcl \
 -v "${_path_binpkgs}":/var/cache/binpkgs \
 -v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
 -it tgbugs/musl:package-builder-musl
