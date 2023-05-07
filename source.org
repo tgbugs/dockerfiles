@@ -185,8 +185,10 @@ HISTFILE=~/.org_session_history
 package-server
 pull
 pushd ~/git/dockerfiles
-tangle &&
+tangle && {
+run-profile
 run-musl
+}
 # package host
 # build a bunch of packages
 popd
@@ -268,6 +270,16 @@ return $?
 
 <<&builder-debug>>
 
+function run-profile () {
+<<&build-profile-base>> || return $?;
+<<&build-profile-gnu>> || return $?;
+<<&build-profile-musl>> || return $?;
+<<&build-profile-x>> || return $?;
+<<&build-profile-nox>> || return $?;
+<<&build-profile-pypy3>> || return $?;
+<<&build-profile-static>> || return $?;
+}
+
 function run-gnu () {
 local REPOS="${_repos}"
 local SYNC_GENTOO="${_sync_gentoo}"
@@ -294,10 +306,10 @@ local ONLY_STATIC="${_only_static}"
 echo start bootstrap
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
-<<&musl-build-profile>> || return $?;
-<<&musl-build-profile-x>> || return $?;
-<<&musl-build-profile-nox>> || return $?;
-<<&musl-build-profile-static-x>> || return $?;
+#<<&musl-build-profile>> || return $?;
+#<<&musl-build-profile-x>> || return $?;
+#<<&musl-build-profile-nox>> || return $?;
+#<<&musl-build-profile-static-x>> || return $?;
   # TODO figure out how to build the binary packages at this stage without
   # so that we don't have to wait for quickpkg?
   <<&musl-build-eselect-repo>> || return $?;
@@ -312,6 +324,9 @@ echo start bootstrap
     <<&musl-build-updated>> || return $?; echo mbu;
       <<&musl-build-updated-user>> || return $?; echo mbuu;
       <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
+
+      # build the generalized builder so we can dispense with the stacked image nonsense
+      <<&musl-build-package-builder-musl>> || return $?; echo mbpbm;
 
       # TODO conditional to speed things up
       # <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
@@ -670,11 +685,11 @@ configurations that are easier to keep in a single location.
 # the images from scratch which we often have to do anyway, though some
 # packages may not be affect by profile changes
 *** build
-#+name: &docker-profile-build-base
+#+name: &build-profile-base
 #+begin_src screen
 docker build \
 --tag tgbugs/docker-profile:base \
---file docker-profile/base/Dockerfile docker-profile/base
+--file docker-profile/base/Dockerfile .
 #+end_src
 
 *** file
@@ -745,6 +760,7 @@ dev-scheme/racket::gentoo
 dev-haskell/*::haskell
 >=dev-lang/rust-1.66  # cc issue https://bugs.gentoo.org/888936
 >=dev-lang/rust-bin-1.66
+>=virtual/rust-1.66
 dev-java/openjdk-bin  # libc linking issues, must compile openjdk
 <virtual/jdk-17
 <virtual/jre-17
@@ -816,15 +832,24 @@ docker-profile
 amd64 tgbugs                 dev
 amd64 tgbugs/x               dev
 amd64 tgbugs/nox             dev
+amd64 tgbugs/pypy3           dev
+amd64 tgbugs/static          dev
+
 amd64 tgbugs/gnu             dev
 amd64 tgbugs/gnu/x           dev
 amd64 tgbugs/gnu/nox         dev
+
 amd64 tgbugs/musl            dev
 amd64 tgbugs/musl/x          dev
 amd64 tgbugs/musl/nox        dev
+
 amd64 tgbugs/musl/static     dev
 amd64 tgbugs/musl/static/x   dev
 amd64 tgbugs/musl/static/nox dev
+
+amd64 tgbugs/musl/pypy3      dev
+amd64 tgbugs/musl/pypy3/x    dev
+amd64 tgbugs/musl/pypy3/nox  dev
 #+end_src
 **** packages
 Useful to keep these out of file:/var/lib/portage/world so that individual
@@ -1082,6 +1107,18 @@ intentionally empty
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/nox/parent
 ..
 #+end_src
+**** pypy3/
+intentionally empty
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/pypy3/parent
+..
+#+end_src
+**** static/
+intentionally empty
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/static/parent
+..
+#+end_src
 **** gnu/
 ***** parent
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/gnu/parent
@@ -1106,14 +1143,6 @@ gentoo:default/linux/amd64/17.1/hardened
 gentoo:default/linux/amd64/17.0/musl/hardened
 ..
 #+end_src
-***** package.use
-#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/package.use
-dev-lang/ghc ghcbootstrap
-#+end_src
-***** package.unmask
-#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/package.unmask
-dev-lisp/sbcl
-#+end_src
 **** musl/x/
 ***** parent
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/x/parent
@@ -1126,10 +1155,29 @@ dev-lisp/sbcl
 ..
 ../../nox
 #+end_src
+**** musl/pypy3
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/pypy3/parent
+..
+../../pypy3
+#+end_src
+**** musl/pypy3/x
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/pypy3/x/parent
+..
+../../../x
+#+end_src
+**** musl/pypy3/nox
+***** parent
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/pypy3/nox/parent
+..
+../../../nox
+#+end_src
 **** musl/static
 ***** parent
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/musl/static/parent
 ..
+../../static
 #+end_src
 **** musl/static/x
 ***** parent
@@ -1143,62 +1191,64 @@ dev-lisp/sbcl
 ..
 ../../../nox
 #+end_src
-** static
+** musl
+TODO separate musl and gnu specific stuff
+*** build
+#+name: &build-profile-musl
+#+begin_src screen
+docker build \
+--tag tgbugs/docker-profile:musl \
+--build-arg PROFILE_AXIS=musl \
+--file docker-profile/axes.Dockerfile .
+#+end_src
 *** file
-#+name: &profile-static-adds
-#+begin_src dockerfile
-ARG bp=docker-profile/static/
-ARG hr=<<&helper-repos()>>/
+#+begin_src dockerfile :tangle ./docker-profile/axes.Dockerfile
+FROM busybox:latest as builder
 
-# ADD ${bp}sbcl.env etc/portage/env/dev-lisp/sbcl  # gets klobbered when we make the profile so have to do it differently
-ADD ${hr}sbcl/patches/dev-lisp etc/portage/patches/dev-lisp
+ARG PROFILE_AXIS=x
+
+WORKDIR /build
+
+ADD docker-profile/${PROFILE_AXIS}/docker-profile var/db/docker-profile
+
+FROM scratch
+
+WORKDIR /
+COPY --from=builder /build /
 #+end_src
 *** profiles
-***** make.defaults
-We only set =static-libs= not =static= because =static= statically
-links the executable which we rarely want, in which case a positive
-static use flag should be added below, rather than turning off nearly
-every instance of =static= that we encounter.
-#+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/make.defaults
-USE="${USE} static-libs"
+**** package.use
+#+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.use
+dev-lang/ghc ghcbootstrap
 #+end_src
-***** package.use :ARCHIVE:
-#+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/musl/static/package.use :tangle no
-# don't build openssh with static because it conflicts with the
-# pie use flag for hardened which cannot be unset
-net-misc/openssh -static
-
-# bzip2 is completely broken if compiled with either of these use flags ???
-# that is, it will compile but will leave the system unable to compress anything
-app-arch/bzip2 -static
-
-# trying to build with static causes a configure error due to container projections
-# building with security=insecure supposedly can work around this
-# cross compile check process_vm_readv # ccc process_vm_readv
-# FIXME, further reading seems to suggest that we don't actually want static? just
-# static-libs? so going to try that
-app-arch/gzip -static
-sys-apps/debianutils -static
-sys-apps/coreutils -static
-sys-devel/patch -static
-sys-apps/findutils -static
-sys-apps/sed -static
-sys-devel/make -static
-net-misc/wget -static
-sys-apps/diffutils -static
-sys-apps/grep -static
-app-editors/nano -static
-sys-devel/flex -static
-sys-devel/bison -static
+**** package.unmask
+#+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.unmask
+dev-lisp/sbcl
 #+end_src
-
-#+begin_src bash
-echo \
-sys-devel/bison \
--static >> /etc/portage/package.use/sigh && \
-emerge -uDN @world
+** gnu
+TODO need the gnu specific tweaks
+*** build
+#+name: &build-profile-gnu
+#+begin_src screen
+docker build \
+--tag tgbugs/docker-profile:gnu \
+--build-arg PROFILE_AXIS=gnu \
+--file docker-profile/axes.Dockerfile .
+#+end_src
+*** profiles
+**** keep
+FIXME temp until there is actually a gnu specific file to mkdirp on
+#+begin_src conf :tangle ./docker-profile/gnu/docker-profile/profiles/tgbugs/gnu/.keep :mkdirp yes
 #+end_src
 ** x
+*** build
+#+name: &build-profile-x
+#+begin_src screen
+docker build \
+--tag tgbugs/docker-profile:x \
+--build-arg PROFILE_AXIS=x \
+--file docker-profile/axes.Dockerfile .
+#+end_src
 *** profiles
 **** parent
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/parent
@@ -1252,9 +1302,19 @@ app-text/xmlto text
 #+end_src
 ** nox
 Explicit nox profile.
+*** build
+#+name: &build-profile-nox
+#+begin_src screen
+docker build \
+--tag tgbugs/docker-profile:nox \
+--build-arg PROFILE_AXIS=nox \
+--file docker-profile/axes.Dockerfile .
+#+end_src
+*** file
 *** profiles
 **** parent
-#+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/parent
+FIXME see if we actually need this, I think we might due to klobbering by =COPY=?
+#+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/parent :tangle no
 ..
 #+end_src
 
@@ -1263,6 +1323,259 @@ Explicit nox profile.
 dev-java/icedtea headless-awt
 dev-java/openjdk headless-awt
 dev-java/openjdk-bin headless-awt
+#+end_src
+
+** pypy3
+*** build
+#+name: &build-profile-pypy3
+#+begin_src screen
+docker build \
+--tag tgbugs/docker-profile:pypy3 \
+--build-arg PROFILE_AXIS=pypy3 \
+--file docker-profile/axes.Dockerfile .
+#+end_src
+*** file
+#+begin_src dockerfile
+#+end_src
+*** profiles
+**** package.use
+#+begin_src conf :tangle ./docker-profile/pypy3/docker-profile/profiles/tgbugs/pypy3/package.use
+*/* PYTHON_TARGETS: +pypy3
+#+end_src
+** static
+*** build
+#+name: &build-profile-static
+#+begin_src screen
+docker build \
+--tag tgbugs/docker-profile:static \
+--build-arg PROFILE_AXIS=static \
+--file docker-profile/axes.Dockerfile .
+#+end_src
+*** file
+#+name: &profile-static-adds
+#+begin_src dockerfile
+ARG sbp=docker-profile/static/
+ARG hr=<<&helper-repos()>>/
+
+# ADD ${sbp}sbcl.env etc/portage/env/dev-lisp/sbcl  # gets klobbered when we make the profile so have to do it differently
+ADD ${hr}sbcl/patches/dev-lisp etc/portage/patches/dev-lisp
+#+end_src
+*** profiles
+***** make.defaults
+We only set =static-libs= not =static= because =static= statically
+links the executable which we rarely want, in which case a positive
+static use flag should be added below, rather than turning off nearly
+every instance of =static= that we encounter.
+#+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/static/make.defaults
+USE="${USE} static-libs"
+#+end_src
+***** package.use :ARCHIVE:
+#+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/static/package.use :tangle no
+# don't build openssh with static because it conflicts with the
+# pie use flag for hardened which cannot be unset
+net-misc/openssh -static
+
+# bzip2 is completely broken if compiled with either of these use flags ???
+# that is, it will compile but will leave the system unable to compress anything
+app-arch/bzip2 -static
+
+# trying to build with static causes a configure error due to container projections
+# building with security=insecure supposedly can work around this
+# cross compile check process_vm_readv # ccc process_vm_readv
+# FIXME, further reading seems to suggest that we don't actually want static? just
+# static-libs? so going to try that
+app-arch/gzip -static
+sys-apps/debianutils -static
+sys-apps/coreutils -static
+sys-devel/patch -static
+sys-apps/findutils -static
+sys-apps/sed -static
+sys-devel/make -static
+net-misc/wget -static
+sys-apps/diffutils -static
+sys-apps/grep -static
+app-editors/nano -static
+sys-devel/flex -static
+sys-devel/bison -static
+#+end_src
+
+#+begin_src bash
+echo \
+sys-devel/bison \
+-static >> /etc/portage/package.use/sigh && \
+emerge -uDN @world
+#+end_src
+* profiles
+break profiles into its own to level section in hopes of finding a better way to compose images
+** axes
+*** libc
+These are present in the base profile image since the existence and basic structure is present in the base
+the actual customization for static, python, and xorg is kept in separate images, if there are actually
+some non-orthogonal settings then we'll have to figure out how to handle them, but so far there haven't been
+any interactions for e.g. pypy3 xorg that need special treatment.
+**** gnu
+#+name: &profile-gnu-free
+#+begin_src dockerfile
+COPY --from=tgbugs/docker-profile:gnu / /
+#+end_src
+**** musl
+#+name: &profile-musl-free
+#+begin_src dockerfile
+COPY --from=tgbugs/docker-profile:musl / /
+#+end_src
+*** python
+**** pypy3
+#+name: &profile-pypy3
+#+begin_src dockerfile
+COPY --from=tgbugs/docker-profile:pypy3 / /
+#+end_src
+*** static
+**** static
+#+name: &profile-static
+#+begin_src dockerfile
+COPY --from=tgbugs/docker-profile:static / /
+#+end_src
+*** xorg
+**** x
+#+name: &profile-x
+#+begin_src dockerfile
+COPY --from=tgbugs/docker-profile:x / /
+#+end_src
+**** nox
+#+name: &profile-nox
+#+begin_src dockerfile
+COPY --from=tgbugs/docker-profile:nox / /
+#+end_src
+** impossible/not meaningful combinations
+- gnu static
+  - gnu can't statically link
+- musl pypy3 static
+  - at the moment there is almost no reason to have pypy3 with
+    static-libs since pypy3 can't be statically linked, and
+    static-libs is primarily used to generate thin images
+- gnu pypy3
+  - might want this in the future, but for now we don't have a use
+    case since gnu images are primarily used to cross compile the few
+    packages that don't have musl binaries, pypy3 doesn't help much in those cases
+** compose
+these profiles are mutually exclusive? well, not quite, for builders
+gnu and musl are mutex
+
+so how do we compose these?
+do we compose them via noweb with multiple =COPY --from=image= or what?
+do we make it possible to parameterize a single docker file to say which
+subtrees to pull in for a given concrete image and build all of them?
+
+composing via =COPY= would seem to avoid a duplication of rebuilding
+but noweb doesn't have good composability, on the other hand composing
+by stacking images causes a proliferation of profile images that require
+cascading rebuilds to make sure that everything is up to date, and might
+also require a proliferation of dockerfiles if we can't figure out how to
+deal with conditional copies in the blank case
+
+in summary, going to start with noweb and see how it plays out
+
+annoyingly there isn't a simple way to validate a profile actually matches
+the image it is built from right now ...
+*** /
+#+name: &profile-base
+#+begin_src dockerfile
+COPY --from=tgbugs/docker-profile:base / /
+#+end_src
+*** /gnu
+#+name: &profile-gnu
+#+begin_src dockerfile
+<<&profile-base>>
+<<&profile-gnu-free>>
+#+end_src
+*** /gnu/x
+#+name: &profile-gnu-x
+#+begin_src dockerfile
+<<&profile-gnu>>
+<<&profile-x>>
+#+end_src
+*** /gnu/nox
+#+name: &profile-gnu-nox
+#+begin_src dockerfile
+<<&profile-gnu>>
+<<&profile-nox>>
+#+end_src
+*** /gnu/all
+#+name: &profile-gnu-all
+#+begin_src dockerfile
+<<&profile-gnu>>
+<<&profile-x>>
+<<&profile-nox>>
+#+end_src
+*** /musl
+#+name: &profile-musl
+#+begin_src dockerfile
+<<&profile-base>>
+<<&profile-musl-free>>
+#+end_src
+*** /musl/x
+#+name: &profile-musl-x
+#+begin_src dockerfile
+<<&profile-musl>>
+<<&profile-x>>
+#+end_src
+*** /musl/nox
+#+name: &profile-musl-nox
+#+begin_src dockerfile
+<<&profile-musl>>
+<<&profile-nox>>
+#+end_src
+*** /musl/pypy3
+#+name: &profile-musl-pypy3
+#+begin_src dockerfile
+<<&profile-musl>>
+<<&profile-pypy3>>
+#+end_src
+*** /musl/pypy3/x
+#+name: &profile-musl-pypy3-x
+#+begin_src dockerfile
+<<&profile-musl-pypy3>>
+<<&profile-x>>
+#+end_src
+*** /musl/pypy3/nox
+#+name: &profile-musl-pypy3-nox
+#+begin_src dockerfile
+<<&profile-musl-pypy3>>
+<<&profile-nox>>
+#+end_src
+*** /musl/static
+#+name: &profile-musl-static
+#+begin_src dockerfile
+<<&profile-musl>>
+<<&profile-static>>
+#+end_src
+*** /musl/static/x
+#+name: &profile-musl-static-x
+#+begin_src dockerfile
+<<&profile-musl-static>>
+<<&profile-x>>
+#+end_src
+*** /musl/static/nox
+#+name: &profile-musl-static-x
+#+begin_src dockerfile
+<<&profile-musl-static>>
+<<&profile-nox>>
+#+end_src
+*** /musl/all
+#+name: &profile-musl-all
+#+begin_src dockerfile
+<<&profile-musl>>
+<<&profile-x>>
+<<&profile-nox>>
+<<&profile-pypy3>>
+<<&profile-static>>
+#+end_src
+*** static/x
+Sometimes we need to add multiple profiles to existing images that already have the base profile.
+#+name: &profile-static-x
+#+begin_src dockerfile
+<<&profile-static>>
+<<&profile-x>>
 #+end_src
 
 * repos
@@ -1328,7 +1641,6 @@ Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_
 Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
 and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
 ** profile
-TODO use =static-libs=?
 *** build
 #+name: &musl-build-profile
 #+begin_src screen
@@ -1559,7 +1871,8 @@ FROM gentoo/stage3:amd64-musl-hardened
 
 <<&gentoo-file-eselect-repo-common-1>>
 
-COPY --from=tgbugs/musl:profile / /
+# COPY --from=tgbugs/musl:profile / /
+<<&profile-musl>>
 
 <<&gentoo-file-eselect-repo-common-2>>
 
@@ -1774,11 +2087,46 @@ docker run \
 --entrypoint /etc/entrypoint.sh \
 -it tgbugs/musl:updated
 #+end_src
+
+TODO mount =/tmp/= and =/var/tmp/= to ramdisk to avoid blasting the ssd more than necessary
+#+begin_src screen
+docker run \
+--volumes-from local-repos-snap \
+-v "${_path_binpkgs}":/var/cache/binpkgs \
+-v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
+-it tgbugs/musl:package-builder-musl
+#+end_src
+*** build
+#+name: &musl-build-package-builder-musl
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:package-builder-musl \
+--file musl/package-builder/musl.Dockerfile musl/package-builder
+#+end_src
 *** file
 1. all profiles
 2. emerge settings for building binary packages
-#+begin_src dockerfile :tangle ./musl/package-builder-musl/Dockerfile
+#+begin_src dockerfile :tangle ./musl/package-builder/musl.Dockerfile
+FROM tgbugs/musl:updated
+
+COPY --from=tgbugs/musl:portage-maven / /
+
+<<&profile-musl-all>>
+
+ADD entrypoints /etc/entrypoints
+ADD repo_name /var/db/crossdev/profiles/repo_name
+ADD layout.conf /var/db/crossdev/metadata/layout.conf
+ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
+ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
+# TODO need a full combo world file for the docker set here, iirc missing static right now
+# FIXME actually can't quite do this, there are packages that must be excluded for base and nox i.e. xorg-server (sigh sigh sigh)
+ADD world /etc/portage/sets/docker
+
+RUN \
+echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=n --usepkg"' >> /etc/portage/make.conf
 #+end_src
+
 *** entrypoints
 TODO only build if the package has not already been built
 #+header: :shebang "#!/usr/bin/env sh"
@@ -1809,6 +2157,7 @@ quickpkg $(/tmp/quickpkg-new)
   - use flag
     - global (not clear we actually need this even for the static-libs case?, but probably desirable?)
     - package specific
+    - python targets (this one is particularly annoying)
   - profile (alternative to use flags)
     should be done separately from the =--onlydeps --only-deps-with-rdeps=n= run
 
@@ -1817,6 +2166,41 @@ quickpkg $(/tmp/quickpkg-new)
 {"harfbuzz"}
 {"cairo truetype"}
 #+end_src
+
+#+begin_src bash :tangle ./musl/package-builder/entrypoints/builder.sh :mkdirp yes
+function build-thing () {
+local profile_base variants profiles variant prof profile
+profile_base=docker-profile:tgbugs/musl
+# TODO can we generate the variants and profiles?
+declare -a xorgs=('' '/x' '/nox')  # XXX atm x/nox are the only mutually exclusive use flag cases that break portage (it seems)
+declare -a statics=('' '/static')
+declare -a pythons=('' 'pypy3')
+# TODO likely need to restrict build patterns, or do the composition manually and skip cases we don't deal with/want ???
+# or just build them all and don't worry about it?
+declare -a profiles=(
+''
+/x
+/nox
+/static/x
+)
+for variant in "${statics[@]}"; do  # have to quote the array unpacking so that empty string isn't skipped
+  for prof in "${xorgs[@]}"; do
+    profile=${profile_base}${variant}${prof}
+    eselect profile set ${profile} # || return $?
+    echo build package ${@} for ${profile}
+    # TODO tweak the options here XXX NOTE usually going to want to use image meta ebuilds or sets to avoid switching profiles between package builds
+    # FIXME --buildpkgonly means that --onlydeps --onlydeps-with-rdeps=n probably needs to be run first?
+    # ok, this more or less seems to work, it does unpack the binary before checking to see that it came from a binary
+    # so it is not 100% efficient, but seems ok?
+    emerge -uDNq -j4 --keep-going --onlydeps --onlydeps-with-rdeps=n ${@} # || return $?
+    emerge -uDNq -j4 --keep-going --buildpkgonly ${@} # || return $?
+  done
+done
+eselect profile set ${profile_base}
+}
+#+end_src
+
+TODO deal with needing to exclude whole packages from certain builds, e.g. xorg-server whenever -X is set
 
 ** pypy3
 *** run
@@ -2115,16 +2499,22 @@ If you need to work around a broken ~USE="-harfbuzz -truetype"~ case
 build them in a container rather than a builder and then quickpkg them
 and then run the builder again.
 
-#+name: &xorg-nox-common
+#+name: &xorg-nox-common-1
 #+begin_src dockerfile
-ARG PROFILE_IMAGE=tgbugs/musl:profile-x
+# ARG PROFILE_IMAGE=tgbugs/musl:profile-x
+# FIXME switch to use pypy3 profile instead probably ??? or do we do that in the pypy3 image probably?
 ARG START_IMAGE=tgbugs/musl:pypy3
 
-FROM ${PROFILE_IMAGE} as profile_image
+#FROM ${PROFILE_IMAGE} as profile_image
 
 FROM ${START_IMAGE}
 
-COPY --from=profile_image / /
+# XXX noweb COPY --from= AFTER this point!
+#+end_src
+
+#+name: &xorg-nox-common-2
+#+begin_src dockerfile
+# XXX noweb COPY --from= BEFORE this point!
 
 ARG PROFILE=docker-profile:tgbugs/musl/x
 
@@ -2134,9 +2524,8 @@ eselect profile set $PROFILE
 # cut here if you need to quickpkg to avoid some brokeness
 #+end_src
 
-#+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
-<<&xorg-nox-common>>
-
+#+name: &xorg-nox-common-3
+#+begin_src dockerfile
 # FIXME I think we have to update binhosts here
 
 # FIXME this rebuild is bad because it results in duplication of
@@ -2177,6 +2566,13 @@ eselect fontconfig disable 10-hinting-slight.conf \
    10-no-sub-pixel.conf \
    57-dejavu-sans.conf \
    57-dejavu-sans-mono.conf
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/xorg/Dockerfile
+<<&xorg-nox-common-1>>
+<<&profile-x>>
+<<&xorg-nox-common-2>>
+<<&xorg-nox-common-3>>
 #+end_src
 
 # FIXME 10-hinting-slight.conf no longer exists now ???
@@ -2222,13 +2618,14 @@ tgbugs/musl:nox
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:nox \
---build-arg PROFILE_IMAGE='tgbugs/musl:profile-nox' \
 --build-arg PROFILE='docker-profile:tgbugs/musl/nox' \
 --file musl/nox/Dockerfile musl/nox
 #+end_src
+# --build-arg PROFILE_IMAGE='tgbugs/musl:profile-nox' \
 *** file
 #+begin_src dockerfile :tangle ./musl/nox/Dockerfile
-<<&xorg-nox-common>>
+<<&xorg-nox-common-1>>
+<<&profile-nox>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @world \
@@ -5294,11 +5691,17 @@ tgbugs/musl:static-xorg
 <<&docker-build>>
 --tag tgbugs/musl:static-xorg \
 --build-arg PROFILE='docker-profile:tgbugs/musl/static/x' \
---build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
 --build-arg START_IMAGE='tgbugs/musl:updated' \
---file musl/xorg/Dockerfile musl/xorg
+--file musl/xorg/static.Dockerfile musl/xorg
 #+end_src
 # --build-arg START_IMAGE='tgbugs/musl:xorg' \
+*** file
+#+begin_src dockerfile :tangle ./musl/xorg/static.Dockerfile
+<<&xorg-nox-common-1>>
+<<&profile-static-x>>
+<<&xorg-nox-common-2>>
+<<&xorg-nox-common-3>>
+#+end_src
 ** static-package-builder
 *** populate 0
 #+name: &musl-run-static-xorg-quickpkg
