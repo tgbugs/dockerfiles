@@ -1640,78 +1640,6 @@ Pushes to https://hub.docker.com/r/tgbugs/musl. \\
 Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
 Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
 and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
-** profile
-*** build
-#+name: &musl-build-profile
-#+begin_src screen
-docker build \
---tag tgbugs/musl:profile \
---file musl/profile/Dockerfile .
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./musl/profile/Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-<<&profile-adds>>
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
-** profile-x
-*** build
-#+name: &musl-build-profile-x
-#+begin_src screen
-docker build \
---tag tgbugs/musl:profile-x \
---file musl/profile-x/Dockerfile .
-#+end_src
-
-*** file
-We do not need to include any of the files from the base profile here
-because they are already in musl:updated which this profile should be
-combined on top of.
-#+begin_src dockerfile :tangle ./musl/profile-x/Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-ADD docker-profile/x/docker-profile var/db/docker-profile
-ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
-** profile-nox
-*** build
-#+name: &musl-build-profile-nox
-#+begin_src screen
-docker build \
---tag tgbugs/musl:profile-nox \
---file musl/profile-nox/Dockerfile .
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./musl/profile-nox/Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-ADD docker-profile/nox/docker-profile var/db/docker-profile
-ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
-
 ** user
 #+name: &musl-build-user
 #+begin_src screen
@@ -1871,7 +1799,6 @@ FROM gentoo/stage3:amd64-musl-hardened
 
 <<&gentoo-file-eselect-repo-common-1>>
 
-# COPY --from=tgbugs/musl:profile / /
 <<&profile-musl>>
 
 <<&gentoo-file-eselect-repo-common-2>>
@@ -5628,45 +5555,6 @@ dev-libs/redland
 * musl static
 Same metadata as musl except with =static-libs= in order to produce
 statically linked binaries.
-** profile-static-x
-*** run
-technically this is just debug since we can't actually run these
-#+begin_src bash :results file
-_name=profile-static-x.tar
-docker create --name="tmp_$$" tgbugs/musl:profile-static-x true > /dev/null &&
-docker export tmp_$$ > ${_name} &&
-docker rm tmp_$$ > /dev/null
-printf ${_name}
-#+end_src
-
-#+RESULTS:
-[[file:profile-static-x.tar]]
-
-*** build
-#+name: &musl-build-profile-static-x
-#+begin_src screen
-docker build \
---tag tgbugs/musl:profile-static-x \
---file musl/profile-x/static.Dockerfile .
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./musl/profile-x/static.Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-ADD docker-profile/x/docker-profile var/db/docker-profile
-ADD docker-profile/static/docker-profile var/db/docker-profile
-ADD docker-profile/base/binrepos-multi.conf etc/portage/binrepos.conf/multi.conf
-
-<<&profile-static-adds>>
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
 ** static-xorg
 *** run
 debug
@@ -6121,29 +6009,6 @@ sb-sys:*linkage-info*
 #+end_src
 * gnu
 may not need this if we can use crossdev to build glibc sbcl on musl that that seems a stretch
-** profile
-*** build
-#+name: &gnu-build-profile
-#+begin_src screen
-docker build \
---tag tgbugs/gnu:profile \
---file gnu/profile/Dockerfile .
-#+end_src
-
-*** file
-#+begin_src dockerfile :tangle ./gnu/profile/Dockerfile
-FROM busybox:latest as builder
-
-WORKDIR /build
-
-# XXX FIXME this is from musl so we don't want all of these
-<<&profile-adds>>
-
-FROM scratch
-
-WORKDIR /
-COPY --from=builder /build /
-#+end_src
 ** eselect-repo
 *** build
 #+name: &gnu-build-eselect-repo
@@ -6161,7 +6026,7 @@ FROM gentoo/stage3:hardened
 
 <<&gentoo-file-eselect-repo-common-1>>
 
-COPY --from=tgbugs/gnu:profile / /
+<<&profile-gnu>>
 
 <<&gentoo-file-eselect-repo-common-2>>
 
