@@ -1407,6 +1407,20 @@ emerge -uDN @world
 #+end_src
 * profiles
 break profiles into its own to level section in hopes of finding a better way to compose images
+** debug
+#+name: debug-profile
+#+begin_src bash :results file :var img="base"
+_name=profile-${img}.tar
+docker create --name="tmp_$$" tgbugs/docker-profile:${img} true > /dev/null &&
+docker export tmp_$$ > ${_name} &&
+docker rm tmp_$$ > /dev/null
+printf ${_name}
+#+end_src
+
+#+call: debug-profile(img="musl")
+
+#+call: debug-profile(img="x")
+
 ** axes
 *** libc
 These are present in the base profile image since the existence and basic structure is present in the base
