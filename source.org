@@ -160,14 +160,24 @@ _only_static=   # only build static images
 #+name: &workflow-vars
 #+begin_src bash
 # XXX NOTE that these are embedded in the docker files right now
-_img_stage3=${_img_stage3:-gentoo/stage3:amd64-musl-hardened}
+_img_portage=${_img_portage:-gentoo/portage:latest}
+
+_musl_img_stage3=${_musl_img_stage3:-gentoo/stage3:amd64-musl-hardened}
 
 __is3_0=${_img_stage3/\//-}
 __is3_1=${__is3_0/:/-}
 __src_from_img=${__is3_1/gentoo/latest}
-_src_stage3=${__src_stage3:-${__src_from_img}}
+_musl_src_stage3=${__src_stage3:-${__src_from_img}}
+unset __is3_0 __is3_1 __src_from_img
 
-_img_portage=${_img_portage:-gentoo/portage:latest}
+_gnu_img_stage3=${_gnu_img_stage3:-gentoo/stage3:amd64-hardened-openrc}
+
+# FIXME DRY
+__is3_0=${_gnu_img_stage3/\//-}
+__is3_1=${__is3_0/:/-}
+__src_from_img=${__is3_1/gentoo/latest}
+_gnu_src_stage3=${__gnu_src_stage3:-${__src_from_img}}
+unset __is3_0 __is3_1 __src_from_img
 #+end_src
 
 #+name: workflow-cli
@@ -183,7 +193,8 @@ HISTFILE=~/.org_session_history
 <<&workflow-funs>>
 
 package-server
-pull
+pull musl
+# pull gnu
 pushd ~/git/dockerfiles
 tangle && {
 run-profile
@@ -220,12 +231,25 @@ curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
 }
 
 function pull () {
+# FIXME abstract _src_stage3 and _img_stage3 for gnu vs musl
+local _src_stage3 _img_stage3
+if [ "${1}" == "gnu" ]; then
+    _src_stage3=${_gnu_src_stage3}
+    _img_stage3=${_gnu_img_stage3}
+elif [ "${1}" == "musl" ]; then
+    _src_stage3=${_musl_src_stage3}
+    _img_stage3=${_musl_img_stage3}
+else
+    echo unknown libc "${1}"
+    return 1
+fi
+# echo src img ${_src_stage3} ${_img_stage3}
 if [ -n "${_refresh}" ]; then
     # even when refresh is set avoid spurious pulls where the underlying stage3 has not changed
     local DIST="https://distfiles.gentoo.org/releases/amd64/autobuilds"
     local STAGE3_LATEST="$(curl --fail --silent "${DIST}/${_src_stage3}.txt" |\
         tail -n 1 | cut -f 1 -d'/' | sed -r 's/(....)(..)(..)T(..)(..)(..)/\1-\2-\3T\4:\5:\6/')"
-    local LOCDOC_LATEST="$(docker image inspect ${_img_stage3} --format '{{.Created}}')"
+    local LOCDOC_LATEST="$(docker image inspect ${_img_stage3} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
     local S3_DATE=$(date -In --utc --date "${STAGE3_LATEST}")
     local LD_DATE=$(date -In --utc --date "${LOCDOC_LATEST}")
     # XXX there is technically a narrow window between the release of
@@ -287,10 +311,9 @@ local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
-<<&gnu-build-profile>>
-<<&gnu-build-eselect-repo>>
-<<&gnu-build-package-builder>>
-<<&gnu-run-package-builder-quickpkg>>
+<<&gnu-build-eselect-repo>> || return $?
+<<&gnu-build-package-builder>> || return $?
+<<&gnu-run-package-builder-quickpkg>> || return $?
 [ -z $RESNAP ] || gnu-builder-resnap
 [ ! -z $NOBUILD ] || gnu-builder-bootstrap
 }
@@ -306,10 +329,6 @@ local ONLY_STATIC="${_only_static}"
 echo start bootstrap
 <<&musl-build-user>> || return $?;
 <<&musl-build-portage-maven>> || return $?;
-#<<&musl-build-profile>> || return $?;
-#<<&musl-build-profile-x>> || return $?;
-#<<&musl-build-profile-nox>> || return $?;
-#<<&musl-build-profile-static-x>> || return $?;
   # TODO figure out how to build the binary packages at this stage without
   # so that we don't have to wait for quickpkg?
   <<&musl-build-eselect-repo>> || return $?;
@@ -1590,6 +1609,14 @@ COPY --from=tgbugs/docker-profile:base / /
 <<&profile-pypy3>>
 <<&profile-static>>
 #+end_src
+*** all not libc
+#+name: &profile-all-not-libc
+#+begin_src dockerfile
+<<&profile-x>>
+<<&profile-nox>>
+<<&profile-pypy3>>
+<<&profile-static>>
+#+end_src
 *** static/x
 Sometimes we need to add multiple profiles to existing images that already have the base profile.
 #+name: &profile-static-x
@@ -2059,7 +2086,7 @@ FROM tgbugs/musl:updated
 
 COPY --from=tgbugs/musl:portage-maven / /
 
-<<&profile-musl-all>>
+<<&profile-all-not-libc>>
 
 ADD entrypoints /etc/entrypoints
 ADD repo_name /var/db/crossdev/profiles/repo_name
@@ -6043,7 +6070,7 @@ docker build \
 
 *** file
 #+begin_src dockerfile :tangle ./gnu/eselect-repo/Dockerfile
-FROM gentoo/stage3:hardened
+FROM gentoo/stage3:amd64-hardened-openrc
 
 <<&gentoo-file-eselect-repo-common-1>>
 
@@ -6094,7 +6121,9 @@ FROM tgbugs/gnu:eselect-repo
 
 #+begin_src conf :tangle ./gnu/package-builder/sbcl.env
 #+end_src
-
+*** world
+#+begin_src conf :tangle ./gnu/package-builder/world
+#+end_src
 ** crossdev
 *** build
 #+begin_src screen
@@ -7054,8 +7083,10 @@ and then to the tangle target to the block contents
                          ;; ARG START_IMAGE=tgbugs/musl:pypy3
                          ;; don't bother trying to replicate this, it is
                          ;; vastly easier to just use evil-ex-global for now
-                         (evil-ex-global (point-min) (point-max) "^FROM" "d" t)
-                         (split-string (replace-regexp-in-string "^FROM\\| as .+$" "" (buffer-string)) "\n" t " +")))
+                         (evil-ex-global (point-min) (point-max) "^\\(FROM\\|COPY --from=\\)" "d" t)
+                         ;;(evil-ex-global (point-min) (point-max) "--from=builder" "d" nil) ; keep builder to make it easy to identify multi stage builds
+                         (evil-ex-substitute (point-min) (point-max) '("^COPY --from=\\([^ ]+\\) .+$") "\\1")
+                         (split-string (replace-regexp-in-string "^FROM\\| as .+$" "" (buffer-string)) "\n" t " +"))) ; note, produces dupes
                       out))
            ))))
    out))
