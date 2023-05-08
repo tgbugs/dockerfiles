@@ -67,6 +67,7 @@ Prepare package host folders. The server will be started automatically
 below if it is not already up.
 #+begin_src screen
 mkdir -p ~/files/binpkgs/multi
+mkdir -p ~/files/binpkgs/cross/gnu/x86_64-pc-linux-musl
 #+end_src
 *** prepare all binpkg repos
 We have to prepare all the binpkg repos so that during a first build
@@ -191,18 +192,28 @@ HISTFILE=~/.org_session_history
 #+name: &workflow-common
 #+begin_src screen
 <<&workflow-funs>>
+<<&workflow-main>>
+run-main
+#+end_src
 
+#+name: &workflow-main
+#+begin_src screen
+function run-main () {
 package-server
 pull musl
-# pull gnu
-pushd ~/git/dockerfiles
+pull gnu
+pushd ~/git/dockerfiles  # FIXME hardcoded path
 tangle && {
-run-profile
-run-musl
+  # FIXME popd sigh ... unwind-protect when
+  run-profile || return $?
+  run-common || return $?
+  run-gnu || return $?
+  run-musl || return $?
 }
 # package host
 # build a bunch of packages
 popd
+}
 #+end_src
 
 # reminder that closing parens must be on separate lines or terminate with ;
@@ -244,7 +255,7 @@ else
     return 1
 fi
 # echo src img ${_src_stage3} ${_img_stage3}
-if [ -n "${_refresh}" ]; then
+if [ -n "${_refresh}" ]; then  # FIXME implicit global variable when it is hard to set the variable in some contexts :/
     # even when refresh is set avoid spurious pulls where the underlying stage3 has not changed
     local DIST="https://distfiles.gentoo.org/releases/amd64/autobuilds"
     local STAGE3_LATEST="$(curl --fail --silent "${DIST}/${_src_stage3}.txt" |\
@@ -270,6 +281,7 @@ fi
 function tangle () {
 [ -d ./bin ] && rm -r ./bin
 [ -d ./docker-profile ] && rm -r ./docker-profile
+[ -d ./common ] && rm -r ./common
 [ -d ./gnu ] && rm -r ./gnu
 [ -d ./musl ] && rm -r ./musl
 [ -d ./repos ] && rm -r ./repos
@@ -304,6 +316,26 @@ function run-profile () {
 <<&build-profile-static>> || return $?;
 }
 
+function run-common () {
+<<&build-user>> || return $?;
+<<&build-portage-maven>> || return $?;
+
+# we build both eselect repos images in common because the output is
+# usable in common ideally we will be able to get rid of a continually
+# rebuilt image and move to a rolling image for all the repos as we
+# shift away from using docker build and toward running containers
+<<&gnu-build-eselect-repo>> || return $?
+<<&musl-build-eselect-repo>> || return $?;
+  [ -z $REPOS ] || {
+  <<&repos-build-repos>> || return $?;
+  docker container inspect local-repos-snap > /dev/null &&
+  docker rm local-repos-snap;
+  docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
+  echo repos done;
+  }
+
+}
+
 function run-gnu () {
 local REPOS="${_repos}"
 local SYNC_GENTOO="${_sync_gentoo}"
@@ -311,11 +343,11 @@ local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
-<<&gnu-build-eselect-repo>> || return $?
 <<&gnu-build-package-builder>> || return $?
 <<&gnu-run-package-builder-quickpkg>> || return $?
 [ -z $RESNAP ] || gnu-builder-resnap
 [ ! -z $NOBUILD ] || gnu-builder-bootstrap
+[ ! -z $NOBUILD ] || gnu-builder-world
 }
 
 function run-musl () {
@@ -327,18 +359,8 @@ local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
 
 echo start bootstrap
-<<&musl-build-user>> || return $?;
-<<&musl-build-portage-maven>> || return $?;
   # TODO figure out how to build the binary packages at this stage without
   # so that we don't have to wait for quickpkg?
-  <<&musl-build-eselect-repo>> || return $?;
-    [ -z $REPOS ] || {
-    <<&repos-build-repos>> || return $?;
-    docker container inspect local-repos-snap > /dev/null &&
-    docker rm local-repos-snap;
-    docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
-    echo repos done;
-    }
     container-check
     <<&musl-build-updated>> || return $?; echo mbu;
       <<&musl-build-updated-user>> || return $?; echo mbuu;
@@ -686,7 +708,7 @@ things to work.
 alternately mount =/var/cache/binpkgs= and then run quickpkg or
 something devious like that
 ** TODO separate user image
-Should be able to =COPY --from=tgbugs/musl:user= across all images.
+Should be able to =COPY --from=tgbugs/common:user= across all images.
 build the user image from a base that has next to nothing in it
 add the user and group to the system and then copy that minimal
 user stuff in, most of the time there isn't any fancy installation
@@ -1653,7 +1675,9 @@ docker build \
 #+end_src
 *** file
 #+begin_src dockerfile :tangle ./repos/Dockerfile
-FROM tgbugs/musl:eselect-repo as builder
+ARG IMG_REPOS_BUILDER=tgbugs/musl:eselect-repo
+
+FROM ${IMG_REPOS_BUILDER} as builder
 
 COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
 
@@ -1682,17 +1706,15 @@ COPY --from=builder /var/db/repos /var/db/repos
 CMD /bin/true
 VOLUME /var/db/repos
 #+end_src
-* musl
-Pushes to https://hub.docker.com/r/tgbugs/musl. \\
-Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
-Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
-and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
+* common
+Functionality shared in common across arch, libc, etc.
+Usually built on a specific arch, libc, etc. but output should be reusable on any combination.
 ** user
-#+name: &musl-build-user
+#+name: &build-user
 #+begin_src screen
 docker build \
---tag tgbugs/musl:user \
---file musl/user/Dockerfile musl/user
+--tag tgbugs/common:user \
+--file common/user/Dockerfile common/user
 #+end_src
 
 # FIXME this is sufficient to create the default set of files and directories for the user
@@ -1729,7 +1751,8 @@ RUN \
 ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 #+end_src
 
-#+name: &musl-user-skel-common
+=groupadd= and =useradd= mean that this needs to be built from a gentoo image.
+#+name: &user-skel-common
 #+begin_src dockerfile
 ARG UID=1000
 ARG USER_NAME=user
@@ -1745,12 +1768,15 @@ RUN \
 chown -R ${UID}:${UID} home/${USER_NAME}
 #+end_src
 
-#+begin_src dockerfile :tangle ./musl/user/Dockerfile
-FROM gentoo/stage3:amd64-musl-hardened as builder
+On the off chance that we don't have a musl source image around make it possible to use a different builder image.
+#+begin_src dockerfile :tangle ./common/user/Dockerfile
+ARG IMG_USER_BUILDER=gentoo/stage3:amd64-musl-hardened
+
+FROM ${IMG_USER_BUILDER} as builder
 
 WORKDIR /build
 
-<<&musl-user-skel-common>>
+<<&user-skel-common>>
 
 FROM scratch
 
@@ -1764,11 +1790,11 @@ COPY --from=builder /build /
 :END:
 Hack to make it possible to install from maven using portage.
 *** build
-#+name: &musl-build-portage-maven
+#+name: &build-portage-maven
 #+begin_src screen
 docker build \
---tag tgbugs/musl:portage-maven \
---file musl/portage-maven/Dockerfile musl/portage-maven
+--tag tgbugs/common:portage-maven \
+--file common/portage-maven/Dockerfile common/portage-maven
 #+end_src
 
 *** file
@@ -1793,7 +1819,7 @@ chown -R 250:250 var/lib/portage \
 && chown -R 250:250 var/tmp/portage
 #+end_src
 
-#+begin_src dockerfile :tangle ./musl/portage-maven/Dockerfile
+#+begin_src dockerfile :tangle ./common/portage-maven/Dockerfile
 FROM busybox:latest as builder
 
 WORKDIR /build
@@ -1809,6 +1835,11 @@ WORKDIR /
 COPY --from=builder /build /
 #+end_src
 
+* musl
+Pushes to https://hub.docker.com/r/tgbugs/musl. \\
+Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
+Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
+and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
 ** eselect-repo
 This is where everything starts. The profile has to be set here etc.
 *** run
@@ -1941,10 +1972,14 @@ the =--sync-gentoo= option is for!
 # with docker build because of the docker design flaws ... I think we
 # just accept that first bootstrap takes longer unless we switch to
 # podman or something like that
+
 #+name: &musl/updated
 #+begin_src dockerfile :tangle ./musl/updated/Dockerfile
 FROM tgbugs/musl:eselect-repo
-
+<<&updated-common>>
+#+end_src
+#+name: &updated-common
+#+begin_src dockerfile
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @system @world \
    --getbinpkg \
@@ -2017,7 +2052,7 @@ docker build \
 FROM tgbugs/musl:updated
 
 # change this line to copy from whatever user image you need
-COPY --from=tgbugs/musl:user / /
+COPY --from=tgbugs/common:user / /
 
 <<&musl-file-user-base>>
 #+end_src
@@ -2877,6 +2912,7 @@ docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 -v ${_path_distfiles}:/var/cache/distfiles \
 -v ${_path_ssh}:/var/lib/portage/home/.ssh \
 -v ${_path_distcc_hosts}:/etc/distcc/hosts \
+-v ${_path_binpkgs_root}/cross/gnu/x86_64-pc-linux-musl:/usr/x86_64-pc-linux-musl/var/cache/binpkgs \
 --env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
 --env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
 #+end_src
@@ -2961,15 +2997,19 @@ int main(void)
 #+name: &builder-world
 #+begin_src bash :noweb yes
 function builder-world () {
-local OUT _builder _static
+local OUT _builder _axis
 
-_static=${1}
+_axis=${1}
 
-if [ -z ${_static} ]; then
-_builder=${_tm_pbs}
-else
+if [ "${_axis}" = "static" ]; then
 _builder=${_tm_s_pbs}
+elif [ "${_axis}" = "gnu" ]; then
+_builder=${_tg_pbs}
+else
+_builder=${_tm_pbs}
 fi
+
+echo builder ${_builder}
 
 # get targets
 container-check
@@ -3012,6 +3052,10 @@ return $OUT
 # FIXME SIGH code dupe
 function static-builder-world () {
    builder-world static
+}
+
+function gnu-builder-world () {
+   builder-world gnu
 }
 #+end_src
 
@@ -3233,6 +3277,8 @@ tgbugs/musl:package-builder-snap
 # emerge --color=y -j4 -q --keep-going --buildpkgonly
 #+end_src
 
+TODO gnu builder cross
+
 *** build
 # FIXME cp -r is a hack for the time being, patches should be source more sanely
 # cp -r patches/ musl/package-builder/
@@ -3254,6 +3300,7 @@ ADD repo_name /var/db/crossdev/profiles/repo_name
 ADD layout.conf /var/db/crossdev/metadata/layout.conf
 ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
 ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
+# FIXME need a better way to update the world file/docker set i.e. mount at runtime
 ADD world /etc/portage/sets/docker
 
 RUN \
@@ -3953,7 +4000,7 @@ ARG PROTEGE_VERSION="5.6.1"
 
 WORKDIR /build
 
-<<&musl-user-skel-common>>
+<<&user-skel-common>>
 
 USER ${USER_NAME}
 
@@ -4633,7 +4680,7 @@ FROM tgbugs/musl:kg-release as builder
 
 WORKDIR /build
 
-<<&musl-user-skel-common>>
+<<&user-skel-common>>
 
 ARG HOME=/build/home/${USER_NAME}
 
@@ -4949,7 +4996,7 @@ FROM tgbugs/musl:kg-dev as builder
 
 WORKDIR /build
 
-<<&musl-user-skel-common>>
+<<&user-skel-common>>
 
 RUN \
 usermod --move-home --home /home/user ${USER_NAME}
@@ -4959,7 +5006,7 @@ usermod --move-home --home /home/user ${USER_NAME}
 USER ${USER_NAME}
 
 #ARG HOME=/build/home/${USER_NAME}  # FIXME somehow /build/ lingers ??? do I have a stale file !?? !
-# XXX the issue is &musl-user-skel-common uses /build/home/user in useradd with the expectation that
+# XXX the issue is &user-skel-common uses /build/home/user in useradd with the expectation that
 # it will not affect the actual image only the builder image
 # FIXME XXXXXXXXXXXXXXXXXXXXXX SO SO SO SO BROKEN ARGH this breaks emacs and everything else
 # it looks like /etc/passwd still has /build/home/user as HOME so setting $HOME doesn't save us?
@@ -5138,7 +5185,7 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/racket-user/Dockerfile
 FROM tgbugs/musl:racket
 
-COPY --from=tgbugs/musl:user / /
+COPY --from=tgbugs/common:user / /
 
 <<&musl-file-user-base>>
 #+end_src
@@ -5183,7 +5230,7 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/dynapad-user/Dockerfile
 FROM tgbugs/musl:dynapad-base
 
-COPY --from=tgbugs/musl:user / /
+COPY --from=tgbugs/common:user / /
 
 <<&musl-file-user-base>>
 #+end_src
@@ -5730,10 +5777,11 @@ FROM tgbugs/musl:static-binpkg-only
 <<world-emacs>>
 <<world-sbcl-base>>
 #+end_src
+# FIXME why did we have these on the list before? some build order issue or something? weird ... maybe it has been fixed now?
+# dev-lisp/uiop
+# dev-lisp/asdf
 #+name: world-sbcl-base
 #+begin_src conf
-dev-lisp/uiop
-dev-lisp/asdf
 dev-lisp/sbcl
 #+end_src
 *** patches
@@ -5819,7 +5867,7 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/sbcl-user/Dockerfile
 FROM tgbugs/musl:sbcl
 
-COPY --from=tgbugs/musl:user / /
+COPY --from=tgbugs/common:user / /
 
 <<&musl-file-user-base>>
 
@@ -6084,6 +6132,28 @@ eselect profile set docker-profile:tgbugs/gnu
 <<&gentoo-file-eselect-repo-common-3>>
 #+end_src
 
+** updated
+Unfortunately running =-uDN= pulls in all sorts of stuff when we least want it, so just roll with updated here too.
+FIXME actually ... updated is ... bad? ideally we just go to package-builder directly so ... wait no we do still need quickpkg grr.
+Maybe quickpkg-new from the package builder or something?
+Well for now we keep them in parallel until we can switch to the raw package builder.
+*** build
+#+name: &musl-build-updated
+#+begin_src screen
+docker build \
+--tag tgbugs/gnu:updated \
+--network host \
+--add-host local.binhost:127.0.0.1 \
+--file gnu/updated/Dockerfile gnu/updated
+#+end_src
+
+*** file
+#+name: &gnu/updated
+#+begin_src dockerfile :tangle ./gnu/updated/Dockerfile
+FROM tgbugs/gnu:eselect-repo
+<<&updated-common>>
+#+end_src
+
 ** package-builder
 *** populate 0
 #+name: &gnu-run-package-builder-quickpkg
@@ -6123,9 +6193,55 @@ FROM tgbugs/gnu:eselect-repo
 #+end_src
 *** world
 #+begin_src conf :tangle ./gnu/package-builder/world
+<<world-sbcl-base>>
 #+end_src
+*** cross
+**** issues
+Building cross packages from the builder isn't the most straightforward process.
+#+name: gnu-cross-musl-emerge-info
+#+begin_src bash :noweb yes :results code :wrap example
+<<&builder-vars>>
+docker run \
+<<&builder-args-gnu>>
+--rm \
+${_tg_pbs} \
+x86_64-pc-linux-musl-emerge --info
+#+end_src
+
+Examples of the issue.
+#+begin_example
+PKGDIR="/usr/x86_64-pc-linux-musl/var/cache/binpkgs/"
+PORTAGE_CONFIGROOT="/usr/x86_64-pc-linux-musl/"
+#+end_example
+
+However, =FEATURES=buildpkg= is set it seems. So this might just be an
+issue of setting mounts for source/target pkgdirs, e.g.
+#+begin_example
+-v ~/files/binpkgs/cross/gnu/x86_64-pc-linux-musl:/usr/x86_64-pc-linux-musl/var/cache/binpkgs/
+#+end_example
+or more sanely =${CBUILD}/${CHOST}= ?
+#+begin_example
+-v ~/files/binpkgs/cross/x86_64-pc-linux-gnu/x86_64-pc-linux-musl:/usr/x86_64-pc-linux-musl/var/cache/binpkgs/
+#+end_example
+except that we then have to maintain a mapping from our shorthand to =CBUILD=.
+
+#+RESULTS: gnu-cross-musl-emerge-info
+#+begin_example
+#+end_example
+**** sbcl
+Yeah ... the usual issue with cross compiling zlib/zstd support.
+#+begin_src bash
+x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
+# this symlink is critical to get the whole thing to work otherwise the tools-for-build/determine-endianness error will show up
+ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1
+# the symlink trick we do for ld doesn't work for libzstd so have to
+# USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
+x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl
+#+end_src
+
 ** crossdev
 *** build
+#+name: &gnu-build-crossdev
 #+begin_src screen
 docker build \
 --tag tgbugs/gnu:crossdev \
@@ -6146,6 +6262,7 @@ emerge -j4 -q \
    sys-devel/crossdev \
 <<&archive-or-rm>>
 
+# FIXME why isn't this finding the binpkgs ???
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge --usepkg --getbinpkgonly \
    cross-x86_64-pc-linux-musl/musl \
@@ -6492,6 +6609,7 @@ emerge -j4 -q \
    dev-lisp/sbcl \
 <<&archive-or-rm>>
 
+# TODO move these into the builder probably?
 ADD alt-ld.patch /etc/portage/patches/dev-lisp/sbcl/alt-ld.patch
 ADD alt-ld.patch /usr/x86_64-pc-linux-musl/etc/portage/patches/dev-lisp/sbcl/alt-ld.patch
 ADD 99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl
@@ -6501,6 +6619,7 @@ x86_64-pc-linux-musl-emerge -j4 -q \
    --getbinpkg \
    --keep-going \
    sys-libs/musl \
+   app-arch/zstd \
    sys-libs/zlib \
 <<&archive-or-rm>>
 
@@ -6521,7 +6640,7 @@ is only for a bootstrapping sbcl on musl. There are native ways to do
 this inside of the sbcl toolset itself, but for now this is easier.
 # */* static-libs static
 #+begin_src conf :tangle ./gnu/sbcl-cross/99-sbcl
-dev-lisp/sbcl -zlib  # crossdev compile reference errors
+dev-lisp/sbcl -zlib -zstd  # crossdev compile reference errors
 #+end_src
 
 #+begin_src diff :tangle ./gnu/sbcl-cross/alt-ld.patch
@@ -6592,8 +6711,8 @@ FROM busybox:latest
 
 WORKDIR /
 
-COPY --from=tgbugs/gnu:sbcl-cross /usr/x86_64-pc-linux-musl/usr/lib/sbcl /sbcl
-COPY --from=tgbugs/gnu:sbcl-cross /usr/x86_64-pc-linux-musl/usr/bin/sbcl /sbcl/src/runtime/sbcl
+COPY --from=tgbugs/gnu:package-builder-snap /usr/x86_64-pc-linux-musl/usr/lib/sbcl /sbcl
+COPY --from=tgbugs/gnu:package-builder-snap /usr/x86_64-pc-linux-musl/usr/bin/sbcl /sbcl/src/runtime/sbcl
 
 RUN \
 mkdir -p /sbcl/obj/sbcl-home \
@@ -7063,7 +7182,7 @@ and then to the tangle target to the block contents
 (setq
  docker-file-depends-on-tag
  (let (out)
-   (save-excursion
+   (save-excursion ; TODO also need to save fold state
      (org-babel-map-executables nil
        ;; (language body arguments switches name start coderef)
        (let* ((info (org-babel-get-src-block-info))
@@ -7083,9 +7202,10 @@ and then to the tangle target to the block contents
                          ;; ARG START_IMAGE=tgbugs/musl:pypy3
                          ;; don't bother trying to replicate this, it is
                          ;; vastly easier to just use evil-ex-global for now
-                         (evil-ex-global (point-min) (point-max) "^\\(FROM\\|COPY --from=\\)" "d" t)
+                         (evil-ex-global (point-min) (point-max) "^\\(FROM\\|COPY --from=\\|RUN --mount=from=\\)" "d" t)
                          ;;(evil-ex-global (point-min) (point-max) "--from=builder" "d" nil) ; keep builder to make it easy to identify multi stage builds
                          (evil-ex-substitute (point-min) (point-max) '("^COPY --from=\\([^ ]+\\) .+$") "\\1")
+                         (evil-ex-substitute (point-min) (point-max) '("^RUN --mount=from=\\([^ ,]+\\).+$") "\\1")
                          (split-string (replace-regexp-in-string "^FROM\\| as .+$" "" (buffer-string)) "\n" t " +"))) ; note, produces dupes
                       out))
            ))))
@@ -7336,7 +7456,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           ;; TODO block until build finishes or fails
           (fix-ocbe-source)
           (execute-src-block "workflow-cli"))
-        (when build-image
+        (when build-image ; FIXME sometimes leaving from this can still produce Wrong type argument: keymapp, nil
           (fix-ocbe-source)
           (if cli-images
               (let* ((org-confirm-babel-evaluate (lambda (_l _b))) ; XXX BEWARE THESE WILL RUN WITHOUT PROMPTING
