@@ -189,6 +189,17 @@ HISTFILE=~/.org_session_history
 <<&workflow-common>>
 #+end_src
 
+Source =./bin/workflow-funs.sh= on changes after tangle.
+#+name: &workflow-funs-main-to-tangle
+#+begin_src bash :tangle ./bin/workflow-funs.sh :mkdirp yes :noweb yes :var BUILDKIT_PROGRESS=""
+<<&workflow-funs>>
+<<&workflow-main>>
+#+end_src
+
+Note that we can't =source ./bin/workflow-funs.sh= in this context
+because tangle is called inside =run-main=. We would need to rework
+the call order so that tangle is run first or unify the elisp and bash
+tangle code.
 #+name: &workflow-common
 #+begin_src screen
 <<&workflow-funs>>
@@ -199,7 +210,7 @@ run-main
 #+name: &workflow-main
 #+begin_src screen
 function run-main () {
-package-server
+package-server || return $?
 pull musl
 pull gnu
 pushd ~/git/dockerfiles  # FIXME hardcoded path
@@ -237,6 +248,7 @@ curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
         pushd ${_path_binpkgs_root}
         python -m http.server 8089 --bind 127.0.0.1
         popd
+        return 1  # indicate that package server was not and now is not running
     fi
 }
 }
@@ -270,11 +282,18 @@ if [ -n "${_refresh}" ]; then  # FIXME implicit global variable when it is hard 
     docker pull ${_img_stage3}
 fi
 
+# TODO make pull-portage its own function to avoid rerun?
 if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
     # these are updated more or less in sync with the upstream snapshot source
+    local BEFORE="$(docker image inspect ${_img_portage} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
     docker pull ${_img_portage}
+    local AFTER="$(docker image inspect ${_img_portage} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
+    local A_DATE=$(date -In --utc --date "${AFTER}")
+    local B_DATE=$(date -In --utc --date "${BEFORE}")
+    { [[ ${B_DATE} < ${A_DATE} ]] || { docker container inspect local-portage-snap > /dev/null && false;};} && {
     docker rm local-portage-snap
     docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
+    }
 fi
 }
 
@@ -343,11 +362,16 @@ local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
+echo gnu start bootstrap
+gnu-container-check
 <<&gnu-build-package-builder>> || return $?
 <<&gnu-run-package-builder-quickpkg>> || return $?
+echo gnu builder start
 [ -z $RESNAP ] || gnu-builder-resnap
 [ ! -z $NOBUILD ] || gnu-builder-bootstrap
 [ ! -z $NOBUILD ] || gnu-builder-world
+<<&gnu-run-cross-musl-sbcl>>
+<<&gnu-build-musl-cross-sbcl>>
 }
 
 function run-musl () {
@@ -358,49 +382,48 @@ local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
 
-echo start bootstrap
-  # TODO figure out how to build the binary packages at this stage without
-  # so that we don't have to wait for quickpkg?
-    container-check
-    <<&musl-build-updated>> || return $?; echo mbu;
-      <<&musl-build-updated-user>> || return $?; echo mbuu;
-      <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
+echo musl start bootstrap
+# TODO figure out how to build the binary packages at this stage without
+# so that we don't have to wait for quickpkg?
+container-check
+<<&musl-build-updated>> || return $?; echo mbu;
+  <<&musl-build-updated-user>> || return $?; echo mbuu;
+  <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
 
-      # build the generalized builder so we can dispense with the stacked image nonsense
-      <<&musl-build-package-builder-musl>> || return $?; echo mbpbm;
+  # build the generalized builder so we can dispense with the stacked image nonsense
+  <<&musl-build-package-builder-musl>> || return $?; echo mbpbm;
 
-      # TODO conditional to speed things up
-      # <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
+  # TODO conditional to speed things up
+  # <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
 
-      <<&musl-build-pypy3>> || return $?; echo mbpypy3;
-        <<&musl-run-pypy3-quickpkg>> || return $?; echo mrpypy3q;
+  <<&musl-build-pypy3>> || return $?; echo mbpypy3;
+    <<&musl-run-pypy3-quickpkg>> || return $?; echo mrpypy3q;
 
-        <<&musl-build-nox>> || return $?; echo mbnox;
-        <<&musl-run-nox-quickpkg>> || return $?; echo mrnoxq;
+    <<&musl-build-nox>> || return $?; echo mbnox;
+    <<&musl-run-nox-quickpkg>> || return $?; echo mrnoxq;
 
-        <<&musl-build-openjdk-nox>> || return $?; echo mbnoxjdk;
-          <<&musl-run-openjdk-nox-quickpkg>> || return $?; echo mrnoxjdkq;
+    <<&musl-build-openjdk-nox>> || return $?; echo mbnoxjdk;
+      <<&musl-run-openjdk-nox-quickpkg>> || return $?; echo mrnoxjdkq;
 
-        <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
-        <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
+    <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
+    <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
 
-        # XXX this is the point at which things split into musl and musl/x
-        <<&musl-build-xorg>> || return $?; echo mbx;
-        <<&musl-run-xorg-quickpkg>> || return $?; echo mrxq;
+    # XXX this is the point at which things split into musl and musl/x
+    <<&musl-build-xorg>> || return $?; echo mbx;
+    <<&musl-run-xorg-quickpkg>> || return $?; echo mrxq;
 
-        <<&musl-build-openjdk>> || return $?; echo mbjdk;
-          <<&musl-run-openjdk-quickpkg>> || return $?; echo mrjdkq;
+    <<&musl-build-openjdk>> || return $?; echo mbjdk;
+      <<&musl-run-openjdk-quickpkg>> || return $?; echo mrjdkq;
 
-        <<&musl-build-package-builder>> || return $?; echo mbpb;
-        <<&musl-build-binpkg-only>> || return $?; echo mbpo;
+    <<&musl-build-package-builder>> || return $?; echo mbpb;
+    <<&musl-build-binpkg-only>> || return $?; echo mbpo;
 
-        # XXX split to musl/static/x
-        <<&musl-build-static-xorg>> || return $?; echo mbsx;
-        <<&musl-run-static-xorg-quickpkg>> || return $?; echo mrsxp;
+    # XXX split to musl/static/x
+    <<&musl-build-static-xorg>> || return $?; echo mbsx;
+    <<&musl-run-static-xorg-quickpkg>> || return $?; echo mrsxp;
 
-        <<&musl-build-static-package-builder>> || return $?; echo mbspb;
-        <<&musl-build-static-binpkg-only>> || return $?; echo mbsbo;
-
+    <<&musl-build-static-package-builder>> || return $?; echo mbspb;
+    <<&musl-build-static-binpkg-only>> || return $?; echo mbsbo;
 
 # TODO need to conditionally run the gnu builds for sbcl cross compile
 # TODO also need to have a working ghc around, probably stick it in a release
@@ -503,10 +526,23 @@ do it by itself? Possibly missing =--with-bdeps=y= or something?
 To push the latest cycle of images to the default remote run the
 following after checking that they work as expected.
 
+# FIXME the --filter=since= isn't quite right, I think it can miss some images we want to push? not entirely sure?
 #+begin_src bash
-for _image in $(docker images --filter=reference="tgbugs/musl:*" --filter=reference="tgbugs/repos:*" --filter=since='tgbugs/musl:eselect-repo' --format "{{.Repository}}:{{.Tag}}" | grep -v snap); do
-    docker push "${_image}"
+for _image in $(docker images \
+--filter=reference="tgbugs/musl:*" \
+--filter=reference="tgbugs/repos:*" \
+--filter=since='tgbugs/musl:eselect-repo' \
+--format "{{.Repository}}:{{.Tag}}" | grep -v snap);
+do
+    echo docker push "${_image};\\"
 done
+#+end_src
+
+Other things images we don't push right now.
+#+begin_src bash
+--filter=reference="tgbugs/common:*" \
+--filter=reference="tgbugs/gnu:*" \
+--filter=reference="tgbugs/docker-profile:*" \
 #+end_src
 
 ** Emergency quickpkg
@@ -593,6 +629,24 @@ appears to be for implementation convenience.
 # if you use =makunbound= defvar-local will fail ... and even then there are issues
 # so sometimes you just have to kill and reopen the buffer (sigh)
 * Next
+** TODO proper process for consistent behavior in nearly all conditions
+for the builder track it seems that sequential updates starting from
+stage3 and running uDN world or similar for each profile are likely to
+be the simplest to understand and the least likely to fall into weird
+stage3 vs portage mismatch issues
+
+there are some obstacles due to bugs/current behavior in portage which
+make building bdeps only a bit tricky (e.g. when switching profiles)
+if we want to run the normal build process with binpkgonly to avoid
+accumulating many installed packages in the image
+
+1. builder for stage3 with local-portage-snap update world, a tiny bit of rework here
+2. git and eselect repo
+3. repos
+4. profiles
+5. iterate through profiles and build/update everything
+
+then to compose images start from ... ??? for the binpkgonly
 ** TODO meta packages instead of world files
 Proper factoring for this system suggests that we should probably be
 maintaining these world files as meta ebuilds in an overlay so that
@@ -1386,6 +1440,9 @@ docker build \
 #+end_src
 *** profiles
 **** package.use
+FIXME this is almost certainly not going to produce what we want
+because =+pypy3= doesn't just append to existing in the same way that
+=-*= removes all existing.
 #+begin_src conf :tangle ./docker-profile/pypy3/docker-profile/profiles/tgbugs/pypy3/package.use
 */* PYTHON_TARGETS: +pypy3
 #+end_src
@@ -1803,7 +1860,7 @@ https://api.gentoo.org/uid-gid.txt
 https://wiki.gentoo.org/wiki/Project:Quality_Assurance/UID_GID_Assignment].
 
 #+name: &portage-maven-settings
-#+begin_src xml :tangle ./musl/portage-maven/settings.xml :mkdirp yes
+#+begin_src xml :tangle ./common/portage-maven/settings.xml :mkdirp yes
 <settings xmlns="http://maven.apache.org/SETTINGS/1.0.0"
           xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
           xsi:schemaLocation="http://maven.apache.org/SETTINGS/1.0.0 https://maven.apache.org/xsd/settings-1.0.0.xsd">
@@ -1918,6 +1975,13 @@ RUN \
 || true
 #+end_src
 
+FIXME python version update issue is another problem with using/having
+eselect repo in the direct line rather than just as a helper to set up
+the repos overlay is a problem, though I'm not sure there is really
+any way to work around the issue, we just accept that every once in
+awhile we have slightly larger images because for 1 release cycle we
+had to update python since upstream gets the images out of sync
+
 #+name: &gentoo-file-eselect-repo-common-3
 #+begin_src dockerfile
 # FIXME MAKEOPTS_LOCAL
@@ -1927,6 +1991,14 @@ echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge --info 2>&1 | { grep Invalid\ atom && exit 1; exit 0; }
+
+# handle updates for python version changes that block further calls to emerge
+# these happen periodically when portage and stage3 images have mismached PYTHON_TARGETS
+RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+[ $(emerge --info | grep -o 'PYTHON_TARGETS="[^"]\+"') = \
+  $(bzgrep -o 'PYTHON_TARGETS="[^"]\+"' /var/db/pkg/dev-python/wheel-*/environment.bz2) ] \
+|| emerge -uDN -q -j4 --getbinpkg @world \
+<<&archive-or-rm>>
 
 # FIXME shouldn't we be using binhosts for this step as well?
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -2836,7 +2908,6 @@ usually stable per system.
 # in the environment when you change the default value
 #+name: &builder-vars
 #+begin_src bash :noweb yes
-export \
 _path_binpkgs_root=${_path_root_binpkgs:-<<&host-binpkgs-root-path()>>}
 _binpkgs_repo_name=${_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
 _path_binpkgs=${_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
@@ -2844,14 +2915,12 @@ _path_distfiles=${_path_distfiles:-<<&host-distfiles-path()>>}
 _path_distcc_hosts=${_path_distcc_hosts:-<<&host-distcc-hosts-path()>>}
 _path_ssh=${_path_ssh:-<<&host-ssh-path()>>}
 
-export \
 _tm_pb=${_tm_pb:-tgbugs/musl:package-builder}
 _tm_s_pb=${_tm_s_pb:-tgbugs/musl:static-package-builder}
 
 _tm_pbs=${_tm_pbs:-${_tm_pb}-snap}
 _tm_s_pbs=${_tm_s_pbs:-${_tm_s_pb}-snap}
 
-export \
 _tg_pb=${_tg_pb:-tgbugs/gnu:package-builder}
 
 _tg_pbs=${_tg_pbs:-${_tg_pb}-snap}
@@ -2877,9 +2946,13 @@ docker commit $(docker ps -lqf ancestor=${_tg_pb}) ${_tg_pbs}
 
 #+name: &container-check
 #+begin_src bash
-function container-check () {
+function gnu-container-check () {
 docker container inspect local-repos-snap > /dev/null || \
 docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
+}
+
+function container-check () {
+gnu-container-check
 
 # FIXME need to check that the cross image exists sigh make
 docker container inspect cross-sbcl > /dev/null || \
@@ -3011,6 +3084,7 @@ fi
 
 echo builder ${_builder}
 
+echo get targets
 # get targets
 container-check
 targets=$(\
@@ -3026,6 +3100,7 @@ OUT=$?
 
 [ "${targets}" ] || return 0  # we're done here
 
+echo only target bdeps
 # emerge only build dependencies of targets
 container-check
 docker run \
@@ -3037,6 +3112,7 @@ OUT=$?
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
 [ ${OUT} -eq 0 ] || return ${OUT}
 
+echo only targets
 # emerge only targets
 container-check
 docker run \
@@ -3070,6 +3146,17 @@ ${_tm_pbs} \
 ${@}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+}
+
+function gnu-builder-run () {
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+container-check
+docker run \
+<<&builder-args-gnu>>
+${_tg_pbs} \
+${@}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
 }
 
 function static-builder-run () {
@@ -3753,6 +3840,7 @@ blocked by the container.
 app-editors/emacs
 app-containers/docker
 app-containers/docker-cli
+app-containers/docker-buildx
 #+end_src
 
 ** testing-python
@@ -6107,8 +6195,9 @@ sb-sys:*linkage-info*
 may not need this if we can use crossdev to build glibc sbcl on musl that that seems a stretch
 ** eselect-repo
 *** build
+# TODO see if we can get the prologue running everywhere not sure if ti will tangle though
 #+name: &gnu-build-eselect-repo
-#+begin_src screen
+#+begin_src screen :prologue (format "echo running block %S" (plist-get (nth 1 (org-element-at-point)) :name))
 docker build \
 --tag tgbugs/gnu:eselect-repo \
 --network host \
@@ -6174,6 +6263,10 @@ docker build \
 FROM tgbugs/gnu:eselect-repo
 
 <<&musl-package-builder-common>>
+
+# XXX FIXME running this causes portage invalid location for some reason???
+# maybe because the folder existing prevents the tmp/ folder from being created ???
+# ADD 99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl
 #+end_src
 *** crossdev
 # hack to reuse musl common for file
@@ -6225,18 +6318,61 @@ or more sanely =${CBUILD}/${CHOST}= ?
 #+end_example
 except that we then have to maintain a mapping from our shorthand to =CBUILD=.
 
+FIXME currently broken ?!??
+#+begin_example
+!!! Invalid binary package: '/var/cache/binpkgs/dev-util/strace/strace-6.1-3.gpkg.tar', Unsupported binary package format from '/var/cache/binpkgs/dev-util/strace/strace-6.1-3.gpkg.tar'
+>>> Installing (1 of 5) dev-util/strace-6.1::gentoo
+>>> Emerging (2 of 5) dev-lisp/asdf-3.3.5::gentoo for /usr/x86_64-pc-linux-musl/
+
+!!! Invalid binary package: '/usr/x86_64-pc-linux-musl/var/cache/binpkgs/app-arch/xz-utils/xz-utils-5.4.2-2.xpak'
+!!! Missing metadata key(s): CATEGORY, PF, SLOT. This binary package is not
+!!! recoverable and should be deleted.
+#+end_example
+
 #+RESULTS: gnu-cross-musl-emerge-info
 #+begin_example
 #+end_example
 **** sbcl
 Yeah ... the usual issue with cross compiling zlib/zstd support.
+# TODO may need/want to tangle to gnu/package-builder/cross/x86_64-pc-linux-musl or something?
+#+begin_src conf :tangle ./gnu/package-builder/99-sbcl
+<<&config-cross-sbcl-package.use>>
+#+end_src
+
+#+begin_src conf :tangle ./gnu/package-builder/cross-make.defaults
+BINPKG_FORMAT="gpkg"
+BINPKG_COMPRESS="zstd"
+BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
+FEATURES="${FEATURES} binpkg-multi-instance"
+EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"  # FIXME portageq shows bru opt twice ??
+#+end_src
+
 #+begin_src bash
-x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
+gnu-builder-run emerge -q -j4 dev-lisp/sbcl
+#+end_src
+
+#+begin_src bash
+gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
+
+# TODO in bootstrap maybe? or something else to replace the build annoyances?
+docker run \
+-v ${PWD}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
+-v ${PWD}/gnu/package-builder/cross-make.defaults:/tmp/cross-make.defaults \
+${_tg_pbs} \
+sh -c \
+"
+mkdir -p /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl; cp /tmp/99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl;
+cat /tmp/cross-make.defaults >> /usr/x86_64-pc-linux-musl/etc/portage/make.conf
+"
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
+
 # this symlink is critical to get the whole thing to work otherwise the tools-for-build/determine-endianness error will show up
-ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1
+gnu-builder-run sh -c "[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1"
 # the symlink trick we do for ld doesn't work for libzstd so have to
 # USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
-x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl
+#gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl"
+gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
 #+end_src
 
 ** crossdev
@@ -6639,6 +6775,7 @@ correctly we leave it out.  We don't really need it since this build
 is only for a bootstrapping sbcl on musl. There are native ways to do
 this inside of the sbcl toolset itself, but for now this is easier.
 # */* static-libs static
+#+name: &config-cross-sbcl-package.use
 #+begin_src conf :tangle ./gnu/sbcl-cross/99-sbcl
 dev-lisp/sbcl -zlib -zstd  # crossdev compile reference errors
 #+end_src
@@ -6695,7 +6832,14 @@ the general objective here is to avoid the situation where there is rot in the
 bootstrapping process because we always use the docker image the same way there
 has been rot with clojure pulling everything from maven, less of a risk in this
 case but still something to keep an eye on
+
+another way to do this would be to emerge the crossbuilt binpkg directly and then
+go with system-bootstrap in that way instead the sideloading that we do here which
+requires modification of the ebuild, yeah, this seems cleaner than cooking up this
+image since it avoids the need for more docker build commands entirely
+
 *** build
+#+name: &gnu-build-musl-cross-sbcl
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:cross-sbcl \
