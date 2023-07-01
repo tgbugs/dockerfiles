@@ -68,6 +68,7 @@ below if it is not already up.
 #+begin_src screen
 mkdir -p ~/files/binpkgs/multi
 mkdir -p ~/files/binpkgs/cross/gnu/x86_64-pc-linux-musl
+mkdir -p ~/files/binpkgs/cross/gnu/x86_64-gentoo-linux-musl
 #+end_src
 *** prepare all binpkg repos
 We have to prepare all the binpkg repos so that during a first build
@@ -336,6 +337,7 @@ function run-profile () {
 }
 
 function run-common () {
+local REPOS="${_repos}"
 <<&build-user>> || return $?;
 <<&build-portage-maven>> || return $?;
 
@@ -1319,7 +1321,10 @@ dev-lang/ghc ghcbootstrap
 **** package.use.force
 We have a cross compile bootstrap and the clisp build is broken.
 Have to use =package.use.force= because the main gentoo musl profile sets it there.
-#+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.use.force
+
+This is no longer needed because we can emerge cross compiled packages
+directly and don't have to do the image side loading dance anymore.
+#+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.use.force :tangle no
 dev-lisp/sbcl -system-bootstrap
 #+end_src
 **** package.unmask
@@ -2199,7 +2204,7 @@ ADD entrypoints /etc/entrypoints
 ADD repo_name /var/db/crossdev/profiles/repo_name
 ADD layout.conf /var/db/crossdev/metadata/layout.conf
 ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
-ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
+# ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 # TODO need a full combo world file for the docker set here, iirc missing static right now
 # FIXME actually can't quite do this, there are packages that must be excluded for base and nox i.e. xorg-server (sigh sigh sigh)
 ADD world /etc/portage/sets/docker
@@ -2313,9 +2318,11 @@ ARG USE_PYTHON_TARGETS  # use if there are issues with mismatched python targets
 # we defer changing python targets until after eselect-repo to avoid
 # issues bootstrapping pypy3
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+sh -c '\
 USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3"} \
 && [[ -z ${USE_PYTHON_TARGETS} ]] || \
-   echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base
+   echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base\
+'
 #+end_src
 
 #+begin_src dockerfile :tangle ./musl/pypy3/Dockerfile
@@ -2986,6 +2993,8 @@ docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 -v ${_path_ssh}:/var/lib/portage/home/.ssh \
 -v ${_path_distcc_hosts}:/etc/distcc/hosts \
 -v ${_path_binpkgs_root}/cross/gnu/x86_64-pc-linux-musl:/usr/x86_64-pc-linux-musl/var/cache/binpkgs \
+-v ${_path_binpkgs_root}/cross/gnu/x86_64-gentoo-linux-musl:/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs \
+-v ${PWD}/bin:/usr/local/bin \
 --env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
 --env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
 #+end_src
@@ -3386,7 +3395,7 @@ COPY --from=tgbugs/musl:portage-maven / /
 ADD repo_name /var/db/crossdev/profiles/repo_name
 ADD layout.conf /var/db/crossdev/metadata/layout.conf
 ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
-ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
+# ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 # FIXME need a better way to update the world file/docker set i.e. mount at runtime
 ADD world /etc/portage/sets/docker
 
@@ -3479,7 +3488,12 @@ using this on musl fails because ghc-cabal is segfaulting for some reason
 https://github.com/NixOS/nixpkgs/issues/118731, the solution is to use a
 version of ghc that can target musl 1.2.3, i.e. the one from alpine
 
-*** sbcl bootstrap
+*** sbcl bootstrap :old:
+Since the addition of the =system-bootstrap= use flag we cross compile
+from gnu to musl and emerge the cross compiled binpkg once and then we
+are good to go, though may need to emerge the old version of sbcl when
+we have to update to a new version.
+
 The gentoo ebuilds for sbcl retrieve an existing binary for bootstrapping.
 Due to the fact that the current EAPI (?) is not libc aware for precompiled
 binaries we would have to create and maintain a binary for the musl overlay.
@@ -5926,9 +5940,8 @@ echo ') list)' >> "${CONFIG}"
 }
 #+end_src
 
+# <<&sbcl-env>>
 #+begin_src ebuild :noweb yes :tangle ./musl/package-builder/static-sbcl.env
-<<&sbcl-env>>
-
 <<&sbcl-env-static>>
 #+end_src
 
@@ -6353,6 +6366,7 @@ gnu-builder-run emerge -q -j4 dev-lisp/sbcl
 
 #+begin_src bash
 gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
+gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
 
 # TODO in bootstrap maybe? or something else to replace the build annoyances?
 docker run \
@@ -6361,8 +6375,13 @@ docker run \
 ${_tg_pbs} \
 sh -c \
 "
-mkdir -p /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl; cp /tmp/99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl;
-cat /tmp/cross-make.defaults >> /usr/x86_64-pc-linux-musl/etc/portage/make.conf
+mkdir -p /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl;\
+cp /tmp/99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl;\
+cat /tmp/cross-make.defaults >> /usr/x86_64-pc-linux-musl/etc/portage/make.conf\
+
+mkdir -p /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/99-sbcl;\
+cp /tmp/99-sbcl /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/99-sbcl;\
+cat /tmp/cross-make.defaults >> /usr/x86_64-gentoo-linux-musl/etc/portage/make.conf\
 "
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
@@ -6373,6 +6392,16 @@ gnu-builder-run sh -c "[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-pc-l
 # USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
 #gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl"
 gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
+gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
+#+end_src
+
+Then inside =builder-run=
+#+begin_src bash
+emerge --usepkg --nodeps -1q -j4 dev-lisp/asdf dev-lisp/uiop
+emerge --usepkgonly dev-lisp/sbcl || {
+PKGDIR=/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs/ USE='-zstd -system-bootstrap' emerge -K dev-lisp/sbcl
+emerge dev-lisp/sbcl -p
+}
 #+end_src
 
 ** crossdev
