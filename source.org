@@ -6314,6 +6314,8 @@ ${_tg_pbs} \
 x86_64-pc-linux-musl-emerge --info
 #+end_src
 
+# FIXME cross build repos missing proper configuration for compression and archive type (even though there aren't very many packages)
+
 Examples of the issue.
 #+begin_example
 PKGDIR="/usr/x86_64-pc-linux-musl/var/cache/binpkgs/"
@@ -6362,46 +6364,186 @@ EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"  # FIXME por
 
 #+begin_src bash
 gnu-builder-run emerge -q -j4 dev-lisp/sbcl
+# FIXME env-update and source /etc/profile are needed to ensure that SBCL_HOME is set correctly in the environment after install
+# otherwise sbcl will look for sbcl.core in the current directory (making it look like the package is broken)
+gnu-builder-run env-update
+gnu-builder-run source /etc/profile
 #+end_src
 
-#+begin_src bash
-gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
-gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
+#+begin_src bash :tangle ./bin/gnu-cross-musl-sbcl.sh
+gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  # FIXME not sure if needed
 
 # TODO in bootstrap maybe? or something else to replace the build annoyances?
 docker run \
+-v ${PWD}/gnu/package-builder/sbcl-cross.env:/tmp/sbcl-cross.env \
 -v ${PWD}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
 -v ${PWD}/gnu/package-builder/cross-make.defaults:/tmp/cross-make.defaults \
 ${_tg_pbs} \
 sh -c \
 "
-mkdir -p /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl;\
-cp /tmp/99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl;\
-cat /tmp/cross-make.defaults >> /usr/x86_64-pc-linux-musl/etc/portage/make.conf\
-
-mkdir -p /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/99-sbcl;\
+mkdir -p               /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp
+cp /tmp/sbcl-cross.env /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp/sbcl
+mkdir -p        /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/;\
 cp /tmp/99-sbcl /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/99-sbcl;\
 cat /tmp/cross-make.defaults >> /usr/x86_64-gentoo-linux-musl/etc/portage/make.conf\
 "
 
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}  # TODO possibly write to own lineage or make own script and --rm
 
 # this symlink is critical to get the whole thing to work otherwise the tools-for-build/determine-endianness error will show up
-gnu-builder-run sh -c "[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1"
+gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-gentoo-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1'
 # the symlink trick we do for ld doesn't work for libzstd so have to
 # USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
 #gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl"
-gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
-gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
+#gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
+
+# FIXME somehow only x86_64-pc-linux-musl-emerge is installed? did we miss a cross build?
+# since we have sbcl installed on the builder we can use system-bootstrap to reduce useflag noise
+gnu-builder-run \
+sh -c 'USE=system-bootstrap x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl'
+# reminder can't use LD_LIBRARY_PATH=/usr/x86_64-gentoo-linux-musl/usr/lib because it breaks the builder (gnu) binaries
 #+end_src
 
-Then inside =builder-run=
-#+begin_src bash
+work around lack of cross compile support in =src_compile= during system-bootstrap
+and also do not reset because we have to use the
+get the core location for host sbcl for bootstrap_lisp since =SBCL_HOME= is reset to point to CHOST aka target location
+a general solution for the ebuild would be to detect when ~CBUILD != CHOST~ and find the cbuild sbcl
+and fail over to clisp if sbcl is not present, not quite system bootstrap in that case because you could
+somehow provide an alternate sbcl, but that should still be ok, the use of =has_version= is fundamentally
+broken for cross compile in this context (see e.g. [[/usr/lib/portage/pypy3/phase-helpers.sh]])
+
+#+begin_src bash :tangle ./gnu/package-builder/sbcl-cross.env
+src_compile() {
+	local bindir="${WORKDIR}"/sbcl-binary
+	local bootstrap_lisp="sh ${bindir}/run-sbcl.sh --no-sysinit --no-userinit --disable-debugger"
+	local core
+
+	if use system-bootstrap ; then
+		# must set core location since SBCL_HOME is changed below
+		core=$(sbcl --noinform --noprint --quit --eval '(format t "~a~%" sb-ext:*core-pathname*)')
+		bootstrap_lisp="sbcl --core ${core} --no-sysinit --no-userinit --disable-debugger"
+	fi
+
+	# Bug #869434
+	append-cppflags -D_GNU_SOURCE
+
+	# clear the environment to get rid of non-ASCII strings, see bug #174702
+	# set HOME for paludis
+	env - HOME="${T}" PATH="${PATH}" \
+		CC="$(tc-getCC)" AS="$(tc-getAS)" LD="$(tc-getLD)" \
+		CPPFLAGS="${CPPFLAGS}" CFLAGS="${CFLAGS}" ASFLAGS="${ASFLAGS}" LDFLAGS="${LDFLAGS}" \
+		SBCL_HOME="/usr/$(get_libdir)/sbcl" SBCL_SOURCE_ROOT="/usr/$(get_libdir)/sbcl/src" \
+		GNUMAKE=make ./make.sh \
+		"${bootstrap_lisp}" \
+		|| die "make failed"
+
+	# need to set HOME because libpango(used by graphviz) complains about it
+	if use doc; then
+		env - HOME="${T}" PATH="${PATH}" \
+			CL_SOURCE_REGISTRY="(:source-registry :ignore-inherited-configuration)" \
+			ASDF_OUTPUT_TRANSLATIONS="(:output-translations :ignore-inherited-configuration)" \
+			make -C doc/manual info html || die "Cannot build manual"
+		env - HOME="${T}" PATH="${PATH}" \
+			CL_SOURCE_REGISTRY="(:source-registry :ignore-inherited-configuration)" \
+			ASDF_OUTPUT_TRANSLATIONS="(:output-translations :ignore-inherited-configuration)" \
+			make -C doc/internals info html || die "Cannot build internal docs"
+	fi
+}
+#+end_src
+
+Then inside musl =builder-debug=
+#+begin_src bash :tangle ./bin/musl-bootstrap-from-cross-sbcl.sh :mkdirp yes
 emerge --usepkg --nodeps -1q -j4 dev-lisp/asdf dev-lisp/uiop
 emerge --usepkgonly dev-lisp/sbcl || {
 PKGDIR=/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs/ USE='-zstd -system-bootstrap' emerge -K dev-lisp/sbcl
-emerge dev-lisp/sbcl -p
+env-update
+source /etc/profile
+emerge -q dev-lisp/sbcl
 }
+#+end_src
+**** ghc
+XXX this is still broken
+
+1. have to have ghc installed in the build environment
+2. configure for some stage wants ncurses to be present otherwise it will fail
+
+The =/lib/ld-musl-x86_64.so.1= symlink is also necessary for this to
+work as it was in the case of sbcl. This must be a in oversight/bug in
+the cross compilation environment. This hack might allow things that
+link musl directly to work, but I think it also may be deferring the
+issue since the underlying problem without the symlink is that the
+compilers don't work because something is getting crossed up and the
+build process is trying to run musl binaries on a gnu system instead
+of running the gnu equivalents to build the musl bits. This works for
+sbcl because we can disable all linking via use flags, but we can't do
+that with haskell, and as a result the build process tries to run a
+program that it built for another arch in a later step ... which is
+sad and unfortunate. =-gmp= makes no difference because ld is called
+to link different bits of ghc together.
+
+Setting =ROOT=/usr/x86_64-gentoo-linux-musl= also doesn't fix the issue.
+
+#+begin_src bash :tangle ./bin/gnu-cross-musl-ghc.sh
+USE=-doc emerge --usepkg -q -j4 dev-lang/ghc
+x86_64-gentoo-linux-musl-emerge --usepkg --nodeps -q1 sys-libs/ncurses
+USE='ghcbootstrap -doc -gmp' x86_64-gentoo-linux-musl-emerge --usepkg --nodeps -q dev-lang/ghc
+#+end_src
+
+if you can somehow get the cross compile to work then you could run the following
+#+begin_src bash :tangle ./bin/musl-bootstrap-from-cross-ghc.sh
+emerge --onlydeps -1q -j4 --usepkg dev-lang/ghc
+emerge --usepkgonly dev-lang/ghc || {
+PKGDIR=/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs/ USE='ghcbootstrap -doc -gmp' emerge -K dev-lang/ghc
+emerge dev-lang/ghc
+}
+#+end_src
+
+***** issues
+looks like relative paths are not being calculated correctly but are coming from fs root? instead of ROOT ???
+#+begin_example
+x86_64-gentoo-linux-musl-ld: cannot find /usr/x86_64-gentoo-linux-musl/tmp/portage/dev-lang/ghc-9.0.2-r4/temp/ghc2151_0/ghc_8.o inside /usr/x86_64-pc-linux-gnu/x86_64-gentoo-linux-musl/binutils-bin/2.39/../../../../x86_64-gentoo-linux-musl
+x86_64-gentoo-linux-musl-ld: cannot find /usr/x86_64-gentoo-linux-musl/tmp/portage/dev-lang/ghc-9.0.2-r4/temp/ghc2151_0/ghc_7.o inside /usr/x86_64-pc-linux-gnu/x86_64-gentoo-linux-musl/binutils-bin/2.39/../../../../x86_64-gentoo-linux-musl
+`x86_64-gentoo-linux-musl-ld' failed in phase `Merge objects'. (Exit code: 1)
+make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build/GHC/Prim/Ext.o] Error 1
+make[1]: *** Waiting for unfinished jobs....
+x86_64-gentoo-linux-musl-ld: cannot find /usr/x86_64-gentoo-linux-musl/tmp/portage/dev-lang/ghc-9.0.2-r4/temp/ghc2142_0/ghc_6.o inside /usr/x86_64-pc-linux-gnu/x86_64-gentoo-linux-musl/binutils-bin/2.39/../../../../x86_64-gentoo-linux-musl
+x86_64-gentoo-linux-musl-ld: cannot find /usr/x86_64-gentoo-linux-musl/tmp/portage/dev-lang/ghc-9.0.2-r4/temp/ghc2142_0/ghc_5.o inside /usr/x86_64-pc-linux-gnu/x86_64-gentoo-linux-musl/binutils-bin/2.39/../../../../x86_64-gentoo-linux-musl
+`x86_64-gentoo-linux-musl-ld' failed in phase `Merge objects'. (Exit code: 1)
+make[1]: *** [libraries/ghc-prim/ghc.mk:4: libraries/ghc-prim/dist-install/build/GHC/CString.o] Error 1
+make: *** [Makefile:128: ghc/stage2/build/tmp/ghc-stage2] Error 2
+#+end_example
+
+I'm trying to cross compile ghc from gnu -> musl, and the linker is struggling to find the correct path.
+build.log http://sprunge.us/R4Sl23
+It seems that there are two absolute paths being combined, but ld expects the 2nd path to be relative.
+
+possibly due to ROOT issues, or maybe because the makefile has a bug?
+
+***** bug
+#+begin_question :id 1 :type irc :server irc.libera.chat :channel #gentoo
+crossdev question: there are a number of packages e.g. sbcl, ghc where certain paths fail to account for e.g. the /usr/x86_64-gentoo-linux-musl prefix
+the end result is that we wind up with paths like:
+/usr/x86_64-gentoo-linux-musl/usr/x86_64-gentoo-linux-musl/usr/share/common-lisp/source/asdf/version.lisp-expr
+instead of:
+/usr/x86_64-gentoo-linux-musl/usr/share/common-lisp/source/asdf/version.lisp-expr
+in some cases this also breaks the linker
+is there an know way to fix things like this?
+#+end_question
+
+#+begin_answer :id 1
+sam says submit a bug because it seems uncommon
+#+end_answer
+
+#+begin_src bash
+emerge sys-devel/crossdev
+crossdev --stage4 --stable --portage --getbinpkg --target x86_64-gentoo-linux-musl
+x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
+# at this point you can try to build sbcl
+x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl
+
+# this hack allows the sbcl build to succeed, without it the build fails much earlier
+[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-gentoo-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1
+
 #+end_src
 
 ** crossdev
