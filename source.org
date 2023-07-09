@@ -116,6 +116,10 @@ ln -s /mnt/str/portage/.ssh /var/tmp/portage/
 chown -h portage:portage /var/tmp/portage/.ssh
 #+end_src
 
+#+begin_src bash
+runuser -u portage -- ssh -T git@github.com
+#+end_src
+
 ** git ignore
 This takes care of itself.
 #+begin_src conf :tangle .gitignore
@@ -2703,11 +2707,13 @@ docker run \
 tgbugs/musl:nox
 #+end_src
 *** build
+TODO we start from updated here not from pypy3, there is a pypy3/nox profile, but this image is not the pypy3/nox image
 #+name: &musl-build-nox
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:nox \
 --build-arg PROFILE='docker-profile:tgbugs/musl/nox' \
+--build-arg START_IMAGE='tgbugs/musl:updated' \
 --file musl/nox/Dockerfile musl/nox
 #+end_src
 # --build-arg PROFILE_IMAGE='tgbugs/musl:profile-nox' \
@@ -2715,6 +2721,7 @@ tgbugs/musl:nox
 #+begin_src dockerfile :tangle ./musl/nox/Dockerfile
 <<&xorg-nox-common-1>>
 <<&profile-nox>>
+<<&xorg-nox-common-2>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @world \
@@ -3030,7 +3037,7 @@ done
 
 # FIXME SIGH copy paste
 function gnu-builder-bootstrap () {
-container-check
+gnu-container-check
 
 docker run \
 <<&builder-args-gnu>>
@@ -3339,7 +3346,7 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs
 }
 # SIGH
 function gnu-builder-debug () {
-container-check
+gnu-container-check
 docker run \
 --privileged \
 <<&builder-args-gnu>>
@@ -4532,7 +4539,8 @@ dev-db/blazegraph-bin
 #+begin_src bash :tangle ./musl/blazegraph/entrypoint.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
-rc-service blazegraph start
+/etc/init.d/blazegraph start
+tail -f /dev/null
 #+end_src
 
 ** scigraph
@@ -4626,6 +4634,7 @@ x11-misc/xdg-user-dirs
 
 ** kg-release-user
 *** run
+**** default
 Quick link to [[&create-sckan-data]] useful if =sckan-data= has not
 been created or was wiped in a purge.
 
@@ -4675,6 +4684,41 @@ docker run \
 --network=host \
 -e FORWARD_URL_HOST=host.docker.internal \
 -e FORWARD_URL_PORT=59213 \
+-it tgbugs/musl:kg-release-user
+#+end_src
+**** services
+***** blazegraph
+If you are running on some random system that doesn't already have the images, run the following.
+#+begin_src bash :eval never
+docker pull tgbugs/sckan:latest
+docker pull tgbugs/musl:blazegraph
+#+end_src
+
+#+begin_src screen :noweb yes :tangle ./bin/run-sckan-blazegraph.sh
+<<&create-sckan-data-if-not-exists>>
+docker run \
+--detach \
+--volumes-from sckan-data \
+-v ${PWD}/musl/kg-release-user/entrypoints/blazegraph.sh:/etc/entrypoints/blazegraph.sh \
+--entrypoint /etc/entrypoints/blazegraph.sh \
+-p 9999:9999 \
+-it tgbugs/musl:kg-release-user
+#+end_src
+
+To follow the logs you can run the following.
+#+begin_src bash
+docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:kg-release-user) tail -f /var/log/blazegraph/sysout.log
+#+end_src
+
+***** both
+#+begin_src screen :noweb yes :tangle ./bin/run-sckan-services.sh
+<<&create-sckan-data-if-not-exists>>
+docker run \
+--volumes-from sckan-data \
+-v ${PWD}/musl/kg-release-user/entrypoints/services.sh:/etc/entrypoints/services.sh \
+--entrypoint /etc/entrypoints/services.sh \
+-p 9999:9999 \
+-p 9000:9000 \
 -it tgbugs/musl:kg-release-user
 #+end_src
 *** test
@@ -4738,6 +4782,16 @@ touch /run/openrc/softlevel
 su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sckan/welcome.org'
 /etc/init.d/scigraph stop
 /etc/init.d/blazegraph stop
+#+end_src
+
+Entrypoint to start blazegraph and run in the background.
+# FIXME BUILDKIT_PROGRESS='plain' leaking through here somehow but now on orpheus when it tangles?
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/kg-release-user/entrypoints/blazegraph.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/blazegraph start
+tail -f /dev/null
 #+end_src
 
 Entrypoint to start services and run in the background.
