@@ -330,6 +330,8 @@ return $?
 
 <<&builder-debug>>
 
+<<&cross-bootstrap-sbcl>>
+
 function run-profile () {
 <<&build-profile-base>> || return $?;
 <<&build-profile-gnu>> || return $?;
@@ -374,10 +376,10 @@ gnu-container-check
 <<&gnu-run-package-builder-quickpkg>> || return $?
 echo gnu builder start
 [ -z $RESNAP ] || gnu-builder-resnap
+# FIXME this is where BINPKG_FORMAT is not set correctly
 [ ! -z $NOBUILD ] || gnu-builder-bootstrap
 [ ! -z $NOBUILD ] || gnu-builder-world
-<<&gnu-run-cross-musl-sbcl>>
-<<&gnu-build-musl-cross-sbcl>>
+[ ! -z $NOBUILD ] || gnu-cross-musl-sbcl
 }
 
 function run-musl () {
@@ -402,17 +404,17 @@ container-check
   # TODO conditional to speed things up
   # <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
 
+  <<&musl-build-nox>> || return $?; echo mbnox;
+  <<&musl-run-nox-quickpkg>> || return $?; echo mrnoxq;
+
+  <<&musl-build-openjdk-nox>> || return $?; echo mbnoxjdk;
+    <<&musl-run-openjdk-nox-quickpkg>> || return $?; echo mrnoxjdkq;
+
+  <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
+  <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
+
   <<&musl-build-pypy3>> || return $?; echo mbpypy3;
     <<&musl-run-pypy3-quickpkg>> || return $?; echo mrpypy3q;
-
-    <<&musl-build-nox>> || return $?; echo mbnox;
-    <<&musl-run-nox-quickpkg>> || return $?; echo mrnoxq;
-
-    <<&musl-build-openjdk-nox>> || return $?; echo mbnoxjdk;
-      <<&musl-run-openjdk-nox-quickpkg>> || return $?; echo mrnoxjdkq;
-
-    <<&musl-build-package-builder-nox>> || return $?; echo mbpbn;
-    <<&musl-build-binpkg-only-nox>> || return $?; echo mbbon;
 
     # XXX this is the point at which things split into musl and musl/x
     <<&musl-build-xorg>> || return $?; echo mbx;
@@ -439,7 +441,9 @@ if [ -z $ONLY_STATIC ]; then
 # TODO build any new packages
 echo musl builder start
 [ -z $RESNAP ] || builder-resnap
-[ ! -z $NOBUILD ] || builder-bootstrap
+# FIXME autodetect the --no-build case
+[ ! -z $NOBUILD ] || builder-bootstrap || return $?
+[ ! -z $NOBUILD ] || musl-bootstrap-sbcl || return $?
 # FIXME this needs to run with --getbinpkg
 [ ! -z $NOBUILD ] || \
 <<&musl-run-build-need-priv>>
@@ -452,8 +456,18 @@ fi
 echo musl static builder start
 [ -z $RESNAP ] || static-builder-resnap
 # TODO static-builder-bootstrap
+# TODO see if we need to musl-bootstrap-sbcl here too
+# FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || static-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
 [ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild || return $?  # no live builds right now
+
+
+echo musl nox builder start
+[ -z $RESNAP ] || nox-builder-resnap
+# TODO nox-builder-bootstrap
+# FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
+[ ! -z $NOBUILD ] || nox-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
+# [ -z $LIVE_REBUILD ] || nox-builder-smart-live-rebuild || return $?  # no live builds right now
 
 # TODO consider whether we need to rebuild baselayout openrc sgml-common due to config issues with quickpkg
 
@@ -477,6 +491,9 @@ echo start image builds
 <<&musl-build-kg-release-user>> || return $?; echo mbkgru;
 <<&musl-build-kg-dev>> || return $?; echo mbkgd;
 <<&musl-build-kg-dev-user>> || return $?; echo mbkgdu;
+
+## services
+<<&musl-build-blazegraph>> || return $?; echo mbb;
 
 ## sbcl
 <<&musl-build-sbcl>> || return $?; echo mbsbcl;
@@ -1433,6 +1450,7 @@ FIXME see if we actually need this, I think we might due to klobbering by =COPY=
 dev-java/icedtea headless-awt
 dev-java/openjdk headless-awt
 dev-java/openjdk-bin headless-awt
+virtual/jdk headless-awt
 #+end_src
 
 ** pypy3
@@ -2722,6 +2740,7 @@ TODO we start from updated here not from pypy3, there is a pypy3/nox profile, bu
 <<&xorg-nox-common-1>>
 <<&profile-nox>>
 <<&xorg-nox-common-2>>
+<<&xorg-nox-common-3>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @world \
@@ -2931,9 +2950,11 @@ _path_ssh=${_path_ssh:-<<&host-ssh-path()>>}
 
 _tm_pb=${_tm_pb:-tgbugs/musl:package-builder}
 _tm_s_pb=${_tm_s_pb:-tgbugs/musl:static-package-builder}
+_tm_n_pb=${_tm_s_pb:-tgbugs/musl:package-builder-nox}
 
 _tm_pbs=${_tm_pbs:-${_tm_pb}-snap}
 _tm_s_pbs=${_tm_s_pbs:-${_tm_s_pb}-snap}
+_tm_n_pbs=${_tm_n_pbs:-${_tm_n_pb}-snap}
 
 _tg_pb=${_tg_pb:-tgbugs/gnu:package-builder}
 
@@ -2951,6 +2972,10 @@ docker commit $(docker ps -lqf ancestor=${_tm_pb}) ${_tm_pbs}
 function static-builder-resnap () {
 docker run ${_tm_s_pb}
 docker commit $(docker ps -lqf ancestor=${_tm_s_pb}) ${_tm_s_pbs}
+}
+function nox-builder-resnap () {
+docker run ${_tm_n_pb}
+docker commit $(docker ps -lqf ancestor=${_tm_n_pb}) ${_tm_n_pbs}
 }
 function gnu-builder-resnap () {
 docker run ${_tg_pb}
@@ -3092,6 +3117,8 @@ _axis=${1}
 
 if [ "${_axis}" = "static" ]; then
 _builder=${_tm_s_pbs}
+elif [ "${_axis}" = "nox" ]; then
+_builder=${_tm_n_pbs}
 elif [ "${_axis}" = "gnu" ]; then
 _builder=${_tg_pbs}
 else
@@ -3146,7 +3173,12 @@ function static-builder-world () {
    builder-world static
 }
 
+function nox-builder-world () {
+   builder-world nox
+}
+
 function gnu-builder-world () {
+   # FIXME incorrectly pulls in the cross-sbcl volume
    builder-world gnu
 }
 #+end_src
@@ -3159,7 +3191,7 @@ container-check
 docker run \
 <<&builder-args>>
 ${_tm_pbs} \
-${@}
+"${@}"
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
@@ -3170,7 +3202,7 @@ container-check
 docker run \
 <<&builder-args-gnu>>
 ${_tg_pbs} \
-${@}
+"${@}"
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
 }
@@ -3181,9 +3213,20 @@ container-check
 docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
-${@}
+"${@}"
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+}
+
+function nox-builder-run () {
+# rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
+container-check
+docker run \
+<<&builder-args>>
+${_tm_n_pbs} \
+"${@}"
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_n_pbs}) ${_tm_n_pbs}
 }
 
 function builder-smart-live-rebuild () {
@@ -3214,7 +3257,7 @@ docker run \
 <<&builder-args>>
 ${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
-${@}
+"${@}"
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
 }
@@ -3226,7 +3269,7 @@ docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
-${@}
+"${@}"
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
@@ -3343,6 +3386,16 @@ docker run \
 -it ${_tm_s_pbs}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+}
+function nox-builder-debug () {
+container-check
+docker run \
+--privileged \
+<<&builder-args>>
+"${@}" \
+-it ${_tm_n_pbs}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_n_pbs}) ${_tm_n_pbs}
 }
 # SIGH
 function gnu-builder-debug () {
@@ -3619,6 +3672,7 @@ media-fonts/dejavu
 #+name: &quickpkg-image
 #+begin_src bash
 function quickpkg-image () {
+container-check  # FIXME what if we want to snap when we only have local-portage-snap?
 docker run \
 --volumes-from local-repos-snap \
 -v "${_path_binpkgs}":/var/cache/binpkgs \
@@ -3657,10 +3711,10 @@ remember whether binpkgs check use flags.
 #+name: world-package-builder-nox
 #+begin_src conf :tangle ./musl/package-builder/nox.world
 <<world-debug>>
-<<world-emacs>>
 <<world-dynapad-base>>
 <<world-python>>
 <<world-schemes>>
+<<world-blazegraph>>
 <<world-package-builder-common>>
 dev-lisp/sbcl
 #+end_src
@@ -3746,6 +3800,18 @@ FROM tgbugs/musl:xorg
 #+end_src
 
 ** binpkg-only-nox
+*** run
+debug
+#+begin_src screen
+docker run \
+--net host \
+--add-host local.binhost:127.0.0.1 \
+--volumes-from local-repos-snap \
+-v /mnt/str/portage/distfiles:/var/cache/distfiles \
+--rm \
+-it tgbugs/musl:binpkg-only-nox
+#+end_src
+
 *** build
 #+name: &musl-build-binpkg-only-nox
 #+begin_src screen
@@ -4512,8 +4578,28 @@ docker run \
 -p 9999:9999 \
 -it tgbugs/musl:blazegraph
 #+end_src
+**** services
+If you are running on some random system that doesn't already have the images, run the following.
+#+begin_src bash :eval never
+docker pull tgbugs/sckan:latest
+docker pull tgbugs/musl:blazegraph
+#+end_src
+
+#+begin_src screen :noweb yes :tangle ./bin/run-sckan-blazegraph.sh
+<<&create-sckan-data-if-not-exists>>
+docker run \
+--detach \
+--volumes-from sckan-data \
+-p 9999:9999 \
+-it tgbugs/musl:blazegraph
+#+end_src
+
+#+begin_src bash
+docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:blazegraph) tail -f /var/log/blazegraph/sysout.log
+#+end_src
 
 *** build
+#+name: &musl-build-blazegraph
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:blazegraph \
@@ -4688,13 +4774,7 @@ docker run \
 #+end_src
 **** services
 ***** blazegraph
-If you are running on some random system that doesn't already have the images, run the following.
-#+begin_src bash :eval never
-docker pull tgbugs/sckan:latest
-docker pull tgbugs/musl:blazegraph
-#+end_src
-
-#+begin_src screen :noweb yes :tangle ./bin/run-sckan-blazegraph.sh
+#+begin_src screen :noweb yes
 <<&create-sckan-data-if-not-exists>>
 docker run \
 --detach \
@@ -6416,48 +6496,6 @@ FEATURES="${FEATURES} binpkg-multi-instance"
 EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"  # FIXME portageq shows bru opt twice ??
 #+end_src
 
-#+begin_src bash
-gnu-builder-run emerge -q -j4 dev-lisp/sbcl
-# FIXME env-update and source /etc/profile are needed to ensure that SBCL_HOME is set correctly in the environment after install
-# otherwise sbcl will look for sbcl.core in the current directory (making it look like the package is broken)
-gnu-builder-run env-update
-gnu-builder-run source /etc/profile
-#+end_src
-
-#+begin_src bash :tangle ./bin/gnu-cross-musl-sbcl.sh
-gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  # FIXME not sure if needed
-
-# TODO in bootstrap maybe? or something else to replace the build annoyances?
-docker run \
--v ${PWD}/gnu/package-builder/sbcl-cross.env:/tmp/sbcl-cross.env \
--v ${PWD}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
--v ${PWD}/gnu/package-builder/cross-make.defaults:/tmp/cross-make.defaults \
-${_tg_pbs} \
-sh -c \
-"
-mkdir -p               /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp
-cp /tmp/sbcl-cross.env /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp/sbcl
-mkdir -p        /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/;\
-cp /tmp/99-sbcl /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/99-sbcl;\
-cat /tmp/cross-make.defaults >> /usr/x86_64-gentoo-linux-musl/etc/portage/make.conf\
-"
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}  # TODO possibly write to own lineage or make own script and --rm
-
-# this symlink is critical to get the whole thing to work otherwise the tools-for-build/determine-endianness error will show up
-gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-gentoo-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1'
-# the symlink trick we do for ld doesn't work for libzstd so have to
-# USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
-#gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl"
-#gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
-
-# FIXME somehow only x86_64-pc-linux-musl-emerge is installed? did we miss a cross build?
-# since we have sbcl installed on the builder we can use system-bootstrap to reduce useflag noise
-gnu-builder-run \
-sh -c 'USE=system-bootstrap x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl'
-# reminder can't use LD_LIBRARY_PATH=/usr/x86_64-gentoo-linux-musl/usr/lib because it breaks the builder (gnu) binaries
-#+end_src
-
 work around lack of cross compile support in =src_compile= during system-bootstrap
 and also do not reset because we have to use the
 get the core location for host sbcl for bootstrap_lisp since =SBCL_HOME= is reset to point to CHOST aka target location
@@ -6505,16 +6543,95 @@ src_compile() {
 }
 #+end_src
 
-Then inside musl =builder-debug=
+Script to use to cross-built sbcl to build a native built musl sbcl.
+#+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./bin/musl-bootstrap-from-cross-sbcl.sh :mkdirp yes
 emerge --usepkg --nodeps -1q -j4 dev-lisp/asdf dev-lisp/uiop
 emerge --usepkgonly dev-lisp/sbcl || {
+# we don't need to be able to merge old versions that are not in tree
+# because once we cross bootstrap our pure musl process with system-bootstrap
+# will keep everything up to date, yes a new system will have to bootstrap from
+# a new version, but that is a given, XXX watch out for missing ebuild after long period of not updating though?
 PKGDIR=/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs/ USE='-zstd -system-bootstrap' emerge -K dev-lisp/sbcl
 env-update
 source /etc/profile
+emerge -q --buildpkg=n dev-lisp/sbcl
+# double rebuild for completeness, not strictly required, but keeps the provenance simpler
 emerge -q dev-lisp/sbcl
 }
 #+end_src
+
+#+name: &cross-bootstrap-sbcl
+#+begin_src screen
+function gnu-cross-musl-sbcl () {
+# FIXME super hacked way to determine whether we already bootstrapped
+{ [ -z "$(ls -A ${_path_binpkgs_root}/cross/gnu/x86_64-gentoo-linux-musl/dev-lisp/sbcl)" ] && gnu-cross-musl-sbcl-build; } || return 0
+}
+
+function gnu-cross-musl-sbcl-build () {
+# build the starting glibc linked sbcl
+gnu-builder-run emerge -q -j4 dev-lisp/sbcl
+# FIXME env-update and source /etc/profile are needed to ensure that SBCL_HOME is set correctly in the environment after install
+# otherwise sbcl will look for sbcl.core in the current directory (making it look like the package is broken)
+gnu-builder-run env-update
+# gnu-builder-run source /etc/profile
+
+gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  # FIXME not sure if needed
+
+# configure the gnu cross to musl environment
+# must use x86_64-gentoo-linux-musl NOT x86_64-pc-linux-musl because the gentoo musl images are x86_64-gentoo-linux-musl
+docker run \
+-v ${PWD}/gnu/package-builder/sbcl-cross.env:/tmp/sbcl-cross.env \
+-v ${PWD}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
+-v ${PWD}/gnu/package-builder/cross-make.defaults:/tmp/cross-make.defaults \
+${_tg_pbs} \
+sh -c \
+"
+mkdir -p               /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp
+cp /tmp/sbcl-cross.env /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp/sbcl
+mkdir -p        /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/;\
+cp /tmp/99-sbcl /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/99-sbcl;\
+cat /tmp/cross-make.defaults >> /usr/x86_64-gentoo-linux-musl/etc/portage/make.conf\
+"
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}  # TODO possibly write to own lineage or make own script and --rm
+
+# this symlink is critical to get the whole thing to work otherwise the tools-for-build/determine-endianness error will show up
+# FIXME the string is getting split when passing through the function
+gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-gentoo-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1'
+# the symlink trick we do for ld doesn't work for libzstd so have to
+# USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
+#gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl"
+#gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
+
+# FIXME somehow only x86_64-pc-linux-musl-emerge is installed? did we miss a cross build?
+# since we have sbcl installed on the builder we can use system-bootstrap to reduce useflag noise
+gnu-builder-run sh -c 'USE=system-bootstrap x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl'
+# reminder can't use LD_LIBRARY_PATH=/usr/x86_64-gentoo-linux-musl/usr/lib because it breaks the builder (gnu) binaries
+}
+
+function musl-bootstrap-sbcl () {
+# finish the bootstrap to produce the musl sbcl binpkg by building in the musl builder itself
+builder-run musl-bootstrap-from-cross-sbcl.sh
+# this has the nice side effect that we ensure that the native sbcl is always present in the builder
+# so that any updates to sbcl will be able to use system-bootstrap without issue
+# FIXME we do need to watch out for cases where we lose and ebuild for an older version
+# but I think portage may handle that automatically for us? not quite sure
+}
+
+function cross-bootstrap-sbcl () {
+# all together now
+gnu-cross-musl-sbcl
+musl-bootstrap-sbcl
+}
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :noweb yes :tangle ./bin/gnu-cross-musl-sbcl.sh
+<<&cross-bootstrap-sbcl>>
+cross-bootstrap-sbcl
+#+end_src
+
 **** ghc
 XXX this is still broken
 
@@ -7515,6 +7632,8 @@ FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(emerge -p @docker | grep -o 'acct-
 ;  [[ -n ${ARCHIVE} ]] \
 || { rm -r /var/cache/distfiles/* > /dev/null 2>&1 \
    ; rm -r /var/cache/binpkgs/* > /dev/null 2>&1 \
+   ; rm -r /var/log/portage/elog/summary.log > /dev/null 2>&1 \
+   ; rm -r /var/log/emerge-fetch.log > /dev/null 2>&1 \
    ; rm -r /var/log/emerge.log > /dev/null 2>&1;} \
 ;  exit $CODE
 #+end_src
