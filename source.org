@@ -599,6 +599,7 @@ the old package keeps getting pulled in the solution is as follows
 (example was for setuptools_scm when it was renamed to setuptools-scm)
 it might be possible with the new gpkg format to rewrite the embedded metadata
 but for now doing a full rebuild is guaranteed safe
+# consider eclean packages ??? no, it doesn't do what we want, emaint movebin is much closer
 #+begin_src bash
 function clean-moved-deps () {
 pushd /var/cache/binpkgs
@@ -609,6 +610,8 @@ echo rm $(grep -ral ${_pkgname} --include='*.xpak' --include='*.gpkg.tar')
 echo emaint binhost
 # make sure it looks right
 echo emaint binhost --fix
+echo emaint movebin
+echo emaint movebin --fix
 popd
 }
 #+end_src
@@ -811,6 +814,7 @@ docker build \
 #+end_src
 
 *** file
+# FIXME split these out so they go in their own images and don't cause global rebuilds
 #+name: &profile-adds
 #+begin_src dockerfile
 # we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
@@ -828,9 +832,9 @@ ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbit
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
 ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
-ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3-exe/musl-include-sys-time.patch
-ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3-exe/musl-fix-stdio-defs.patch
-ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3/json-str-subclass-safety.patch
+ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3_x-exe/musl-include-sys-time.patch
+ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3_x-exe/musl-fix-stdio-defs.patch
+ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3_x/json-str-subclass-safety.patch
 ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
 #+end_src
 
@@ -1119,6 +1123,8 @@ dev-lisp/sbcl ~amd64
 # pypy3
 dev-python/pypy3-exe ~amd64
 dev-python/pypy3 ~amd64
+dev-python/pypy3_10-exe ~amd64
+dev-python/pypy3_10 ~amd64
 #+end_src
 # probably have to put dev-python/*::tgbugs-overlay in /etc/portage/package.accept_keywords/profile
 # dev-python/pyontutils ~amd64
@@ -1165,6 +1171,8 @@ media-libs/gd truetype fontconfig
 # pypy3
 dev-python/pypy3-exe jit
 dev-python/pypy3 sqlite
+dev-python/pypy3_10-exe jit
+dev-python/pypy3_10 sqlite
 
 # uwsgi needs at least one backend enabled
 www-servers/uwsgi python
@@ -1966,7 +1974,8 @@ FROM gentoo/stage3:amd64-musl-hardened
 <<&gentoo-file-eselect-repo-common-2>>
 
 RUN \
-eselect profile set docker-profile:tgbugs/musl
+eselect profile set docker-profile:tgbugs/musl \
+&& env-update
 
 <<&gentoo-file-eselect-repo-common-3>>
 
@@ -2296,6 +2305,8 @@ for variant in "${statics[@]}"; do  # have to quote the array unpacking so that 
   for prof in "${xorgs[@]}"; do
     profile=${profile_base}${variant}${prof}
     eselect profile set ${profile} # || return $?
+    env-update
+    source /etc/profile
     echo build package ${@} for ${profile}
     # TODO tweak the options here XXX NOTE usually going to want to use image meta ebuilds or sets to avoid switching profiles between package builds
     # FIXME --buildpkgonly means that --onlydeps --onlydeps-with-rdeps=n probably needs to be run first?
@@ -2306,6 +2317,8 @@ for variant in "${statics[@]}"; do  # have to quote the array unpacking so that 
   done
 done
 eselect profile set ${profile_base}
+env-update
+source /etc/profile
 }
 #+end_src
 
@@ -2353,6 +2366,11 @@ FROM tgbugs/musl:updated
 # starting from package builder or something like that
 <<&python-targets-common>>
 
+RUN \
+ln -s pypy3_x /etc/portage/patches/dev-python/pypy3_10 \
+&& ln -s pypy3_x-exe /etc/portage/patches/dev-python/pypy3_10-exe
+
+# FIXME /emerge-fail and &archive-or-rm have a very bad interaction
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @system @world eselect-python \
    --getbinpkg \
@@ -2630,7 +2648,8 @@ FROM ${START_IMAGE}
 ARG PROFILE=docker-profile:tgbugs/musl/x
 
 RUN \
-eselect profile set $PROFILE
+eselect profile set $PROFILE \
+&& env-update
 
 # cut here if you need to quickpkg to avoid some brokeness
 #+end_src
@@ -2854,6 +2873,21 @@ instance setup.
 #+begin_src jupyter-python :session pys :tangle ./bin/quickpkg-new :mkdirp yes
 import portage
 from portage.versions import _pkg_str
+from portage.gpkg import gpkg
+
+def contents_csums(contents):
+    return sorted([l.split()[2] for l in contents.split('\n') if l.startswith('obj')])
+
+def pkg_csums(bintree, atom):
+    # XXX can use from portage.binpkg import get_binpkg_format
+    # to displatch on package tyupe if we really need it
+    pkg = gpkg(settings=bintree.settings, gpkg_file=bintree.pkgdir + '/' + atom._metadata['PATH'])
+    _contents = pkg.get_metadata('CONTENTS')
+    if _contents:
+        contents = _contents.decode()
+        return contents_csums(contents)
+    else:
+        object()  # don't match anything
 
 def atoms_to_package():
     eroot = portage.settings['EROOT']
@@ -2865,21 +2899,24 @@ def atoms_to_package():
     installed = vartree.dbapi.cpv_all()
     packaged, not_packaged, misses = [], [], {}
     for i in installed:
-        bt, bi, use = vardb.aux_get(i, ['BUILD_TIME', 'BUILD_ID', 'USE'])
+        bt, bi, use, contents = vardb.aux_get(i, ['BUILD_TIME', 'BUILD_ID', 'USE', 'CONTENTS'])
         bt = int(bt) if bt else -1
         bi = int(bi) if bi else -1
+        csums = contents_csums(contents)
         # yes build id has issues for some reason that I don't entirely understand
         matches = [a for a in bintree.dbapi.match(i) if
-                   (a.build_time == bt and
-                    #a.build_id == bi and
-                    a._metadata['USE'] == use)]
+                   (a._metadata['USE'] == use and
+                    (a.build_time == bt or
+                     #a.build_id == bi and
+                     csums == pkg_csums(bintree, a)))]
         if matches:
             packaged.append(i)
         else:
             misses[i] = [a for a in bintree.dbapi.match(i) if not
-                         (a.build_time == bt and
-                          #a.build_id == bi and
-                          a._metadata['USE'] == use)]
+                         (a._metadata['USE'] == use and
+                          (a.build_time == bt or
+                           #a.build_id == bi and
+                           csums == pkg_csums(bintree, a)))]
             not_packaged.append(i)
             #[[l.build_id for l in [k] + v] for k, v in misses.items()]
             #[[l.build_time for l in [k] + v] for k, v in misses.items()]
@@ -3135,7 +3172,7 @@ docker run \
 --rm \
 <<&builder-args>>
 ${_builder} \
-sh -c 'set -o pipefail; emerge --color=n --with-bdeps=y -q -uDN -p @docker | grep "\(^\[ebuild\|acct-\)" | cut -b17- | awk '"'"'{ print "="$1 }'"'")
+sh -c 'set -o pipefail; emerge --color=n --with-bdeps=y -q -uDN -p @docker | { grep "\(^\[ebuild\|acct-\)" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'")
 # XXX acct- is a workaround for https://bugs.gentoo.org/890777
 
 OUT=$?
@@ -3143,8 +3180,13 @@ OUT=$?
 
 [ "${targets}" ] || return 0  # we're done here
 
+targets_group=$(echo ${targets} | awk -v RS='\\s' '/^=acct-group/')
+targets_nogroup=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-group/')
+
 echo only target bdeps
 # emerge only build dependencies of targets
+# FIXME for some reason there are sporadic package rebuilds that are being missed here
+# e.g. due to slot depends changes
 container-check
 docker run \
 <<&builder-args>>
@@ -3155,17 +3197,31 @@ OUT=$?
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
 [ ${OUT} -eq 0 ] || return ${OUT}
 
-echo only targets
-# emerge only targets
+[ "${targets_group}" ] && {
+echo only acct-group targets  # XXX avoid --nodeps order issues
 container-check
 docker run \
 <<&builder-args>>
 ${_builder} \
-emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets}
+emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets_group}
+
+OUT=$?
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
+[ ${OUT} -eq 0 ] || return ${OUT}
+}
+
+[ "${targets_nogroup}" ] && {
+echo only targets not acct-group
+container-check
+docker run \
+<<&builder-args>>
+${_builder} \
+emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets_nogroup}
 
 OUT=$?
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
 return $OUT
+}
 }
 
 # FIXME SIGH code dupe
@@ -6363,7 +6419,8 @@ FROM gentoo/stage3:amd64-hardened-openrc
 <<&gentoo-file-eselect-repo-common-2>>
 
 RUN \
-eselect profile set docker-profile:tgbugs/gnu
+eselect profile set docker-profile:tgbugs/gnu \
+&& env-update
 
 <<&gentoo-file-eselect-repo-common-3>>
 #+end_src
