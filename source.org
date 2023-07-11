@@ -2987,7 +2987,7 @@ _path_ssh=${_path_ssh:-<<&host-ssh-path()>>}
 
 _tm_pb=${_tm_pb:-tgbugs/musl:package-builder}
 _tm_s_pb=${_tm_s_pb:-tgbugs/musl:static-package-builder}
-_tm_n_pb=${_tm_s_pb:-tgbugs/musl:package-builder-nox}
+_tm_n_pb=${_tm_n_pb:-tgbugs/musl:package-builder-nox}
 
 _tm_pbs=${_tm_pbs:-${_tm_pb}-snap}
 _tm_s_pbs=${_tm_s_pbs:-${_tm_s_pb}-snap}
