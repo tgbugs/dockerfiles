@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: f235e527196af45f7100f91aa4de157591c86566ddc047cb3640868ef27d739c; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: cfd996247cf8665c7dbc72b71c00ec97f4a97155bdf09f8e9b94b1cc158aff2f; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -8087,7 +8087,11 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
           ;; run build
           ;; TODO block until build finishes or fails
           (fix-ocbe-source)
-          (execute-src-block "workflow-cli"))
+          (let ((process (execute-src-block "workflow-cli")))
+            ;; prevent emacs exit from killing the subprocess before it has finished
+            ;; send to the screen session
+            (while (eq (process-status process) 'run)
+              (sleep-for 0.1))))
         (when build-image ; FIXME sometimes leaving from this can still produce Wrong type argument: keymapp, nil
           (fix-ocbe-source)
           (if cli-images
