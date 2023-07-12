@@ -553,7 +553,6 @@ following after checking that they work as expected.
 #+begin_src bash
 for _image in $(docker images \
 --filter=reference="tgbugs/musl:*" \
---filter=reference="tgbugs/repos:*" \
 --filter=since='tgbugs/musl:eselect-repo' \
 --format "{{.Repository}}:{{.Tag}}" | grep -v snap);
 do
@@ -563,10 +562,15 @@ done
 
 Other things images we don't push right now.
 #+begin_src bash
+--filter=reference="tgbugs/repos:*" \
 --filter=reference="tgbugs/common:*" \
 --filter=reference="tgbugs/gnu:*" \
 --filter=reference="tgbugs/docker-profile:*" \
 #+end_src
+
+DO NOT PUSH directly to =tgbugs/repos:latest= because there is currently
+no way to prevent docker build from pulling an ancient and outdated repo
+during bootstrap if one does not already exist.
 
 ** Emergency quickpkg
 Sometimes you don't want to wait to get to the package builder step
@@ -2227,7 +2231,7 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/package-builder/musl.Dockerfile
 FROM tgbugs/musl:updated
 
-COPY --from=tgbugs/musl:portage-maven / /
+COPY --from=tgbugs/common:portage-maven / /
 
 <<&profile-all-not-libc>>
 
@@ -3506,7 +3510,7 @@ docker build \
 # COPY patches /etc/portage/patches
 #+name: &musl-package-builder-common
 #+begin_src dockerfile
-COPY --from=tgbugs/musl:portage-maven / /
+COPY --from=tgbugs/common:portage-maven / /
 
 ADD repo_name /var/db/crossdev/profiles/repo_name
 ADD layout.conf /var/db/crossdev/metadata/layout.conf
@@ -7267,6 +7271,84 @@ VOLUME /sbcl
 #+end_src
 
 * other
+** bootstrap attempt 3
+XXX just stick with tgbugs/musl:docker at this point I think?
+in the host environment you must already have
+1. docker
+2. +git+ nope, you just need to be able to see this section of the file
+3. +emacs+ nope, just copy and paste
+
+debug build
+#+begin_src sh
+docker run \
+-v /var/run/docker.sock:/var/run/docker.sock \
+-v ${PWD}:/dockerfiles \
+-u ${UID} \
+--rm \
+-it \
+alpine:latest
+#+end_src
+
+On windows.
+#+begin_src powershell
+docker run -v //var/run/docker.sock:/var/run/docker.sock --rm -it alpine:latest
+#+end_src
+
+step 0 don't use =docker build= at this level (duh!?)
+#+begin_src bash
+docker run \
+-v /var/run/docker.sock:/var/run/docker.sock \
+-v ${PWD}:/dockerfiles \
+-u ${UID} \
+alpine:latest \
+/dockerfiles/bin/alpine-bootstrap
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle bin/alpine-bootstrap
+DUID=48
+
+addgroup -g ${DUID} docker
+
+apk add bash docker emacs-nox git screen
+apk add curl python3 # missed these one, needed to run the pkghost for the time being
+apk add xdg-user-dirs
+
+UID=1000
+USER_NAME=user
+
+addgroup -g ${UID} ${USER_NAME} \
+&& adduser -HD -u ${UID} -G ${USER_NAME} ${USER_NAME} \
+&& adduser ${USER_NAME} docker
+
+xdg-user-dirs-update
+
+git clone https://github.com/tgbugs/dockerfiles.git
+
+dockerfiles/source.org setup  # TODO
+
+cd dockerfiles
+
+# watch out sometimes this can fail on first run?
+# or uh, er running ./source.org build in it kills it?
+# do the screen thing below (still debugging)
+screen -s /bin/bash -dmS org-session -t server
+_screen_socket=$(screen -ls | grep org-session | awk '{ print $1 }')
+
+# XXX if something is misconfigured this can cause screen to terminate ???
+# possibly due to missing python and/or missing curl? or possibly due to having only a single screen open? not clear
+# looks like it was due to missing curl or missing python, or missing them and running in busybox sh or something?
+./source.org build  # to start the binpkg server
+
+# the screen manual is useless the behavior is insane and inconsistent
+# but apparently this invocation will create and switch to the new window
+# I have no idea how to get the forsaken thing to switch from cli if you
+# somehow create a screen without a title so here we are ...
+screen -S ${_screen_socket} -X screen -t build
+
+./source.org build --repos # to bootstrap the images we need on the real system, the bootstrap environment has e.g. the distfiles, but
+#+end_src
+
 ** alpine bootstrap
 Barely working and incomplete bootstrap in alpine.
 Might be useful for CI depending on how well the
@@ -7886,7 +7968,13 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
 ;; binpkgs path
 ;; portage ssh keys
 ;; distcc hosts file
-(make-directory)
+
+  ;; in alpine:latest around 2023-07-11 it seems to be sufficient to just set the binpkgs paths
+  ;; at least when running in windows for bootstrap we don't seem to need any further configuration
+  (let ((bp "~/files/binpkgs"))
+    (make-directory (expand-file-name "multi" bp))
+    (make-directory (expand-file-name "cross/gnu/x86_64-pc-linux-musl" bp)) ; keep it around just in case
+    (make-directory (expand-file-name "cross/gnu/x86_64-gentoo-linux-musl" bp)))
 )
 
 (defun fix-ocbe-source ()
