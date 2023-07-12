@@ -7273,7 +7273,23 @@ VOLUME /sbcl
 
 * other
 ** bootstrap attempt 3
-XXX just stick with tgbugs/musl:docker at this point I think?
+So, this nearly works, except for the fact that you can't actually
+use bind mounts from inside a nested docker container because the
+mount source location is always on the docker daemon file system
+not on the client file system (sigh). You can't even find it in
+the normal docker wsl container and it pollution remains forever.
+
+In conclusion. If you need to do this on windows, just do it in wsl2
+directly e.g. via an ubuntu vm and don't bother with trying to use
+docker windows for the bootstrap/build process, you can push the
+images somewhere and pull the back to windows if you need them much
+more easily.
+
+There is still the issue of the mismatch between the daemon file
+system and the client file system with the docker socket approach, but
+just think host thoughts and you can fly (sigh). Have to run the binpkgs
+mkdir setup bit on the host/daemon file system.
+
 in the host environment you must already have
 1. docker
 2. +git+ nope, you just need to be able to see this section of the file
@@ -7283,8 +7299,7 @@ debug build
 #+begin_src sh
 docker run \
 -v /var/run/docker.sock:/var/run/docker.sock \
--v ${PWD}:/dockerfiles \
--u ${UID} \
+-e _UID=${UID} \
 --rm \
 -it \
 alpine:latest
@@ -7299,8 +7314,7 @@ step 0 don't use =docker build= at this level (duh!?)
 #+begin_src bash
 docker run \
 -v /var/run/docker.sock:/var/run/docker.sock \
--v ${PWD}:/dockerfiles \
--u ${UID} \
+-u ${_UID} \
 alpine:latest \
 /dockerfiles/bin/alpine-bootstrap
 #+end_src
@@ -7311,15 +7325,19 @@ DUID=48
 
 addgroup -g ${DUID} docker
 
-apk add bash docker emacs-nox git screen
+apk add bash emacs-nox git screen
 apk add curl python3 # missed these one, needed to run the pkghost for the time being
 apk add xdg-user-dirs
+apk add docker
+# hrm!? (no, doesn't work, because windows weirdness)
+#apk add podman
+#ln -s podman /usr/bin/docker
 
-UID=1000
+_UID=1000
 USER_NAME=user
 
-addgroup -g ${UID} ${USER_NAME} \
-&& adduser -HD -u ${UID} -G ${USER_NAME} ${USER_NAME} \
+addgroup -g ${_UID} ${USER_NAME} \
+&& adduser -HD -u ${_UID} -G ${USER_NAME} ${USER_NAME} \
 && adduser ${USER_NAME} docker
 
 xdg-user-dirs-update
