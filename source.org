@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: c49d7aafbde863f449ab36a5482d52a5715bd4b0d9b8d130aeff899f3199b68e; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: f235e527196af45f7100f91aa4de157591c86566ddc047cb3640868ef27d739c; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -7972,10 +7972,9 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
   ;; in alpine:latest around 2023-07-11 it seems to be sufficient to just set the binpkgs paths
   ;; at least when running in windows for bootstrap we don't seem to need any further configuration
   (let ((bp "~/files/binpkgs"))
-    (make-directory (expand-file-name "multi" bp))
-    (make-directory (expand-file-name "cross/gnu/x86_64-pc-linux-musl" bp)) ; keep it around just in case
-    (make-directory (expand-file-name "cross/gnu/x86_64-gentoo-linux-musl" bp)))
-)
+    (cl-loop
+     for sp in '("multi" "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
+     do (make-directory (expand-file-name sp bp) 'parents))))
 
 (defun fix-ocbe-source ()
   "it would seem that blanking `enable-local-eval' resets this"
