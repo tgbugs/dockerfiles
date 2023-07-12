@@ -2213,11 +2213,11 @@ TODO mount =/tmp/= and =/var/tmp/= to ramdisk to avoid blasting the ssd more tha
 #+begin_src screen
 docker run \
 --volumes-from local-repos-snap \
---volumes-from cross-sbcl \
 -v "${_path_binpkgs}":/var/cache/binpkgs \
 -v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
 -it tgbugs/musl:package-builder-musl
 #+end_src
+# --volumes-from cross-sbcl \
 *** build
 #+name: &musl-build-package-builder-musl
 #+begin_src screen
@@ -3052,12 +3052,13 @@ docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 # are actually accessible and/or that we are running with network host
 # the issue was actually that the ssh connections timed out and reset
 # so there were no hosts and distcc was segfaulting as a result, fun bug
+# --volumes-from cross-sbcl \
 #+name: &builder-args
 #+begin_src bash :noweb yes
---volumes-from cross-sbcl \
 <<&builder-args-gnu>>
 #+end_src
 
+# FIXME cross build repos missing proper configuration for compression and archive type (even though there aren't very many packages)
 #+name: &builder-args-gnu
 #+begin_src bash
 --volumes-from local-repos-snap \
@@ -5994,7 +5995,6 @@ docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 
 docker run \
 --volumes-from local-repos-snap \
---volumes-from cross-sbcl \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
 -v ${_path_distfiles}:/var/cache/distfiles \
 tgbugs/musl:static-package-builder-snap \
@@ -6002,6 +6002,7 @@ emerge --color=y -j4 -q --keep-going -uDN @docker
 
 docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 #+end_src
+# --volumes-from cross-sbcl \
 # FIXME racket failing with mkostemp failures during raco make or
 # something !? what the fuck?  how was this not caught before ?!
 *** build
