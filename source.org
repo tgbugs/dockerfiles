@@ -3035,8 +3035,8 @@ function container-check () {
 gnu-container-check
 
 # FIXME need to check that the cross image exists sigh make
-docker container inspect cross-sbcl > /dev/null || \
-docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
+#docker container inspect cross-sbcl > /dev/null || \
+#docker create -v /sbcl --name cross-sbcl tgbugs/musl:cross-sbcl /bin/true
 }
 #+end_src
 
