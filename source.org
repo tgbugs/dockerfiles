@@ -830,6 +830,7 @@ ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi
 ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
 ADD ${bp}package.mask                            etc/portage/package.mask/profile
 ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
+ADD ${bp}package.use                             etc/portage/package.use/profile
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
 ADD ${bp}erlang.env                              etc/portage/env/dev-lang/erlang
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
@@ -901,6 +902,10 @@ dev-haskell/hxt-unicode::haskell
 dev-haskell/hxt::haskell
 dev-haskell/polyparse::haskell
 dev-haskell/wl-pprint-text::haskell
+#+end_src
+**** package.use
+#+begin_src conf :tangle ./docker-profile/base/package.use
+dev-scheme/racket::tgbugs-overlay cs bc cgc
 #+end_src
 **** env
 ***** no distcc
@@ -1167,7 +1172,7 @@ sys-devel/gdb -nls -python
 net-libs/zeromq drafts
 dev-python/pyzmq drafts
 
-dev-scheme/racket cs bc cgc jit
+dev-scheme/racket jit
 
 # graphviz
 media-libs/gd truetype fontconfig
@@ -1450,6 +1455,11 @@ docker build \
 --file docker-profile/axes.Dockerfile .
 #+end_src
 *** file
+*** etc
+**** package.unmask
+#+begin_src conf :tangle ./docker-profile/nox/package.unmask
+dev-scheme/racket::gentoo
+#+end_src
 *** profiles
 **** parent
 FIXME see if we actually need this, I think we might due to klobbering by =COPY=?
@@ -1459,10 +1469,14 @@ FIXME see if we actually need this, I think we might due to klobbering by =COPY=
 
 **** package.use
 #+begin_src conf :tangle ./docker-profile/nox/docker-profile/profiles/tgbugs/nox/package.use
+# java
 dev-java/icedtea headless-awt
 dev-java/openjdk headless-awt
 dev-java/openjdk-bin headless-awt
 virtual/jdk headless-awt
+
+# racket
+dev-scheme/racket minimal
 #+end_src
 
 ** pypy3
@@ -2765,6 +2779,14 @@ TODO we start from updated here not from pypy3, there is a pypy3/nox profile, bu
 <<&xorg-nox-common-2>>
 <<&xorg-nox-common-3>>
 
+# FIXME make this modification correctly in the profile images
+# either via unmask or by confining cgc/bc/cs racket to another lineage
+RUN \
+sed -i '/racket/d' /etc/portage/package.mask/profile
+
+RUN \
+sed -i '/racket/d' /etc/portage/package.accept_keywords/profile
+
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -j4 -q -uDN @world \
    --getbinpkg \
@@ -3711,7 +3733,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-docker>>
 <<world-interlex>>
 <<world-sparcron>>
-<<world-package-builder-common>>
+<<world-package-builder-common-x>>
 x11-base/xorg-server
 x11-libs/gtk+
 #+end_src
@@ -3719,6 +3741,11 @@ x11-libs/gtk+
 #+name: world-package-builder-common
 #+begin_src conf
 app-portage/smart-live-rebuild
+#+end_src
+
+#+name: world-package-builder-common-x
+#+begin_src conf
+<<world-package-builder-common>>
 app-editors/gvim
 #+end_src
 
@@ -3772,13 +3799,15 @@ remember whether binpkgs check use flags.
 #+name: world-package-builder-nox
 #+begin_src conf :tangle ./musl/package-builder/nox.world
 <<world-debug>>
-<<world-dynapad-base>>
 <<world-python>>
 <<world-schemes>>
 <<world-blazegraph>>
 <<world-package-builder-common>>
 dev-lisp/sbcl
+dev-scheme/racket
 #+end_src
+# <<world-dynapad-base>>
+# dynapad definitely requires racket, also would have to go minimal racket for this
 
 # requires a crossdev environment for this to work
 #+name: world-lisp
@@ -6026,7 +6055,7 @@ ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 *** world
 #+name: world-static-package-builder
 #+begin_src conf :tangle ./musl/package-builder/static.world
-<<world-package-builder-common>>
+<<world-package-builder-common-x>>
 <<world-sbcl>>
 <<world-static-sbcl-c-libs>>
 #+end_src
