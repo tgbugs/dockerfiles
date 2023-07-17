@@ -3849,6 +3849,73 @@ ADD nox.world /etc/portage/sets/docker
 #+end_src
 
 ** package-binhost
+** distcc
+*** run
+#+begin_src screen
+docker run \
+--detach \
+--add-host=host.docker.internal:host-gateway \
+-v ${PWD}/musl/distcc/distccd.confd:/etc/conf.d/distccd \
+-v ${PWD}/musl/distcc/entrypoints:/etc/entrypoints \
+--entrypoint /etc/entrypoints/distcc-start \
+-p 3632:3632 \
+--rm \
+tgbugs/musl:distcc-snap
+#+end_src
+
+#+begin_src screen
+docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:distcc-snap) tail -f /var/log/distcc/distccd.log
+#+end_src
+
+*** build
+#+begin_src screen
+function build-distcc-snap () {
+container-check
+
+docker run ${_tm_pb}
+docker commit $(docker ps -lqf ancestor=${_tm_pb}) tgbugs/musl:distcc-snap
+
+docker run \
+<<&builder-args>>
+tgbugs/musl:distcc-snap \
+emerge  --color=y --with-bdeps=y -j4 -q --keep-going --getbinpkg \
+sys-devel/distcc \
+sys-devel/crossdev
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=tgbugs/musl:distcc-snap) tgbugs/musl:distcc-snap
+
+for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+docker run \
+<<&builder-args>>
+tgbugs/musl:distcc-snap \
+crossdev --stage4 --stable --portage --getbinpkg --target ${target}
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=tgbugs/musl:distcc-snap) tgbugs/musl:distcc-snap
+done
+}
+#+end_src
+*** config
+#+begin_src conf :tangle ./musl/distcc/distccd.confd
+DISTCCD_EXEC="/usr/bin/distccd"
+DISTCCD_PIDFILE="/var/run/distccd/distccd.pid"
+DISTCCD_OPTS="--port 3632 --log-level debug"
+DISTCCD_OPTS="${DISTCCD_OPTS} --log-file /var/log/distcc/distccd.log -N 19"
+DISTCCD_OPTS="${DISTCCD_OPTS} --allow host.docker.internal/24"
+DISTCCD_OPTS="${DISTCCD_OPTS} --allow 127.0.0.1/24"
+DISTCCD_OPTS="${DISTCCD_OPTS} --allow 192.168.1.0/24"
+#+end_src
+
+*** entrypoints
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/distcc/entrypoints/distcc-start :mkdirp yes
+mkdir /var/log/distcc
+chown distcc:distcc /var/log/distcc  # FIXME move this to image creation also explains why this was always an issue
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/distccd start
+tail -f /dev/null
+#+end_src
+
 ** binpkg-only
 *** run
 debug
