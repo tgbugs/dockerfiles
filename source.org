@@ -1208,7 +1208,10 @@ dev-python/pint babel uncertainties
 dev-python/sparcur cron  # XXX FIXME not all images want to pull in the cron deps, or the dashboard deps
 dev-python/sxpyr -cli  # XXX FIXME avoid circular dep on clifun
 #+end_src
-
+**** package.use.mask
+#+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use.mask
+media-libs/libepoxy -egl
+#+end_src
 **** use.mask
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/use.mask
 # reduce deps
@@ -3901,6 +3904,7 @@ DISTCCD_PIDFILE="/var/run/distccd/distccd.pid"
 DISTCCD_OPTS="--port 3632 --log-level debug"
 DISTCCD_OPTS="${DISTCCD_OPTS} --log-file /var/log/distcc/distccd.log -N 19"
 DISTCCD_OPTS="${DISTCCD_OPTS} --allow host.docker.internal/24"
+DISTCCD_OPTS="${DISTCCD_OPTS} --allow 172.17.0.1/24"
 DISTCCD_OPTS="${DISTCCD_OPTS} --allow 127.0.0.1/24"
 DISTCCD_OPTS="${DISTCCD_OPTS} --allow 192.168.1.0/24"
 #+end_src
