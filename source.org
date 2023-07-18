@@ -3901,7 +3901,7 @@ done
 #+begin_src conf :tangle ./musl/distcc/distccd.confd
 DISTCCD_EXEC="/usr/bin/distccd"
 DISTCCD_PIDFILE="/var/run/distccd/distccd.pid"
-DISTCCD_OPTS="--port 3632 --log-level debug"
+DISTCCD_OPTS="--port 3632 --log-level notice"
 DISTCCD_OPTS="${DISTCCD_OPTS} --log-file /var/log/distcc/distccd.log -N 19"
 DISTCCD_OPTS="${DISTCCD_OPTS} --allow host.docker.internal/24"
 DISTCCD_OPTS="${DISTCCD_OPTS} --allow 172.17.0.1/24"
