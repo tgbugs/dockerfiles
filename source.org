@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: cfd996247cf8665c7dbc72b71c00ec97f4a97155bdf09f8e9b94b1cc158aff2f; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 9998674a93881bf359ea7526a6c361ef128ac96d6fd30b70016127c7f56129c3; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -8156,6 +8156,12 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
     (and index (elt argv (1+ index)))))
 
 (when noninteractive
+  (when (string= system-type "windows-nt")
+    ;; ensure that when tangling files that might be mounted into
+    ;; a unix environment that they won't have \r at bol
+    ;; as far as I can tell there is no way to set this in the
+    ;; temp buffer when running org-babel-tangle so we do it here
+    (setq-default buffer-file-coding-system 'utf-8-unix))
   (let ((setup (member "setup" argv))
         (build (member "build" argv))
         (tangle (member "tangle" argv))
