@@ -6273,20 +6273,31 @@ COPY --from=tgbugs/common:user / /
 
 ** sbcl-stripped
 *** run
-#+begin_src bash
+#+begin_src screen
 docker run \
 --network host \
 --rm \
 -it tgbugs/musl:sbcl-stripped \
 --load /quicklisp/setup.lisp \
 --eval '(asdf:load-system :dexador)' \
---eval '(push :dexador *features*)'
---eval '(asdf:load-system :quicklisp-https)'
+--eval '(push :dexador *features*)' \
+--eval '(asdf:load-system :quicklisp-https-always)'
 #+end_src
+
 
 It is BEYOND stupid how difficult it is to configure iptables to be
 able to connect to 4009 when =--network host= produces the desired
 result immediately. No quick solution so moving on as usual. Sigh.
+
+# -v /etc/ssl/certs:/etc/ssl/certs \
+# -v /usr/share/ca-certificates:/usr/share/ca-certificates \
+FIXME currently mounting ca-certificates from the host
+but should probably also retain app-misc/ca-certificates
+in the image so that there is at least a default I would
+very much like to know how dex is fetching via https without
+those certs though ... ah, it retains its own list of root
+certs as bundled from mozilla (wowzers) so probably want
+to build our own from the host
 
 old
 #+begin_src bash
@@ -6317,6 +6328,8 @@ want to ... alternately libgit2 and cl-git are another way I think, but
 still need to be side loaded if we don't have curl, so we use an existing
 
 XXX dex has a bunch of deps ...
+
+TODO if we want to experiment with woo we need libev
 
 # --eval "(ql:quickload (:swank :dexador))" \
 
@@ -6365,8 +6378,9 @@ git clone --branch version-2021-02-13 --depth=1 https://github.com/quicklisp/qui
 RUN \
 git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /ql-https
 
-RUN \
-git clone --depth=1 https://github.com/snmsts/quicklisp-https.git quicklisp/local-projects/quicklisp-https
+# quicklisp-https does not actually force https >_<
+#RUN \
+#git clone --depth=1 https://github.com/snmsts/quicklisp-https.git quicklisp/local-projects/quicklisp-https
 
 RUN --network=none \
 sbcl --no-userinit --disable-debugger \
@@ -6386,6 +6400,8 @@ sbcl --core /continue.core --no-userinit --disable-debugger \
 --eval '(format t "YOU WHAT NOW??")' \
 --quit
 
+COPY quicklisp-https-always quicklisp/local-projects/quicklisp-https-always
+
 FROM scratch
 
 WORKDIR /
@@ -6396,14 +6412,59 @@ RUN --network=none \
 ["/usr/bin/sbcl", \
 "--non-interactive", \
 "--no-userinit", "--disable-debugger", \
-#"--eval", "(asdf:initialize-source-registry (list :source-registry (list :tree #p\"/quicklisp-https\") :inherit-configuration))", \
 "--load", "/quicklisp/setup.lisp", \
 "--eval", "(asdf:load-system :dexador :verbose nil)", \
-"--eval", "(asdf:load-system :quicklisp-https :verbose nil)", \
+"--eval", "(asdf:load-system :quicklisp-https-always :verbose nil)", \
 "--quit"]
 
 ENTRYPOINT ["/usr/bin/sbcl"]
 #+end_src
+
+*** quicklisp-https-always
+#+begin_src lisp :tangle ./musl/sbcl-stripped/quicklisp-https-always/quicklisp-https-always.lisp :mkdirp yes
+(defpackage quicklisp-https-always
+  (:use :cl)
+  (:export :setup))
+
+(in-package :quicklisp-https-always)
+
+,#+quicklisp
+(defun fetch-via-dexador (url file &key (follow-redirects t) quietly (maximum-redirects 10))
+  "Request URL and write the body of the response to FILE."
+  (declare (ignorable follow-redirects quietly maximum-redirects))
+  (let ((url-obj (ql-http:url url)))
+    (setf (ql-http::scheme url-obj) "https")
+    (let ((url-string (ql-http::urlstring url-obj)))
+      (format t "FETCHING VIA dex: ~s~%" url-string)
+      (dex:fetch url-string file :if-exists :supersede)))
+  (values (make-instance 'ql-http::header :status 200)
+          (probe-file file)))
+
+(defun setup (&key (overwirte t) (methods '("https" "http")))
+  (declare (ignorable overwirte methods))
+  ,#+quicklisp
+  (dolist (x methods)
+    (when (or (not (find x ql-http:*fetch-scheme-functions* :test 'equal :key 'first))
+              overwirte)
+      (setf ql-http:*fetch-scheme-functions*
+            (acons x 'fetch-via-dexador
+                   (remove x ql-http:*fetch-scheme-functions* :key 'first :test 'equal))))))
+
+(setup)
+#+end_src
+
+#+begin_src lisp :tangle ./musl/sbcl-stripped/quicklisp-https-always/quicklisp-https-always.asd :mkdirp yes
+(in-package :asdf-user)
+
+(defsystem quicklisp-https-always
+  :version "0.0.0"
+  :author "Tom Gillespie" ; adapted from "SANO Masatoshi"
+  :license "MIT"
+  :depends-on (:dexador)
+  :components ((:file "quicklisp-https-always"))
+  :description "Patch to force quicklisp to always use https. Adapted from quicklisp-https.")
+#+end_src
+
 *** extra :noexport:
 extras
 #+begin_src bash
