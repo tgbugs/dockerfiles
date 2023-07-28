@@ -3758,6 +3758,135 @@ media-libs/fontconfig
 media-fonts/dejavu
 #+end_src
 
+TODO use release-next to determine which have actually changed since their last release
+and/or their last build, because smart-live-rebuild won't cut it
+#+begin_src conf :tangle ./musl/package-builder/set-live
+=dev-python/augpathlib-9999
+=dev-python/clifn-9999
+=dev-python/htmlfn-9999
+=dev-python/hyputils-9999
+=dev-python/idlib-9999
+=dev-python/neurondm-9999
+=dev-python/nifstd-tools-9999
+=dev-python/ontquery-9999
+=dev-python/orthauth-9999
+=dev-python/pysercomb-9999
+=dev-python/protcur-9999
+=dev-python/pyontutils-9999
+#=dev-python/scibot-9999
+=dev-python/sparcur-9999
+=dev-python/sxpyr-9999
+=dev-python/ttlser-9999
+#+end_src
+
+FIXME not clear where this should go, but need a way to toggle
+maybe do it by mounting the file to =/etc/portage/package.accept_keywords/00-live= when run?
+emerge from package and then run smart live rebuild?
+#+begin_src conf :tangle ./musl/package-builder/00-live
+dev-python/*::tgbugs-overlay **
+#+end_src
+
+#+begin_src bash :noweb yes
+function builder-live () {
+<<&builder-axes>>
+
+docker run \
+<<&builder-args>>
+-v ${PWD}/musl/package-builder/00-live:/etc/portage/package.accept_keywords/00-live \
+-v ${PWD}/musl/package-builder/set-live:/etc/portage/sets/live \
+${_builder} \
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @live
+# NOTE if members of @live are also dependencies they will be pulled in, this is ok
+
+docker run \
+<<&builder-args>>
+${_builder} \
+emerge --color=y --nodeps -j4 -q --keep-going @live
+
+}
+#+end_src
+
+will likely need to set =EGIT_MIN_CLONE_TYPE= so we can check history
+will also likely have to dig into the portage code to figure out how to identify
+cases where ~S="${S}/${PN}"~ has been set looks like smart-live-rebuild uses
+#+begin_src python
+from gentoopm import get_package_manager
+pm = get_package_manager()
+filt = 'dev-python/ttlser'
+pkgs = [pkg for pkg in pm.installed.filter(filt)]
+pkgs[0].environ
+
+import bz2
+from gentoopm import bash
+import portage
+from portage.gpkg import gpkg
+import augpathlib as aug
+
+bp = bash.get_any_bash_parser()
+
+eroot = portage.settings['EROOT']
+trees = portage.db[eroot]
+bintree = trees['bintree']
+
+atoms = list(bintree.dbapi.match('dev-python/ttlser'))
+
+atom = a = list(bintree.dbapi.match('dev-python/ttlser'))[-1]
+
+not_live = set()
+_9999_done = False
+for atom in sorted(atoms, key=(lambda a: (a, a.build_id)), reverse=True):
+    _cat, name, version, _rev = atom.cpv_split[1]
+    if atom.version == '9999' and not _9999_done:
+        _9999_done = True  # FIXME need to match USE flags so can skip mismatched packages
+        atom.build_id
+        key_ebuild = atom.cpv.split('/')[-1] + '.ebuild'
+
+        pkg = gpkg(settings=bintree.settings, gpkg_file=bintree.pkgdir + '/' + atom._metadata['PATH'])
+
+        _envbz2 = pkg.get_metadata('environment.bz2')
+        env = bz2.decompress(_envbz2)
+        # see gentoopm.bash.bashserver
+        with tempfile.NamedTemporaryFile('w+b') as f:
+            f.write(env)
+            f.flush()
+            f.file.seek(0)
+            bp.load_file(f)
+
+        egit_dir = bp['EGIT_DIR']
+        egit_version = bp['EGIT_VERSION']
+
+        # XXX doesn't quite work because things like PV PN S defaults are missing due to ebuild lacking a name
+        # but we can probably construct that from some of the other _metadata vars maybe?
+        #bp('declare -x PV=9999')  # doesn't quite seem to work
+        ebuild = pkg.get_metadata(key_ebuild)
+        with tempfile.NamedTemporaryFile('w+b') as f:
+            f.write(ebuild)
+            f.flush()
+            f.file.seek(0)
+            bp.load_file(f)
+
+        #egits = [l.strip() for l in env.decode().split("\n") if l.startswith('decl') and 'EGIT' in l]  # old way
+    else:
+        # collect to find the latest version(s) so we can check tags
+        not_live.add((atom, version, name))
+
+condition = 'TODO'  # S is not default (currently this is always true), watch out for dev vs pre
+for natom, version, name in sorted(not_live):
+    tag = version if condition else (name + '-' version)
+    # git rev-list -n 1 ${TAG}
+    # better, see, commits_since_last_release in release-next ... really need to move that somewhere augpathlib seems reasonable?
+    pass
+#+end_src
+
+we might be able to do this for binpkgs without having to install stuff?
+or install nodeps or something? dealing with the ebuild is a bit harder
+
+#+begin_src bash
+bzless /var/db/pkg/dev-python/pyontutils-9999/environment.bz2
+EGIT_VERSION
+bzless /var/db/pkg/dev-python/ttlser-9999/environment.bz2
+#+end_src
+
 ** package-builder-nox
 *** populate 0
 #+name: &quickpkg-image
