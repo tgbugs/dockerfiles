@@ -3766,6 +3766,7 @@ and/or their last build, because smart-live-rebuild won't cut it
 =dev-python/htmlfn-9999
 =dev-python/hyputils-9999
 =dev-python/idlib-9999
+#=dev-python/interlex-9999  # ssh issues for now
 =dev-python/neurondm-9999
 =dev-python/nifstd-tools-9999
 =dev-python/ontquery-9999
@@ -3797,19 +3798,36 @@ docker run \
 ${_builder} \
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @live
 # NOTE if members of @live are also dependencies they will be pulled in, this is ok
+# because they will be built only the first time and be binpkgs thereafter
 
 docker run \
 <<&builder-args>>
 ${_builder} \
-emerge --color=y --nodeps -j4 -q --keep-going @live
+emerge --color=y --nodeps -j4 -q --keep-going @live  # TODO use live-changed
 
 }
 #+end_src
 
-will likely need to set =EGIT_MIN_CLONE_TYPE= so we can check history
-will also likely have to dig into the portage code to figure out how to identify
-cases where ~S="${S}/${PN}"~ has been set looks like smart-live-rebuild uses
-#+begin_src python
+#+header: :shebang "#!/usr/bin/env python" :tangle-mode (or #o0755)
+#+begin_src python :tangle ./bin/live-changed :mkdirp yes
+#from portage.package.ebuild.doebuild import doebuild_environment, doebuild
+#atom = a = list(bintree.dbapi.match('dev-python/ttlser'))[-1]
+#p_atom = p = list(porttree.dbapi.match('dev-python/ttlser'))[-1]
+#cat, name, version, rev = p_atom.cpv_split
+#epath = p_atom._db.getRepositoryPath(p_atom.repo) + f'/{cat}/{name}/{name}-{version}.ebuild'
+#_settings = p_atom._settings.__class__()
+#doebuild_environment(epath, 'help', settings=_settings, db=p_atom._db)
+## SO CLOSE YET SO FAR
+#[(k, v) for k, v in sorted(_settings.environ().items()) if v and '(' not in v and '\n' not in v and ' ' not in v]
+#_env = '\n'.join([f'export {k}={v}' for k, v in sorted(_settings.environ().items()) if v and '(' not in v and '\n' not in v and ' ' not in v])
+#funs = b'\nfunction inherit () { :; }\nfunction pypi_sdist_url () { :; }\n'
+#load_byte_string(bp, env + b'\n' + _env.encode() + funs + b'\n' + ebuild)
+##_ = [bp(f'export {k}={v}') for k, v in sorted(_settings.environ().items()) if v and '(' not in v and '\n' not in v and ' ' not in v]
+
+from _emerge.actions import load_emerge_config
+ec = load_emerge_config()
+lives = ec.target_config.sets['live'].getAtoms()
+
 from gentoopm import get_package_manager
 pm = get_package_manager()
 filt = 'dev-python/ttlser'
@@ -3821,70 +3839,161 @@ from gentoopm import bash
 import portage
 from portage.gpkg import gpkg
 import augpathlib as aug
+import tempfile
 
-bp = bash.get_any_bash_parser()
+bp = bash.get_any_bashparser()
 
 eroot = portage.settings['EROOT']
 trees = portage.db[eroot]
 bintree = trees['bintree']
+porttree = trees['porttree']
 
-atoms = list(bintree.dbapi.match('dev-python/ttlser'))
+def load_byte_string(bp, byte_string):
+    # see gentoopm.bash.bashserver
+    with tempfile.NamedTemporaryFile('w+b') as f:
+         f.write(byte_string)
+         f.flush()
+         f.file.seek(0)
+         bp.load_file(f)
 
-atom = a = list(bintree.dbapi.match('dev-python/ttlser'))[-1]
-
+cp_data = {}
+maybe_rebuild = []
 not_live = set()
-_9999_done = False
-for atom in sorted(atoms, key=(lambda a: (a, a.build_id)), reverse=True):
-    _cat, name, version, _rev = atom.cpv_split[1]
-    if atom.version == '9999' and not _9999_done:
-        _9999_done = True  # FIXME need to match USE flags so can skip mismatched packages
-        atom.build_id
-        key_ebuild = atom.cpv.split('/')[-1] + '.ebuild'
+for live in sorted(lives, reverse=True):
+    atoms = list(bintree.dbapi.match(live))
+    #atoms = list(bintree.dbapi.match('dev-python/ttlser'))
 
-        pkg = gpkg(settings=bintree.settings, gpkg_file=bintree.pkgdir + '/' + atom._metadata['PATH'])
+    if not atoms:
+        maybe_rebuild.append(live)  # no binpkg exists at all, but that doesn't mean that live is actually newer than latest release
+        continue
 
-        _envbz2 = pkg.get_metadata('environment.bz2')
-        env = bz2.decompress(_envbz2)
-        # see gentoopm.bash.bashserver
-        with tempfile.NamedTemporaryFile('w+b') as f:
-            f.write(env)
-            f.flush()
-            f.file.seek(0)
-            bp.load_file(f)
+    _9999_done = False
+    _nl_done = False
+    for atom in sorted(atoms, key=(lambda a: (a, a.build_id)), reverse=True):
+        #p_atom, *_ = porttree.dbapi.match(atom)  # XXX might not need this if settings iuse effective is always live?
+        # p_atom._settings._iuse_effective_match()  # may need to get this from porttree atoms instead of binpkg atoms?
+        _cat, name, version, _rev = atom.cpv_split
+        if atom.version == '9999' and not _9999_done:
+            for uf in atom._metadata['USE'].split():
+                if not atom._settings._iuse_effective_match(uf):
+                    #print(f'USE mismatch? {atom} {uf}')  # TODO
+                    pass
 
-        egit_dir = bp['EGIT_DIR']
-        egit_version = bp['EGIT_VERSION']
+            _9999_done = True  # FIXME need to match USE flags so can skip mismatched packages
+            atom.build_id
+            key_ebuild = atom.cpv.split('/')[-1] + '.ebuild'
 
-        # XXX doesn't quite work because things like PV PN S defaults are missing due to ebuild lacking a name
-        # but we can probably construct that from some of the other _metadata vars maybe?
-        #bp('declare -x PV=9999')  # doesn't quite seem to work
-        ebuild = pkg.get_metadata(key_ebuild)
-        with tempfile.NamedTemporaryFile('w+b') as f:
-            f.write(ebuild)
-            f.flush()
-            f.file.seek(0)
-            bp.load_file(f)
+            pkg = gpkg(settings=bintree.settings, gpkg_file=bintree.pkgdir + '/' + atom._metadata['PATH'])
 
-        #egits = [l.strip() for l in env.decode().split("\n") if l.startswith('decl') and 'EGIT' in l]  # old way
-    else:
-        # collect to find the latest version(s) so we can check tags
-        not_live.add((atom, version, name))
+            _envbz2 = pkg.get_metadata('environment.bz2')
+            env = bz2.decompress(_envbz2)
+            #load_byte_string(bp, env)
+            #with tempfile.NamedTemporaryFile('w+b') as f:
+                #f.write(env)
+                #f.flush()
+                #f.file.seek(0)
+                #bp.load_file(f)
+
+            # XXX doesn't quite work because things like PV PN S defaults are missing due to ebuild lacking a name
+            # but we can probably construct that from some of the other _metadata vars maybe?
+            #bp('declare -x PV=9999')  # doesn't quite seem to work
+            #bp(f'export PV={version}')
+            # ebuild some.ebuild help ... very handy entrypoint
+            #bp('PORTAGE_BIN_PATH=/usr/lib/portage/python3.11 source "${PORTAGE_BIN_PATH}"/ebuild.sh')
+            #bp(f'function inherit () { :; }')
+            #bp(f'export P={name}-{version} PN={name} PV={version} PR={_rev}')
+            ebuild = pkg.get_metadata(key_ebuild)
+            funs = b'\nfunction inherit () { :; }\nfunction pypi_sdist_url () { :; }\n'
+            ff = env + b'\n' + funs + b'\n' + ebuild
+            load_byte_string(bp, ff)  # very much does not work due to missing names right now
+            #with tempfile.NamedTemporaryFile('w+b') as f:
+                #f.write(ebuild)
+                #f.flush()
+                #f.file.seek(0)
+                #bp.load_file(f)  # XXX somehow this severly breaks the bashproc ... ah well yeah bunch of undefined functions
+
+            egit_dir = bp['EGIT_DIR']
+            egit_version = bp['EGIT_VERSION']
+            egit_min_clone_type = bp['EGIT_MIN_CLONE_TYPE']
+            egit_repo_uri = bp['EGIT_REPO_URI']
+
+            S = bp['S']
+            cp_data[atom.cp] = (
+                #egit_dir,
+                egit_version,
+                #egit_min_clone_type,
+                egit_repo_uri,
+                S,
+            )
+
+            #egits = [l.strip() for l in env.decode().split("\n") if l.startswith('decl') and 'EGIT' in l]  # old way
+        elif _9999_done:
+            pass
+        else:
+            # collect to find the latest version(s) so we can check tags
+            _nl_done = True
+            not_live.add((atom, version, name))
+
+    if not _nl_done:
+        # case where no not live package has been built
+        maybe_rebuild.append(atom)
+
+rebuild = []
+for mr_atom in maybe_rebuild:
+    for p_atom in porttree.dbapi.match(mr_atom.cp):
+        _cat, name, version, _rev = p_atom.cpv_split
+        if version != '9999':
+            not_live.add((p_atom, version, name))
+
+    if mr_atom.cp not in cp_data:
+        # we should go ahead and built it at least once
+        # to simplify information retrieval in the future
+        # the determination of which packages actually need
+        # a live build is independent of whether we have actually
+        # built one
+        rebuild.append(mr_atom.cp)
 
 condition = 'TODO'  # S is not default (currently this is always true), watch out for dev vs pre
-for natom, version, name in sorted(not_live):
-    tag = version if condition else (name + '-' version)
+cp_tag = {}
+for natom, version, name in sorted(not_live, reverse=True):  # FIXME TODO make sure the sorting on the versions is newest to oldest
+    condition = natom.cp in cp_data and cp_data[natom.cp][-1]  # XXX this will miss if we just haven't built before
+    tag = version if condition else (name + '-' + version)
+    if natom.cp not in cp_tag:
+        cp_tag[natom.cp] = tag
     # git rev-list -n 1 ${TAG}
     # better, see, commits_since_last_release in release-next ... really need to move that somewhere augpathlib seems reasonable?
-    pass
-#+end_src
 
-we might be able to do this for binpkgs without having to install stuff?
-or install nodeps or something? dealing with the ebuild is a bit harder
+# a deep clone is required for all of these
+# it probably makes sense to keep those repos somewhere else (i.e. not in distfiles) to keep things simple and separate from portage
 
-#+begin_src bash
-bzless /var/db/pkg/dev-python/pyontutils-9999/environment.bz2
-EGIT_VERSION
-bzless /var/db/pkg/dev-python/ttlser-9999/environment.bz2
+
+class PackagePath(aug.PackagePath):
+
+    _tag = None
+
+    @property
+    def tag(self):
+        return self._tag
+
+
+rpp = aug.RepoPath('/tmp/git-repos')
+rpp.mkdir(exist_ok=True)
+for cp, (egit_version, egit_repo_uri, S) in cp_data.items():
+    clp = rpp.clone_path(egit_repo_uri)
+    if clp.exists():
+        rp = clp
+        #rp.pull()  # XXX TODO
+    else:
+        rp = rpp.clone_from(egit_repo_uri)  # XXX watch out for interlex cloning issues should be ok in principle if we run as portage maybe?
+
+    pp = aug.PackagePath(rp / S.strip('/'))
+    pp._tag = cp_tag[cp]  # FIXME handle case where there is only a live build and cp won't be in cp_tag
+    if pp.commits_since_last_release():
+        # TODO and then we have to check egit_version against as well
+        if list(pp.commits(rev=f'HEAD...{egit_version}')):
+            rebuild.append(cp)
+
+print('\n'.join(rebuild))
 #+end_src
 
 ** package-builder-nox
@@ -4122,7 +4231,7 @@ FROM tgbugs/musl:nox
 #+begin_src conf
 app-editors/vim
 app-portage/eix
-sys-devel/gdb::musl
+sys-devel/gdb
 #+end_src
 
 ** docker :bootstrap:
