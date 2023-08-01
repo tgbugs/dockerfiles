@@ -6075,7 +6075,7 @@ _image=tgbugs/musl:sparcron-user
 _cid_old=$(docker ps -lqf ancestor=${_image} -f status=running)
 docker stop ${_cid_old} || return $?
 docker-run-sparcron
-_cid_new=$(docker ps -lqf ancestor=${_image_new})
+_cid_new=$(docker ps -lqf ancestor=${_image})
 docker logs -f ${_cid_new}
 }
 #+end_src
