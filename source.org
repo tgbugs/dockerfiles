@@ -1860,7 +1860,7 @@ USER $USER_NAME
 WORKDIR /home/${USER_NAME}
 
 RUN \
-{ command -v xdg-user-dirs-update && xdg-user-dirs-update;} || true
+{ command -v xdg-user-dirs-update && xdg-user-dirs-update; rmdir Desktop Pictures Documents Public Downloads Templates Music Videos;} || true
 
 ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 #+end_src
@@ -5328,7 +5328,8 @@ COPY --chown=${UID}:${UID} sckan sckan
 USER ${USER_NAME}
 
 RUN \
-xdg-user-dirs-update
+xdg-user-dirs-update \
+;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
 
 RUN \
 sed -i 's/-no-site-file//' ./sckan/queries.org \
@@ -5653,7 +5654,8 @@ ARG HOME=/home/${USER_NAME}
 WORKDIR $HOME
 
 RUN \
-xdg-user-dirs-update
+xdg-user-dirs-update \
+;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
 
 <<&emacs-sanity>>
 
@@ -6121,6 +6123,7 @@ builder-arb --nodeps sparcur
 <<&musl-build-sparcron>> &&
 
 <<&musl-build-sparcron-user>> &&
+
 docker push tgbugs/musl:sparcron; docker push tgbugs/musl:sparcron-user
 #+end_src
 
@@ -6189,7 +6192,7 @@ ARG HOME=/var/lib/sparc
 WORKDIR $HOME
 
 RUN \
-su "$(id -nu 836)" -c "xdg-user-dirs-update"
+su "$(id -nu 836)" -c "xdg-user-dirs-update; rmdir Desktop Pictures Documents Public Downloads Templates Music Videos"
 
 ADD entrypoints /etc/entrypoints
 ADD entrypoint.sh /etc/entrypoint.sh
@@ -7743,6 +7746,8 @@ addgroup -g ${_UID} ${USER_NAME} \
 
 xdg-user-dirs-update
 
+rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
+
 git clone https://github.com/tgbugs/dockerfiles.git
 
 dockerfiles/source.org setup  # TODO
@@ -7822,7 +7827,8 @@ USER $USER_NAME
 WORKDIR /home/${USER_NAME}
 
 RUN \
-xdg-user-dirs-update
+xdg-user-dirs-update \
+;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
 
 RUN \
 git clone https://github.com/tgbugs/dockerfiles.git
