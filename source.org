@@ -4982,6 +4982,7 @@ docker run \
 **** services
 If you are running on some random system that doesn't already have the images, run the following.
 #+begin_src bash :eval never
+_running_blazegraph=$(docker ps -lqf ancestor=tgbugs/musl:blazegraph)
 docker pull tgbugs/sckan:latest
 docker pull tgbugs/musl:blazegraph
 #+end_src
@@ -4991,8 +4992,30 @@ docker pull tgbugs/musl:blazegraph
 docker run \
 --detach \
 --volumes-from sckan-data \
--p 9999:9999 \
+-p 127.0.0.1:9999:9999 \
 -it tgbugs/musl:blazegraph
+#+end_src
+
+#+begin_src screen :noweb yes :tangle ./bin/restart-sckan-blazegraph.sh
+<<&create-sckan-data>>
+
+# FIXME sometimes this fails with nasty results because we don't start the new image ???
+# ah it will always happen if you pull a new blazegraph first ... very annoying
+docker kill ${_running_blazegraph}
+
+docker run \
+--detach \
+--volumes-from sckan-data \
+-p 127.0.0.1:9999:9999 \
+-it tgbugs/musl:blazegraph
+
+curl http://127.0.0.1:9999/blazegraph/sparql
+#+end_src
+
+cleanup old images
+#+begin_src bash
+docker container prune -f
+docker image prune -f
 #+end_src
 
 #+begin_src bash
