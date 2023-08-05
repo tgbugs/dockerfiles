@@ -4996,12 +4996,18 @@ docker run \
 -it tgbugs/musl:blazegraph
 #+end_src
 
+backup journal after simple sckan inserts
+#+begin_src bash
+docker cp $(docker ps -lqf ancestor=tgbugs/musl:blazegraph):/var/lib/blazegraph/blazegraph.jnl blazegraph-$(date -Idate).jnl
+#+end_src
+
 restart without losing insert queries
 #+begin_src bash
 docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:blazegraph) /etc/init.d/blazegraph stop
 docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:blazegraph) /etc/init.d/blazegraph start
 #+end_src
 
+restart and update to latest version of sckan data
 #+begin_src screen :noweb yes :tangle ./bin/restart-sckan-blazegraph.sh
 <<&create-sckan-data>>
 
@@ -5024,8 +5030,23 @@ docker container prune -f
 docker image prune -f
 #+end_src
 
+view logs
 #+begin_src bash
 docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:blazegraph) tail -f /var/log/blazegraph/sysout.log
+#+end_src
+
+***** additional ops stuff
+****** manually update the rc and conf files
+#+begin_src bash
+docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:blazegraph) /bin/bash
+#+end_src
+
+#+begin_src bash
+nano /var/lib/blazegraph/override-web.xml
+chown blazegraph:blazegraph /var/lib/blazegraph/override-web.xml
+nano /etc/conf.d/blazegraph
+nano /etc/init.d/blazegraph
+/etc/init.d/blazegraph restart
 #+end_src
 
 *** build
