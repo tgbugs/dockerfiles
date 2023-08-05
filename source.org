@@ -4996,6 +4996,12 @@ docker run \
 -it tgbugs/musl:blazegraph
 #+end_src
 
+restart without losing insert queries
+#+begin_src bash
+docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:blazegraph) /etc/init.d/blazegraph stop
+docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:blazegraph) /etc/init.d/blazegraph start
+#+end_src
+
 #+begin_src screen :noweb yes :tangle ./bin/restart-sckan-blazegraph.sh
 <<&create-sckan-data>>
 
