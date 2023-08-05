@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 9998674a93881bf359ea7526a6c361ef128ac96d6fd30b70016127c7f56129c3; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 11963bf4a366352fb9dacad87caf35a328d093160c1782dfe4d28e8a86635d5a; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -8390,6 +8390,18 @@ and then to the tangle target to the block contents
 (defvar-local path-sparcron-secrets nil)
 (defvar-local path-sparcron-gsaro nil)
 ; FIXME should we only mount the key itself to avoid config issues internally ? probably yes ? also known_hosts issues, the docker build ssh-agent doesn't really help here
+
+(defvar-local cli-debug (member "--debug" argv))
+
+(when cli-debug
+  (toggle-debug-on-error))
+
+(when noninteractive ; prevent wrong-type-argument keymapp nil errors due to our old friend `org-install-agenda-files-menu'
+  ;; this is a pitfall that can happen as a result of any number of things, but the one that hit this file was running e.g.
+  ;; ./source.org build-image run:sckan-build-save-image
+  ;; to actually trigger the issue you need to run a #+begin_src bash :noweb yes AND THEN ACTUALLY NOWEB SOMETHING IN
+  ;; anything less than all noweb yes and actually nowebbing something in will not trigger the issue
+  (setq org-agenda-file-menu-enabled nil))
 
 (defun make-screen-vars ()
   (apply #'format
