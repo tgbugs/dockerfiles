@@ -5790,7 +5790,7 @@ pushd git \
 &&     raco pkg install --no-docs --auto --batch NIF-Ontology/ \
 &&     pushd protc \
 &&         raco pkg install --no-docs --auto --batch protc-lib/ protc-tools-lib/ protc/ protc-tools/ \
-&&     popd
+&&     popd \
 && popd
 
 FROM tgbugs/musl:kg-dev
