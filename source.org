@@ -5506,6 +5506,7 @@ dev-scheme/racket
 dev-util/shellcheck
 net-libs/nodejs
 dev-python/seaborn
+dev-libs/redland
 #+end_src
 # FIXME pandoc is a dev-python/nifstd-tools doc dep :/
 # FIXME seaborn for generating figures, not clear whether this is the right place, but here for now
@@ -5725,8 +5726,11 @@ ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 RUN \
 pushd git \
+&&     git clone https://github.com/tgbugs/rkdf.git \
+&&     git clone https://github.com/tgbugs/protc.git \
 &&     git clone https://github.com/tgbugs/pyontutils.git \
 &&     git clone https://github.com/SciCrunch/sparc-curation.git \
+&&     git clone https://github.com/SciCrunch/NIF-Ontology.git \
 && popd
 
 RUN \
@@ -5764,6 +5768,30 @@ emacs -batch -eval \
 $HOME/.emacs.d/init.el \
 ./git/sparc-curation/docs/queries.org \
 ./git/sparc-curation/docs/apinatomy.org
+
+# curation viewer setup
+RUN \
+raco pkg install --no-docs --name breadcrumb --type git-url https://github.com/tgbugs/racket-breadcrumb.git \
+&& raco pkg install --no-docs --name json-view --type git-url https://github.com/tgbugs/racket-json-view.git \
+&& raco pkg install --no-docs --auto --batch git/sparc-curation/sparcur_internal/sparcur/
+
+# protc setup
+RUN \
+raco pkg install --no-docs --type git-url https://github.com/Ophirr33/pda.git \
+&& raco pkg install --no-docs --type git-url https://github.com/zussitarze/qrcode.git \
+pushd git \
+&&     pushd rkdf \
+&&         raco pkg install --no-docs --auto --batch rkdf-lib/ rkdf/ \
+&&     popd \
+&&     pushd NIF-Ontology \
+&&         git checkout dev \
+&&         PATH=../rkdf/bin:${PATH} rkdf-convert-all \
+&&     popd \
+&&     raco pkg install --no-docs --auto --batch NIF-Ontology/ \
+&&     pushd protc \
+&&         raco pkg install --no-docs --auto --batch protc-lib/ protc-tools-lib/ protc/ protc-tools/ \
+&&     popd
+&& popd
 
 FROM tgbugs/musl:kg-dev
 
@@ -6335,6 +6363,7 @@ su sparc -c 'pypy3 -m sparcur.sparcron' || { echo startup check failed; exit 2;}
 #+end_src
 
 ** protc
+See [[*kg-dev-user]].
 *** world
 #+name: world-protc
 #+begin_src conf
@@ -8681,5 +8710,7 @@ exit 1
 ** Local Variables :ARCHIVE:
 # close powershell comment #>
 # Local Variables:
+# org-adapt-indentation: nil
+# org-edit-src-content-indentation: 0
 # eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((a (org-version)) (n orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not n) (string< n a) (string= n a) (error "Your Org is too old! %s < %s" a n))) (defun orgstrap-norm-func--dprp-1-0 (body) (let ((p (read (concat "(progn\n" body "\n)"))) (m '(defun defun-local defmacro defvar defvar-local defconst defcustom)) print-quoted print-length print-level) (cl-labels ((f (b) (cl-loop for e in b when (listp e) do (or (and (memq (car e) m) (let ((n (nthcdr 4 e))) (and (stringp (nth 3 e)) (or (cl-subseq m 3) n) (f n) (or (setcdr (cddr e) n) t)))) (f e))) p)) (prin1-to-string (f p))))) (unless (boundp 'orgstrap-norm-func) (defvar-local orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap-org-src-coderef-regexp (_fmt &optional label) (let ((fmt org-coderef-label-format)) (format "\\([:blank:]*\\(%s\\)[:blank:]*\\)$" (replace-regexp-in-string "%s" (if label (regexp-quote label) "\\([-a-zA-Z0-9_][-a-zA-Z0-9_ ]*\\)") (regexp-quote fmt) nil t)))) (unless (fboundp #'org-src-coderef-regexp) (defalias 'org-src-coderef-regexp #'orgstrap-org-src-coderef-regexp)) (defun orgstrap--expand-body (info) (let ((coderef (nth 6 info)) (expand (if (org-babel-noweb-p (nth 2 info) :eval) (org-babel-expand-noweb-references info) (nth 1 info)))) (if (not coderef) expand (replace-regexp-in-string (org-src-coderef-regexp coderef) "" expand nil nil 1)))) (defun orgstrap--confirm-eval-portable (lang _body) (not (and (member lang '("elisp" "emacs-lisp")) (let* ((body (orgstrap--expand-body (org-babel-get-src-block-info))) (body-normalized (orgstrap-norm body)) (content-checksum (intern (secure-hash orgstrap-cypher body-normalized)))) (eq orgstrap-block-checksum content-checksum))))) (unless (fboundp #'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-portable)) (let (enable-local-eval) (vc-find-file-hook)) (let ((ocbe org-confirm-babel-evaluate) (obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (when (eq org-confirm-babel-evaluate #'orgstrap--confirm-eval) (setq-local org-confirm-babel-evaluate ocbe)) (ignore-errors (org-set-visibility-according-to-property))) (warn "No orgstrap block."))))
 # End:
