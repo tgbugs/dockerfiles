@@ -5777,15 +5777,15 @@ raco pkg install --no-docs --name breadcrumb --type git-url https://github.com/t
 
 # protc setup
 RUN \
-raco pkg install --no-docs --type git-url https://github.com/Ophirr33/pda.git \
-&& raco pkg install --no-docs --type git-url https://github.com/zussitarze/qrcode.git \
-pushd git \
+raco pkg install --no-docs --type git-url https://github.com/zussitarze/qrcode.git \
+&& pushd git \
 &&     pushd rkdf \
 &&         raco pkg install --no-docs --auto --batch rkdf-lib/ rkdf/ \
 &&     popd \
 &&     pushd NIF-Ontology \
 &&         git checkout dev \
 &&         PATH=../rkdf/bin:${PATH} rkdf-convert-all \
+&&         git checkout master \
 &&     popd \
 &&     raco pkg install --no-docs --auto --batch NIF-Ontology/ \
 &&     pushd protc \
