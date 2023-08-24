@@ -5569,6 +5569,7 @@ docker run \
 
 Example of how to use the image for the SCKAN release workflow.
 #+begin_src bash
+mkdir /tmp/build  # must be made first by the running user otherwise permission issues
 docker run \
 --volumes-from sckan-data \
 -v /tmp/build:/tmp/build \
