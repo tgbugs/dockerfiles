@@ -5726,11 +5726,8 @@ ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 RUN \
 pushd git \
-&&     git clone https://github.com/tgbugs/rkdf.git \
-&&     git clone https://github.com/tgbugs/protc.git \
 &&     git clone https://github.com/tgbugs/pyontutils.git \
 &&     git clone https://github.com/SciCrunch/sparc-curation.git \
-&&     git clone https://github.com/SciCrunch/NIF-Ontology.git \
 && popd
 
 RUN \
@@ -5776,6 +5773,13 @@ raco pkg install --no-docs --name breadcrumb --type git-url https://github.com/t
 && raco pkg install --no-docs --auto --batch git/sparc-curation/sparcur_internal/sparcur/
 
 # protc setup
+RUN \
+pushd git \
+&&     git clone https://github.com/tgbugs/rkdf.git \
+&&     git clone https://github.com/tgbugs/protc.git \
+&&     git clone https://github.com/SciCrunch/NIF-Ontology.git \
+&& popd
+
 RUN \
 raco pkg install --no-docs --type git-url https://github.com/zussitarze/qrcode.git \
 && pushd git \
