@@ -6192,7 +6192,26 @@ for img in $(docker image ls tgbugs/musl:sparcron-user-* --format '{{.Repository
 docker image rm "${img}" || break
 done
 #+end_src
+**** An example of how to force rerun (e.g. after cache clear)
+as user in docker group
+#+begin_src bash
+docker exec --user 836 -it $(docker ps -lqf ancestor=tgbugs/musl:sparcron-user) /bin/bash
+#+end_src
+# -v ${PWD}/bin:/tmp/bin  sadly cannot mount at this stage
+
+as sparc user move the old caches out, or better just do it in the exec shell
+#+begin_src bash
+pushd /var/lib/sparc/.cache/sparcur
+mv pennsieve-meta pennsieve-meta-$(date -I)
+popd
+pushd /var/lib/sparc/.cache
+mv idlib idlib-$(date -I)
+popd
+pypy3 -m sparcur.sparcron.rerun
+#+end_src
+
 **** An example of how to rapidly redeploy changes using the tools here.
+# FIXME move to build section probably?
 1. There is a bug. Oh no! e.g. you forgot to bump __internal_version__ so nothing reruns.
 2. Chance sparcur code, commit, push.
 3. bump ~echo~ in [[(sparcron-echo)]]
