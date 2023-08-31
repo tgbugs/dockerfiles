@@ -1568,6 +1568,15 @@ emerge -uDN @world
 #+end_src
 * profiles
 break profiles into its own to level section in hopes of finding a better way to compose images
+** tweaks
+Temporary tweaks that we don't want to stick in the profile because they
+only affect a subset of images and are presumed safe to apply independently.
+FIXME not clear that this should actually live under profiles but kind of makes sense here?
+#+name: tweak-accept-keywords
+#+begin_src conf :tangle ./musl/package-builder/accept_keywords
+=app-editors/emacs-29.1-r1
+#+end_src
+
 ** debug
 #+name: debug-profile
 #+begin_src bash :results file :var img="base"
@@ -3096,6 +3105,7 @@ gnu-container-check
 -v ${_path_binpkgs_root}/cross/gnu/x86_64-pc-linux-musl:/usr/x86_64-pc-linux-musl/var/cache/binpkgs \
 -v ${_path_binpkgs_root}/cross/gnu/x86_64-gentoo-linux-musl:/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs \
 -v ${PWD}/bin:/usr/local/bin \
+-v ${PWD}/musl/package-builder/accept_keywords:/etc/portage/package.accept_keywords/tweaks \
 --env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
 --env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
 #+end_src
@@ -8287,6 +8297,7 @@ FROM tgbugs/musl:binpkg-only-nox
 
 ARG ARCHIVE
 
+COPY accept_keyword[s] /etc/portage/package.accept_keywords/tweaks
 ADD world /etc/portage/sets/docker
 
 # -ebuild locks is so much faster building acct-* ebuilds first is MUCH faster
@@ -8317,6 +8328,269 @@ RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,r
 emerge -j4 -q -uDN \
 #+end_src
 
+* package to images for tweaks
+find images that will contain packages once built, but only for explicitly world level packages
+- use the dockerfile -> image mapping we have from dep resolution
+- get a list of world files and build an inverse index of atom -> world file
+- compare prefixes to find world file docker file mapping
+
+#+begin_src elisp
+; FIXME the prep work building the assoc lists is slow
+(setq
+ world-packages
+ (let (out)
+   (org-fold-core-save-visibility 'use-markers
+     (save-excursion
+       (org-babel-map-executables nil
+         ;; (language body arguments switches name start coderef)
+         (let* ((info (org-babel-get-src-block-info))
+                (lang (nth 0 info))
+                (body (orgstrap--expand-body info))
+                (params (nth 2 info))
+                (name (nth 4 info))
+                (tangle (cdr (assoc :tangle params))))
+           (when (and (string= lang "conf") tangle (not (string= tangle "no")) name (string-match "^world-" name))
+             (setq out (cons
+                        (cons
+                         (substring tangle 2) ; drop ./ ; XXX FIXME error if doesnot start with ./
+                         (with-temp-buffer
+                           (insert body)
+                           (evil-ex-global (point-min) (point-max) "^[ ]+#" "d")
+                           (split-string (replace-regexp-in-string "#.+$" "" (buffer-string)) "\n" t " +"))) ; note, produces dupes
+                        out))
+             )))))
+   out))
+
+(setq
+ package-worlds
+ (let (out)
+   (cl-loop
+    for (world . packages) in world-packages do
+    (cl-loop
+     for package in packages do
+     (let ((entry (assoc package out)))
+       (if entry
+           (setcdr entry (cons world (cdr entry)))
+         (setq out (cons (list package world) out))))))
+   out))
+
+(setq
+ world-to-path
+ (mapcar (lambda (l)  (cons (car l) (reverse (cdr (reverse (string-split (car l) "/")))) )) world-packages))
+
+(setq
+ path-to-tags
+ (mapcar (lambda (p) (cons (reverse (cdr (reverse (string-split (cdr p) "/")))) (car p))) (reverse tag-produced-by-docker-file)))
+
+(defun package-paths (atom)
+  (cl-multiple-value-bind
+      (op cpv cp slot repo use-str version)
+      (portage-package-atom atom)
+    (if cp
+        (let (path (worlds (assoc cp package-worlds)))
+          (when worlds
+            (cl-loop
+             for world in (cdr worlds)
+             when (let* ((w-path (assoc world world-to-path)))
+                    (setq path (cdr w-path)))
+             collect
+             (string-join path "/"))))
+      (message "should probably error here, bad atom? %s" atom))))
+
+(defun package-tags (atom)
+  (cl-multiple-value-bind
+      (op cpv cp slot repo use-str version)
+      (portage-package-atom atom)
+    (if cp
+        (let (tags (worlds (assoc cp package-worlds)))
+          (when worlds
+            (cl-loop
+             for world in (cdr worlds)
+             when (let* ((w-path (assoc world world-to-path))
+                         (p-tags (and w-path (assoc (cdr w-path) path-to-tags))))
+                    (setq tags (cdr p-tags)))
+             collect
+             tags)))
+      (message "should probably error here, bad atom? %s" atom))))
+
+(defun tangle-tweak-accept-keywords ()
+  "given an accept_keywords file write accept_keywords for all affected images"
+  (let* ((tweak-code
+         (org-fold-core-save-visibility 'use-markers
+           (save-excursion
+             (org-babel-goto-named-src-block "tweak-accept-keywords")
+             (nth 1 (org-babel-get-src-block-info)))))
+         (atoms (split-string (replace-regexp-in-string "#.+$" "" tweak-code) "\n" t " +"))
+         (paths (cl-loop for atom in atoms append (cl-loop for path in (package-paths atom) collect path)))
+         (files (cl-loop for path in paths collect (expand-file-name "accept_keywords" path))))
+    (message ":atoms %s :paths %s :files %s" atoms paths files)
+    (cl-loop
+     for file in files do ; TODO derive list from the config file and search all packages, means we need cpv code
+     (with-temp-buffer
+       (insert tweak-code)
+       (write-file file)))))
+
+(defvar portage-atom-re
+  (rx-let ((ver-rev (index)
+            (group-n index
+             (group
+              (one-or-more digit))
+             (group
+              (zero-or-more
+               (group
+                "."
+                (one-or-more digit))))
+             (group
+              (optional
+               (any "a-z")))
+             (group
+              (zero-or-more
+               (group
+                "_"
+                (group
+                 (or
+                  "pre"
+                  "p"
+                  "beta"
+                  "alpha"
+                  "rc"))
+                (zero-or-more digit))))
+             (optional
+              (group
+               "-r"
+               (group ; rev
+                (one-or-more digit)))))))
+    (rx-let ((cp-re
+              (group ; group must be here for + op 3 to work
+               (seq
+                (any word "+")
+                (zero-or-more (any word "+" "." "-")))
+               "/"
+               (seq
+                (any word "+")
+                (*? (any word "+" "-"))) ; note the non greedy XXX implementation is missing _ ??? but docstring says should be there ???
+               (optional
+                (group
+                 "-"
+                 (ver-rev 30))))))
+      (rx-let ((op (group (or (any "=" "~") (seq (any ">" "<") (optional "=")))))
+               (cpv-re (group cp-re "-" (ver-rev 50)))
+               (slot-separator ":")
+               (slot-loose (group (one-or-more (any word "+" "." "/" "*" "=" "-"))))
+               (repo
+                (optional
+                 (seq
+                  "::"
+                  (group-n 80
+                   word
+                   (zero-or-more (any word "-")))))))
+        (rx
+         line-start
+         (group-n 100 ; without-use
+           (or
+            (group-n 150 ; op
+              op
+              cpv-re)
+            (group-n 200 ; star
+              cpv-re
+              "*")
+            (group-n 225 ; simple XXX be aware that if you go over 255 match groups everything falls apart
+              cp-re))
+           (optional
+            (group-n 70
+              slot-separator
+              slot-loose))
+           repo)
+         (optional
+          (group-n 90 "[" (zero-or-more anything) "]"))
+         line-end)))))
+
+(defun portage-package-atom (string)
+  "see portage.dep._atom_re.pattern"
+  'category-package-version
+  ;; FIXME apparently emacs will happily match _all_ of these not just the first ???
+  ;; which is kind of annoying? or I have no idea, it doesn't go in order so if it
+  ;; finds a shorter match it marks it
+  (let ((without-use 100)
+        (op 150)
+        (star 200)
+        (simple 225)
+        (ver-rev-cp 30)
+        (ver-rev-cpv 50)
+        (slot 70)
+        (repo 80)
+        (use-str 90))
+    (let ((match-point (string-match portage-atom-re string)))
+      ;;(message ":match-data %S" (match-data))
+      ;;(message ":match-point %s" match-point)
+      (cl-multiple-value-bind
+          (op cpv cp slot repo use-str version)
+          (cond
+           ((match-string op string)
+            (values
+             (match-string (+ op 1) string)
+             (match-string (+ op 2) string)
+             (match-string (+ op 3) string)
+             (match-string slot string)
+             (match-string repo string)
+             (match-string use-str string)
+             ;;(match-string (- (+ op (length (match-data))) 2) string) ; FIXME index will surely be off
+             ;;(match-string (- (+ op (length (match-data))) 1) string) ; FIXME index will surely be off
+             ;;(match-string (+ op (length (match-data)))) ; FIXME index will surely be off
+             (match-string ver-rev-cpv string)))
+           ((match-string star string)
+            (values
+             "=*"
+             (match-string (+ star 1) string)
+             (match-string (+ star 2) string)
+             (match-string slot string)
+             (match-string repo string)
+             (match-string use-str string)
+             nil))
+           ((match-string simple string)
+            (values
+             nil
+             (match-string (+ simple 1) string)
+             (match-string (+ simple 1) string)
+             (match-string slot string)
+             (match-string repo string)
+             (match-string use-str string)
+             nil))
+           ((match-string without-use string)
+            (values nil nil nil nil nil nil nil))
+           (t (values nil nil nil nil nil nil nil)))
+        (list op cpv cp slot repo use-str version)))))
+
+#+end_src
+
+[[file:/usr/lib/python3.11/site-packages/portage/dep/__init__.py::def _get_atom_re]]
+
+#+begin_src elisp
+(portage-package-atom "dev-python/pyontutils")
+(portage-package-atom "=dev-python/pyontutils")
+(portage-package-atom "=dev-python/pyontutils-1")
+(portage-package-atom "dev-python/pyontutils-1*")
+(portage-package-atom "dev-python/pyontutils-1.2*")
+(portage-package-atom ">=dev-python/pyontutils-1.2.3::tgbugs-overlay[test]")
+(portage-package-atom ">=dev-python/pyontutils-1.2.3:0::tgbugs-overlay[test]")
+(portage-package-atom ">=dev-python/pyontutils-1.2.3-r3:0::tgbugs-overlay[test]")
+(portage-package-atom "p")
+(portage-package-atom "p/p")
+(portage-package-atom "p/p-1")
+(portage-package-atom "=p/p-1")
+(portage-package-atom "=p/p-1.0")
+
+(portage-package-atom "cat-cat/pack::tgbugs-repo")
+(portage-package-atom "cat-cat/pack")
+(portage-package-atom "=cat-cat/pack")
+#+end_src
+
+#+begin_src elisp
+(append
+ (cons '("tags") (cons '("-") (mapcar #'list (cl-remove-duplicates (package-tags "app-editors/emacs") :test #'string=))))
+ (cons '("-") (cons '("paths") (cons '("-") (mapcar #'list (cl-remove-duplicates (package-paths "app-editors/emacs") :test #'string=))))))
+#+end_src
+
 * automatic image dependency resolution
 yeah we could do it with make or something
 but technically all the contents are in this file
@@ -8341,80 +8615,82 @@ and then to the tangle target to the block contents
 (setq
  docker-file-depends-on-tag
  (let (out)
-   (save-excursion ; TODO also need to save fold state
-     (org-babel-map-executables nil
-       ;; (language body arguments switches name start coderef)
-       (let* ((info (org-babel-get-src-block-info))
-              (lang (nth 0 info))
-              (body (orgstrap--expand-body info))
-              (params (nth 2 info))
-              (name (nth 4 info ))
-              (tangle (cdr (assoc :tangle params))))
-         (when (and (string= lang "dockerfile") tangle (not (string= tangle "no")))
-           (setq out (cons
-                      (cons
-                       (substring tangle 2) ; drop ./ ; XXX FIXME error if doesnot start with ./
-                       (with-temp-buffer
-                         (insert body)
-                         ;; TODO need to handle these kinds of cases
-                         ;; ARG PROFILE_IMAGE=tgbugs/musl:profile-x
-                         ;; ARG START_IMAGE=tgbugs/musl:pypy3
-                         ;; don't bother trying to replicate this, it is
-                         ;; vastly easier to just use evil-ex-global for now
-                         (evil-ex-global (point-min) (point-max) "^\\(FROM\\|COPY --from=\\|RUN --mount=from=\\)" "d" t)
-                         ;;(evil-ex-global (point-min) (point-max) "--from=builder" "d" nil) ; keep builder to make it easy to identify multi stage builds
-                         (evil-ex-substitute (point-min) (point-max) '("^COPY --from=\\([^ ]+\\) .+$") "\\1")
-                         (evil-ex-substitute (point-min) (point-max) '("^RUN --mount=from=\\([^ ,]+\\).+$") "\\1")
-                         (split-string (replace-regexp-in-string "^FROM\\| as .+$" "" (buffer-string)) "\n" t " +"))) ; note, produces dupes
-                      out))
-           ))))
-   out))
+   (org-fold-core-save-visibility 'use-markers
+       (save-excursion ; TODO also need to save fold state
+         (org-babel-map-executables nil
+           ;; (language body arguments switches name start coderef)
+           (let* ((info (org-babel-get-src-block-info))
+                  (lang (nth 0 info))
+                  (body (orgstrap--expand-body info))
+                  (params (nth 2 info))
+                  (name (nth 4 info ))
+                  (tangle (cdr (assoc :tangle params))))
+             (when (and (string= lang "dockerfile") tangle (not (string= tangle "no")))
+               (setq out (cons
+                          (cons
+                           (substring tangle 2) ; drop ./ ; XXX FIXME error if doesnot start with ./
+                           (with-temp-buffer
+                             (insert body)
+                             ;; TODO need to handle these kinds of cases
+                             ;; ARG PROFILE_IMAGE=tgbugs/musl:profile-x
+                             ;; ARG START_IMAGE=tgbugs/musl:pypy3
+                             ;; don't bother trying to replicate this, it is
+                             ;; vastly easier to just use evil-ex-global for now
+                             (evil-ex-global (point-min) (point-max) "^\\(FROM\\|COPY --from=\\|RUN --mount=from=\\)" "d" t)
+                             ;;(evil-ex-global (point-min) (point-max) "--from=builder" "d" nil) ; keep builder to make it easy to identify multi stage builds
+                             (evil-ex-substitute (point-min) (point-max) '("^COPY --from=\\([^ ]+\\) .+$") "\\1")
+                             (evil-ex-substitute (point-min) (point-max) '("^RUN --mount=from=\\([^ ,]+\\).+$") "\\1")
+                             (split-string (replace-regexp-in-string "^FROM\\| as .+$" "" (buffer-string)) "\n" t " +"))) ; note, produces dupes
+                          out))
+               ))))
+     out)))
 
 (setq
  tag-produced-by-docker-file
  (let (out)
-   (save-excursion
-     (org-babel-map-executables nil
-       ;; (language body arguments switches name start coderef)
-       (let* ((info (org-babel-get-src-block-info))
-              (lang (nth 0 info))
-              (body (orgstrap--expand-body info))
-              (params (nth 2 info))
-              (name (nth 4 info))
-              (tangle (cdr (assoc :tangle params)))
-              )
-         (when (and name
-                    (or (string= lang "screen")
-                        (string= lang "bash"))
-                    (string-match "&\\([^-]+\\)-build-\\(.+\\)" name))
-           (setq out (cons
-                      (cons
-                       name
-                       (with-temp-buffer
-                         (insert (replace-regexp-in-string "\\\\\n" " " body))
-                         (goto-char (point-min))
-                         ;;(evil-ex-substitute (point-min) (point-max) '("\\\\n") " " "g") ; why doesn't this work ???
-                         (evil-ex-global (point-min) (point-max) "^docker build" "d" t)
-                         (goto-char (point-min))
-                         ;;(re-search-forward "^--tag \\([^ ]+\\)[ \n]")
-                         ;;(re-search-forward "^--file \\([^ ]+\\)[ \n]")
+   (org-fold-core-save-visibility 'use-markers
+       (save-excursion
+         (org-babel-map-executables nil
+           ;; (language body arguments switches name start coderef)
+           (let* ((info (org-babel-get-src-block-info))
+                  (lang (nth 0 info))
+                  (body (orgstrap--expand-body info))
+                  (params (nth 2 info))
+                  (name (nth 4 info))
+                  (tangle (cdr (assoc :tangle params)))
+                  )
+             (when (and name
+                        (or (string= lang "screen")
+                            (string= lang "bash"))
+                        (string-match "&\\([^-]+\\)-build-\\(.+\\)" name))
+               (setq out (cons
+                          (cons
+                           name
+                           (with-temp-buffer
+                             (insert (replace-regexp-in-string "\\\\\n" " " body))
+                             (goto-char (point-min))
+                             ;;(evil-ex-substitute (point-min) (point-max) '("\\\\n") " " "g") ; why doesn't this work ???
+                             (evil-ex-global (point-min) (point-max) "^docker build" "d" t)
+                             (goto-char (point-min))
+                             ;;(re-search-forward "^--tag \\([^ ]+\\)[ \n]")
+                             ;;(re-search-forward "^--file \\([^ ]+\\)[ \n]")
 
-                         ;; TODO need to handle these kinds of cases
-                         ;; --build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
-                         ;; --build-arg START_IMAGE='tgbugs/musl:updated' \
-                         (cl-loop
-                          for s in (split-string (replace-regexp-in-string " --" "\t" (buffer-string)) "\t" t " +")
-                          when (string-match "^\\(tag\\|file\\) \\([^ ]+\\)" s)
-                          collect (cons (match-string 1 s) (match-string 2 s)))))
-                      out)))))
-     (cl-loop
-      for (name . alist) in out append
-      (cl-loop
-       with file = (cdr (assoc "file" alist)) ; there can be multiple tag
-       for tag-pair in (cl-remove-if-not (lambda (p) (string= (car p) "tag")) alist)
-       collect (cons
-                (cdr tag-pair)
-                file))))))
+                             ;; TODO need to handle these kinds of cases
+                             ;; --build-arg PROFILE_IMAGE='tgbugs/musl:profile-static-x' \
+                             ;; --build-arg START_IMAGE='tgbugs/musl:updated' \
+                             (cl-loop
+                              for s in (split-string (replace-regexp-in-string " --" "\t" (buffer-string)) "\t" t " +")
+                              when (string-match "^\\(tag\\|file\\) \\([^ ]+\\)" s)
+                              collect (cons (match-string 1 s) (match-string 2 s)))))
+                          out)))))
+         (cl-loop
+          for (name . alist) in out append
+          (cl-loop
+           with file = (cdr (assoc "file" alist)) ; there can be multiple tag
+           for tag-pair in (cl-remove-if-not (lambda (p) (string= (car p) "tag")) alist)
+           collect (cons
+                    (cdr tag-pair)
+                    file)))))))
 
 (setq
  tag-depends-on-tag
