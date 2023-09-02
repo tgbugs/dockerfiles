@@ -1178,6 +1178,9 @@ dev-scheme/racket jit
 # graphviz
 media-libs/gd truetype fontconfig
 
+# needed for inkscape
+app-text/poppler cairo
+
 # pypy3
 dev-python/pypy3-exe jit
 dev-python/pypy3 sqlite
@@ -1568,12 +1571,30 @@ emerge -uDN @world
 #+end_src
 * profiles
 break profiles into its own to level section in hopes of finding a better way to compose images
+** package.license
+To avoid tainting other images with various licenses, images that need specific licenses should only be accepted
+when building the specific package that requires the license and the corresponding file should only be included
+to accept the license in the images where the package will be used. Another way around some of these issues might
+be to create an image that can be mounted as a volume by users which contains only that specific package, however
+this depends on the license and might only work for e.g. something like media-fonts/corefonts. We aren't going to
+go that route for now, and if I can find any guidance on redistributing docker images containing these I will add
+and update here. However I can't find any clear guidance at this time.
+*** media-fonts/corefonts
+#+name: license-media-libs/corefonts
+#+begin_src conf :tangle ./musl/package-builder/package.license/media-fonts/corefonts :mkdirp yes
+media-fonts/corefonts MSttfEULA
+#+end_src
+
+#+begin_src conf :tangle ./musl/kg-dev/package.license/media-fonts/corefonts :mkdirp yes
+<<license-media-libs/corefonts>>
+#+end_src
+
 ** tweaks
 Temporary tweaks that we don't want to stick in the profile because they
 only affect a subset of images and are presumed safe to apply independently.
 FIXME not clear that this should actually live under profiles but kind of makes sense here?
 #+name: tweak-accept-keywords
-#+begin_src conf :tangle ./musl/package-builder/accept_keywords
+#+begin_src conf :tangle ./musl/package-builder/accept_keywords :mkdirp yes
 =app-editors/emacs-29.1-r1
 #+end_src
 
@@ -2035,6 +2056,7 @@ eselect news read all \
 RUN \
    mkdir /etc/portage/package.accept_keywords > /dev/null 2>&1 \
 ;  mkdir /etc/portage/package.env             > /dev/null 2>&1 \
+;  mkdir /etc/portage/package.license         > /dev/null 2>&1 \
 ;  mkdir /etc/portage/package.mask            > /dev/null 2>&1 \
 ;  mkdir /etc/portage/package.unmask          > /dev/null 2>&1 \
 ;  mkdir /etc/portage/package.use             > /dev/null 2>&1 \
@@ -5517,6 +5539,8 @@ dev-util/shellcheck
 net-libs/nodejs
 dev-python/seaborn
 dev-libs/redland
+media-gfx/inkscape
+media-fonts/corefonts
 #+end_src
 # FIXME pandoc is a dev-python/nifstd-tools doc dep :/
 # FIXME seaborn for generating figures, not clear whether this is the right place, but here for now
