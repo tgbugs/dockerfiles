@@ -3668,6 +3668,9 @@ ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
 # ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 # FIXME need a better way to update the world file/docker set i.e. mount at runtime
 ADD world /etc/portage/sets/docker
+ADD sets/license /etc/portage/sets/license
+# ADD set-live /etc/portage/sets/live
+# ADD accept_keywords.temp /etc/portage/package.accept_keywords/temp  # XXX mount in docker run not here
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
@@ -3882,9 +3885,16 @@ media-libs/fontconfig
 media-fonts/dejavu
 #+end_src
 
+*** sets
+**** license
+#+name: set-license-package-builder
+#+begin_src conf :tangle ./musl/package-builder/license
+<<set-license-kg-dev>>
+#+end_src
+**** live
 TODO use release-next to determine which have actually changed since their last release
 and/or their last build, because smart-live-rebuild won't cut it
-#+begin_src conf :tangle ./musl/package-builder/set-live
+#+begin_src conf :tangle ./musl/package-builder/sets/live
 =dev-python/augpathlib-9999
 =dev-python/clifn-9999
 =dev-python/htmlfn-9999
@@ -3918,7 +3928,7 @@ function builder-live () {
 docker run \
 <<&builder-args>>
 -v ${PWD}/musl/package-builder/00-live:/etc/portage/package.accept_keywords/00-live \
--v ${PWD}/musl/package-builder/set-live:/etc/portage/sets/live \
+-v ${PWD}/musl/package-builder/sets/live:/etc/portage/sets/live \
 ${_builder} \
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @live
 # NOTE if members of @live are also dependencies they will be pulled in, this is ok
@@ -5630,8 +5640,14 @@ net-libs/nodejs
 dev-python/seaborn
 dev-libs/redland
 media-gfx/inkscape
+#+end_src
+
+FIXME can't put license stuff in world because it gets pulled into the global package world
+#+name: set-license-kg-dev
+#+begin_src conf :tangle ./musl/kg-dev/sets/license
 media-fonts/corefonts
 #+end_src
+
 # FIXME pandoc is a dev-python/nifstd-tools doc dep :/
 # FIXME seaborn for generating figures, not clear whether this is the right place, but here for now
 
@@ -8411,6 +8427,7 @@ FROM tgbugs/musl:binpkg-only-nox
 
 ARG ARCHIVE
 
+COPY package.license/* /etc/portage/package.license/
 COPY accept_keyword[s] /etc/portage/package.accept_keywords/tweaks
 ADD world /etc/portage/sets/docker
 
