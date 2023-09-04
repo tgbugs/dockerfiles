@@ -3887,10 +3887,11 @@ media-fonts/dejavu
 
 *** sets
 **** license
-#+name: set-license-package-builder
-#+begin_src conf :tangle ./musl/package-builder/license
+#+name: set-license-package-builder-musl
+#+begin_src conf :tangle ./musl/package-builder/sets/license
 <<set-license-kg-dev>>
 #+end_src
+
 **** live
 TODO use release-next to determine which have actually changed since their last release
 and/or their last build, because smart-live-rebuild won't cut it
@@ -7147,6 +7148,12 @@ FROM tgbugs/gnu:eselect-repo
 #+begin_src conf :tangle ./gnu/package-builder/world
 <<world-sbcl-base>>
 #+end_src
+*** sets
+**** license
+#+name: set-license-package-builder-gnu
+#+begin_src conf :tangle ./gnu/package-builder/sets/license
+#+end_src
+
 *** cross
 **** issues
 Building cross packages from the builder isn't the most straightforward process.
