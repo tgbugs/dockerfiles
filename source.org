@@ -2123,6 +2123,11 @@ eselect repository enable musl
 #+name: &gentoo-file-eselect-repo-common-1
 #+begin_src dockerfile
 ARG ARCHIVE
+
+# fix for bad defaults in stage3 images
+RUN \
+   rm /etc/portage/binrepos.conf \
+&& mkdir /etc/portage/binrepos.conf
 #+end_src
 
 #+name: &gentoo-file-eselect-repo-common-2
