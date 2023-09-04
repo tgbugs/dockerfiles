@@ -840,6 +840,7 @@ ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/py
 ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3_x-exe/musl-include-sys-time.patch
 ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3_x-exe/musl-fix-stdio-defs.patch
 ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3_x/json-str-subclass-safety.patch
+ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
 #+end_src
 # has been fixed in a better way by upstream
 # ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
@@ -949,6 +950,90 @@ dev-util/lapack no-distcc
 dev-python/numpy no-distcc
 dev-scheme/racket no-distcc  # somehow cc to compile zuo is broken and produces a segfault
 #+end_src
+**** patches
+***** sys-apps/portage
+#+begin_src diff :tangle ./docker-profile/base/portage-onlydeps-license.patch
+From 3ead5d1a1e35baf5d26716b02c6e44d98b2db14f Mon Sep 17 00:00:00 2001
+From: Tom Gillespie <tgbugs@gmail.com>
+Date: Sun, 3 Sep 2023 20:57:32 -0700
+Subject: [PATCH] emerge: allow --onlydeps merge if root package(s) masked by
+ license
+
+This commit makes it possible to merge dependencies for packages that
+are masked by license since the masked package is not actually going
+to be installed.
+
+Signed-off-by: Tom Gillespie <tgbugs@gmail.com>
+---
+ lib/_emerge/depgraph.py | 22 +++++++++++++++++-----
+ 1 file changed, 17 insertions(+), 5 deletions(-)
+
+diff --git a/lib/_emerge/depgraph.py b/lib/_emerge/depgraph.py
+index 01a49bcb5..654801db0 100644
+--- a/lib/_emerge/depgraph.py
++++ b/lib/_emerge/depgraph.py
+@@ -5250,7 +5250,13 @@ class depgraph:
+         # set below is reserved for cases where there are *zero* other
+         # problems. For reference, see backtrack_depgraph, where it skips the
+         # get_best_run() call when success_without_autounmask is True.
+-        if self._have_autounmask_changes():
++
++        if onlydeps and self._dynamic_config._needed_license_changes:
++            # needed license changes should only be fatal for packages that
++            # would actually be installed
++            return True, myfavorites
++
++        elif self._have_autounmask_changes():
+             # We failed if the user needs to change the configuration
+             self._dynamic_config._success_without_autounmask = True
+             if (
+@@ -6998,7 +7004,7 @@ class depgraph:
+ 
+         return pkg, existing
+ 
+-    def _pkg_visibility_check(self, pkg, autounmask_level=None, trust_graph=True):
++    def _pkg_visibility_check(self, pkg, autounmask_level=None, trust_graph=True, onlydeps=False):
+         if pkg.visible:
+             return True
+ 
+@@ -7037,7 +7043,11 @@ class depgraph:
+             elif hint.key == "p_mask":
+                 masked_by_p_mask = True
+             elif hint.key == "license":
+-                missing_licenses = hint.value
++                if not onlydeps:
++                    # onlydeps should only be set to True for top level packages
++                    # don't block an onlydeps merge when the package blocked it
++                    # would not be merged
++                    missing_licenses = hint.value
+             else:
+                 masked_by_something_else = True
+ 
+@@ -7073,7 +7083,7 @@ class depgraph:
+                 and not autounmask_level.allow_missing_keywords
+             )
+             or (masked_by_p_mask and not autounmask_level.allow_unmasks)
+-            or (missing_licenses and not autounmask_level.allow_license_changes)
++            or (missing_licenses and not autounmask_level.allow_license_changes and not onlydeps)
+         ):
+             # We are not allowed to do the needed changes.
+             return False
+@@ -7402,7 +7412,9 @@ class depgraph:
+                         # _dep_check_composite_db, in order to prevent
+                         # incorrect choices in || deps like bug #351828.
+ 
+-                        if not self._pkg_visibility_check(pkg, autounmask_level):
++                        # We pass onlydeps here so that masks on packages
++                        # that would not be installed are not fatal
++                        if not self._pkg_visibility_check(pkg, autounmask_level, onlydeps=onlydeps):
+                             continue
+ 
+                         # Enable upgrade or downgrade to a version
+-- 
+2.41.0
+
+#+end_src
+
 *** profiles
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/metadata/layout.conf
 masters = gentoo
