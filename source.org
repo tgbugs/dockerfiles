@@ -3483,6 +3483,35 @@ emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
 }
+
+function builder-license () {
+<<&builder-axes>>
+
+# FIXME don't actually need to mount sets/license since it is in the builder image now since sets are safe, but might be useful
+# what we really need is to mount the accepted license file
+# XXX don't forget to rebuild portage manually to get the patch applied so we don't have to mount the accpeted license file at this stage XXX sigh, not actually fixed yet so we do have to mount at this step
+container-check
+docker run \
+<<&builder-args>>
+-v ${PWD}/musl/package-builder/sets/license:/etc/portage/sets/license \
+-v ${PWD}/musl/package-builder/package.license:/etc/portage/package.license \
+${_builder} \
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @license
+
+OUT=$?
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
+[ ${OUT} -eq 0 ] || return ${OUT}
+
+container-check
+docker run \
+<<&builder-args>>
+-v ${PWD}/musl/package-builder/sets/license:/etc/portage/sets/license \
+-v ${PWD}/musl/package-builder/package.license:/etc/portage/package.license \
+${_builder} \
+emerge --color=y -j4 -q --keep-going --buildpkgonly -uDN @license
+
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
+}
 #+end_src
 
 # XXX seems like cross emerge really does not work at all as desired ???
