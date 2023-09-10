@@ -2382,6 +2382,7 @@ ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
 # TODO need a full combo world file for the docker set here, iirc missing static right now
 # FIXME actually can't quite do this, there are packages that must be excluded for base and nox i.e. xorg-server (sigh sigh sigh)
 ADD world /etc/portage/sets/docker
+ADD sets/license /etc/portage/sets/license
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
@@ -8463,7 +8464,8 @@ FROM tgbugs/musl:binpkg-only-nox
 
 ARG ARCHIVE
 
-COPY package.license/* /etc/portage/package.license/
+COPY set[s]/license /etc/portage/sets/license
+COPY package.licens[e]/* /etc/portage/package.license/
 COPY accept_keyword[s] /etc/portage/package.accept_keywords/tweaks
 ADD world /etc/portage/sets/docker
 
@@ -8472,6 +8474,15 @@ RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,r
 FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(emerge -p @docker | grep -o 'acct-.\+$' | sed 's/^/=/') \
 ;  emerge -j4 -q --backtrack=99 -uDN @docker \
 <<&archive-or-rm>>
+
+# XXX unfortunately there is not an easy way to include or exclude code conditionally
+# in a docker file, this adds noise but at least the behavior is consistent
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+if (emerge -p @license); then  \
+FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(emerge -p @license | grep -o 'acct-.\+$' | sed 's/^/=/') \
+;  emerge -j4 -q --backtrack=99 -uDN @license \
+<<&archive-or-rm>>; \
+else true; fi
 #+end_src
 
 #+name: &archive-or-rm
