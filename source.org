@@ -876,12 +876,12 @@ dev-python/*::tgbugs-overlay
 dev-scheme/racket::tgbugs-overlay
 dev-haskell/*::tgbugs-overlay **
 dev-haskell/*::haskell
-dev-haskell/*::gentoo
-dev-lang/ghc::gentoo
-app-text/pandoc::gentoo
 app-admin/haskell-updater::gentoo
 dev-util/shellcheck::gentoo
 #+end_src
+# dev-haskell/*::gentoo
+# dev-lang/ghc::gentoo
+# app-text/pandoc::gentoo
 # and they say haskell is a safe language
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
@@ -904,6 +904,7 @@ dev-haskell/hxt-unicode::haskell
 dev-haskell/hxt::haskell
 dev-haskell/polyparse::haskell
 dev-haskell/wl-pprint-text::haskell
+dev-python/frozendict::tgbugs-overlay
 #+end_src
 **** package.use
 #+begin_src conf :tangle ./docker-profile/base/package.use
@@ -1180,8 +1181,16 @@ EGIT_OVERRIDE_BRANCH_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=fix-wrapper
 dev-python/dicttoxml
 #+end_src
 **** accept_keywords
+# FIXME pipdeptree requires hatch-vcs but bug in portage means that it isn't pulled in correctly ;_;
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.accept_keywords
 dev-python/pipenv ~amd64
+# needed for pipenv
+dev-python/dparse ~amd64
+dev-python/pipdeptree ~amd64
+dev-python/plette ~amd64
+dev-python/pythonfinder ~amd64
+dev-python/shellingham ~amd64
+
 app-misc/yq ~amd64
 
 # harfbuzz 3.1.2 needs freetype-2.11.1 otherwise build fails
@@ -2125,10 +2134,15 @@ eselect repository enable musl
 ARG ARCHIVE
 
 # fix for bad defaults in stage3 images
+# remove any default repos as gpg failures cause none type errors
 RUN \
-   rm /etc/portage/binrepos.conf \
-&& mkdir /etc/portage/binrepos.conf
+   rm /etc/portage/binrepos.conf/*.conf || true
 #+end_src
+
+# fix for bad defaults in stage3 images
+# RUN \
+#    rm /etc/portage/binrepos.conf \
+# && mkdir /etc/portage/binrepos.conf
 
 #+name: &gentoo-file-eselect-repo-common-2
 #+begin_src dockerfile
@@ -3222,6 +3236,7 @@ gnu-container-check
 --env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
 --env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
 #+end_src
+
 # --network host \
 # network host is required to get distcc working on here due to the port forwarding
 # hilariously or depressingly network host is still the only sane solution
@@ -3329,6 +3344,8 @@ docker run \
 ${_builder} \
 sh -c 'set -o pipefail; emerge --color=n --with-bdeps=y -q -uDN -p @docker | { grep "\(^\[ebuild\|acct-\)" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'")
 # XXX acct- is a workaround for https://bugs.gentoo.org/890777
+# FIXME it seems that sometimes this will fail on packages that need to be rebuilt and then
+# the binpkg only will fail due to incorrect slot deps or something until we reemerge ???
 
 OUT=$?
 [ ${OUT} -eq 0 ] || return ${OUT}
@@ -3354,6 +3371,8 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}
 
 [ "${targets_group}" ] && {
 echo only acct-group targets  # XXX avoid --nodeps order issues
+# FIXME this is currently broken if a dependency and a dependent are in the same list
+# because of the behavior described in https://bugs.gentoo.org/902207
 container-check
 docker run \
 <<&builder-args>>
@@ -5239,7 +5258,7 @@ dev-db/blazegraph-bin
 #+begin_src bash :tangle ./musl/blazegraph/entrypoint.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
-/etc/init.d/blazegraph start
+rc-service blazegraph start
 tail -f /dev/null
 #+end_src
 
@@ -6102,11 +6121,95 @@ FROM tgbugs/musl:racket
 #+name: world-dynapad-base
 #+begin_src conf :tangle ./musl/dynapad-base/world
 <<world-racket>>
+dev-util/cmake
 dev-libs/libconfig
 sys-libs/db
 dev-lang/tk
 media-gfx/imagemagick
+#media-gfx/renderdoc
 app-text/poppler
+#+end_src
+TODO renderdoc musl issue
+https://bugs.gentoo.org/853856
+https://git.alpinelinux.org/aports/tree/community/renderdoc/musl-fix.patch
+#+begin_src diff
+diff --git a/renderdoc/3rdparty/plthook/plthook_elf.c b/renderdoc/3rdparty/plthook/plthook_elf.c
+index 612f689d6..907e7f63e 100644
+--- a/renderdoc/3rdparty/plthook/plthook_elf.c
++++ b/renderdoc/3rdparty/plthook/plthook_elf.c
+@@ -233,7 +233,11 @@ int plthook_open_by_address(plthook_t **plthook_out, void *address)
+     struct link_map *lmap = NULL;
+ 
+     *plthook_out = NULL;
++#ifdef __GLIBC__
+     if (dladdr1(address, &info, (void**)&lmap, RTLD_DL_LINKMAP) == 0) {
++#else
++    if (dladdr(address, &info) == 0) {
++#endif
+         set_errmsg("dladdr error");
+         return PLTHOOK_FILE_NOT_FOUND;
+     }
+@@ -243,7 +247,7 @@ int plthook_open_by_address(plthook_t **plthook_out, void *address)
+ 
+ static int plthook_open_executable(plthook_t **plthook_out)
+ {
+-#if defined __linux__
++#if defined __linux__ && defined __GLIBC__
+     return plthook_open_real(plthook_out, _r_debug.r_map);
+ #elif defined __sun
+     const char *auxv_file = "/proc/self/auxv";
+diff --git a/renderdoc/os/os_specific.h b/renderdoc/os/os_specific.h
+index cc9a6b09e..844597450 100644
+--- a/renderdoc/os/os_specific.h
++++ b/renderdoc/os/os_specific.h
+@@ -31,6 +31,7 @@
+ 
+ #pragma once
+ 
++#include <time.h>
+ #include <stdarg.h>
+ #include <stddef.h>
+ #include <stdint.h>
+diff --git a/renderdoc/os/posix/linux/linux_hook.cpp b/renderdoc/os/posix/linux/linux_hook.cpp
+index 4989e2865..0acb3ac0b 100644
+--- a/renderdoc/os/posix/linux/linux_hook.cpp
++++ b/renderdoc/os/posix/linux/linux_hook.cpp
+@@ -36,6 +36,10 @@
+ #include "plthook/plthook.h"
+ #include "strings/string_utils.h"
+ 
++#ifndef __GLIBC__
++#define RTLD_DEEPBIND 0
++#endif
++
+ Threading::CriticalSection libLock;
+ 
+ RDOC_EXTERN_CONFIG(bool, Linux_Debug_PtraceLogging);
+#+end_src
+
+https://git.alpinelinux.org/aports/tree/community/renderdoc/no-execinfo.patch
+#+begin_src diff
+diff --git a/renderdoc/os/posix/linux/linux_callstack.cpp b/renderdoc/os/posix/linux/linux_callstack.cpp
+index f0b44b0..558765d 100644
+--- a/renderdoc/os/posix/linux/linux_callstack.cpp
++++ b/renderdoc/os/posix/linux/linux_callstack.cpp
+@@ -27,7 +27,6 @@
+ #define _GNU_SOURCE
+ #endif
+ 
+-#include <execinfo.h>
+ #include <link.h>
+ #include <stdio.h>
+ #include <string.h>
+@@ -66,7 +65,7 @@ private:
+   {
+     void *addrs_ptr[ARRAY_COUNT(addrs)];
+ 
+-    int ret = backtrace(addrs_ptr, ARRAY_COUNT(addrs));
++    int ret = 0;
+ 
+     numLevels = 0;
+     if(ret > 0)
 #+end_src
 ** dynapad-user
 *** build
@@ -7871,6 +7974,7 @@ this inside of the sbcl toolset itself, but for now this is easier.
 dev-lisp/sbcl -zlib -zstd  # crossdev compile reference errors
 #+end_src
 
+# XXX we should be able to get rid of this now that it has been fixed upstream I think
 #+begin_src diff :tangle ./gnu/sbcl-cross/alt-ld.patch
 diff --git a/make-target-contrib.sh b/make-target-contrib.sh
 index 217b5b2e0..45406f506 100755
