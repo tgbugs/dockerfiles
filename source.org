@@ -837,6 +837,8 @@ ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim
 ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim
 ADD ${bp}vim-core.env                            etc/portage/env/app-editors/gvim
 ADD ${bp}erlang.env                              etc/portage/env/dev-lang/erlang
+ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/pipenv
+ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/google-auth-oauthlib
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
@@ -924,11 +926,19 @@ dev-scheme/racket::tgbugs-overlay cs bc cgc
 #+begin_src conf :tangle ./docker-profile/base/no-distcc.env
 FEATURES="-distcc"
 #+end_src
+***** no site-packages/docs
+=dev-python/{pipenv,google-auth-oauthlib}=
+hack to remove packages installing =site-packages/docs= nonsense
+https://github.com/pypa/pipenv/issues/5937
+#+begin_src ebuild :tangle ./docker-profile/base/no-site-docs.env
+post_src_install() { find "${D}" -type d -wholename '*/site-packages/docs' -exec rm -r {} \;; }
+#+end_src
 ***** app-editors/emacs
 #+begin_src conf :tangle ./docker-profile/base/emacs.env
 NATIVE_FULL_AOT=1
 #+end_src
 ***** app-editors/vim-core
+Also needed for vim and gvim.
 #+begin_src ebuild :tangle ./docker-profile/vim-core.env
 post_src_prepare() {
 	# Fix bug #908961
@@ -942,7 +952,7 @@ post_src_prepare() {
 ***** dev-lang/erlang
 https://bugs.gentoo.org/857099
 https://github.com/OpenRC/openrc/blob/master/service-script-guide.md#be-wary-of-need-net-dependencies
-#+begin_src conf :tangle ./docker-profile/base/erlang.env
+#+begin_src ebuild :tangle ./docker-profile/base/erlang.env
 post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/epmd; }
 #+end_src
 ***** net-misc/rabbitmq-server
@@ -953,7 +963,7 @@ in the init file that pulls in system epmd, which if started will
 cause rabbitmq to fail to start. The correct solution is to figure out
 how to correctly configure rabbitmq, but for now this should restore
 the old behavior.
-#+begin_src conf :tangle ./docker-profile/base/rabbitmq.env
+#+begin_src ebuild :tangle ./docker-profile/base/rabbitmq.env
 post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/rabbitmq; }
 #+end_src
 **** package.env
