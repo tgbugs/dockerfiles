@@ -939,7 +939,7 @@ NATIVE_FULL_AOT=1
 #+end_src
 ***** app-editors/vim-core
 Also needed for vim and gvim.
-#+begin_src ebuild :tangle ./docker-profile/vim-core.env
+#+begin_src ebuild :tangle ./docker-profile/base/vim-core.env
 post_src_prepare() {
 	# Fix bug #908961
 	if use elibc_musl; then
