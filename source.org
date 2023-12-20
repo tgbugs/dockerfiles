@@ -832,6 +832,10 @@ ADD ${bp}package.mask                            etc/portage/package.mask/profil
 ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
 ADD ${bp}package.use                             etc/portage/package.use/profile
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
+ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim-core
+# FIXME could symlink instead of duping maybe?
+ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim
+ADD ${bp}vim-core.env                            etc/portage/env/app-editors/gvim
 ADD ${bp}erlang.env                              etc/portage/env/dev-lang/erlang
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
@@ -841,6 +845,8 @@ ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/
 ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3_x-exe/musl-fix-stdio-defs.patch
 ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3_x/json-str-subclass-safety.patch
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
+ADD ${bp}musl-renderdoc-plthook-elf.patch        etc/portage/patches/media-gfx/renderdoc/musl-renderdoc-plthook-elf.patch
+ADD ${bp}musl-renderdoc-execinfo.patch           etc/portage/patches/media-gfx/renderdoc/musl-renderdoc-execinfo.patch
 #+end_src
 # has been fixed in a better way by upstream
 # ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
@@ -921,6 +927,17 @@ FEATURES="-distcc"
 ***** app-editors/emacs
 #+begin_src conf :tangle ./docker-profile/base/emacs.env
 NATIVE_FULL_AOT=1
+#+end_src
+***** app-editors/vim-core
+#+begin_src ebuild :tangle ./docker-profile/vim-core.env
+post_src_prepare() {
+	# Fix bug #908961
+	if use elibc_musl; then
+		# Musl's locale support is not great, it doesn't support the cp932
+		# charset.
+		sed -e "/ja.sjis/d" -i "${S}"/src/po/Make_all.mak
+	fi
+}
 #+end_src
 ***** dev-lang/erlang
 https://bugs.gentoo.org/857099
@@ -1211,6 +1228,7 @@ dev-python/sparcur **
 # sparcur
 app-text/xlsx2csv ~amd64
 dev-python/semver ~amd64
+dev-python/click-didyoumean ~amd64
 
 # gtknor
 <gnome-base/librsvg-2.41 **
@@ -1689,7 +1707,6 @@ only affect a subset of images and are presumed safe to apply independently.
 FIXME not clear that this should actually live under profiles but kind of makes sense here?
 #+name: tweak-accept-keywords
 #+begin_src conf :tangle ./musl/package-builder/accept_keywords :mkdirp yes
-=app-editors/emacs-29.1-r1
 #+end_src
 
 ** debug
@@ -6126,13 +6143,14 @@ dev-libs/libconfig
 sys-libs/db
 dev-lang/tk
 media-gfx/imagemagick
-#media-gfx/renderdoc
+media-gfx/renderdoc
 app-text/poppler
 #+end_src
-TODO renderdoc musl issue
+*** patches
+**** media-gfx/renderdoc
 https://bugs.gentoo.org/853856
 https://git.alpinelinux.org/aports/tree/community/renderdoc/musl-fix.patch
-#+begin_src diff
+#+begin_src diff :tangle ./docker-profile/base/musl-renderdoc-plthook-elf.patch :mkdirp yes
 diff --git a/renderdoc/3rdparty/plthook/plthook_elf.c b/renderdoc/3rdparty/plthook/plthook_elf.c
 index 612f689d6..907e7f63e 100644
 --- a/renderdoc/3rdparty/plthook/plthook_elf.c
@@ -6188,7 +6206,7 @@ index 4989e2865..0acb3ac0b 100644
 #+end_src
 
 https://git.alpinelinux.org/aports/tree/community/renderdoc/no-execinfo.patch
-#+begin_src diff
+#+begin_src diff :tangle ./docker-profile/base/musl-renderdoc-execinfo.patch :mkdirp yes
 diff --git a/renderdoc/os/posix/linux/linux_callstack.cpp b/renderdoc/os/posix/linux/linux_callstack.cpp
 index f0b44b0..558765d 100644
 --- a/renderdoc/os/posix/linux/linux_callstack.cpp
