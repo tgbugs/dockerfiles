@@ -852,6 +852,8 @@ ADD ${bp}musl-renderdoc-execinfo.patch           etc/portage/patches/media-gfx/r
 #+end_src
 # has been fixed in a better way by upstream
 # ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
+# bad patch that enables things to build that will cause fatal runtime errors
+# ADD ${bp}pypy3-trashcan.patch                    etc/portage/patches/dev-python/pypy3_x-exe/trashcan.patch
 
 #+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
 FROM busybox:latest as builder
@@ -2710,6 +2712,21 @@ pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch>
  
 #+end_src
 
+**** pypy3-exe trashcan patch
+https://foss.heptapod.net/pypy/pypy/-/issues/3959
+this does not work, it allows pycurl to build but running the code results in a fatal error in pypy at runtime
+#+begin_src diff :tangle ./docker-profile/base/pypy3-trashcan.patch :mkdirp yes
+--- a/pypy/module/cpyext/include/object.h
++++ b/pypy/module/cpyext/include/object.h
+@@ -395,6 +395,8 @@
+ #define Py_TRASHCAN_SAFE_END(pyObj)   ; } while(0);
+ /* note: the ";" at the start of Py_TRASHCAN_SAFE_END is needed
+    if the code has a label in front of the macro call */
++#define Py_TRASHCAN_BEGIN(op, dealloc) do {
++#define Py_TRASHCAN_END   ; } while(0);
+ 
+ /* Copied from CPython ----------------------------- */
+#+end_src
 **** pypy3 json string patch
 Not all instance of string have =__radd__= methods that make uncasted
 string concatenation safe. This results in divergent behavior compared
