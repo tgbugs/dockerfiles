@@ -512,6 +512,9 @@ echo start image builds
 <<&musl-build-protege>> || return $?; echo mbp;
 <<&musl-build-NIF-ontology>> || return $?; echo mbno;
 
+## postgresql
+<<&musl-build-postgresql>> || return $?; echo mbpsql;
+
 ## interlex
 <<&musl-build-interlex>> || return $?; echo mbilx;
 
@@ -897,9 +900,9 @@ dev-util/shellcheck::gentoo
 #+begin_src conf :tangle ./docker-profile/base/package.mask
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
->=dev-lang/rust-1.66  # cc issue https://bugs.gentoo.org/888936
->=dev-lang/rust-bin-1.66
->=virtual/rust-1.66
+>=dev-lang/rust-1.72  # cc issue https://bugs.gentoo.org/888936
+>=dev-lang/rust-bin-1.72
+>=virtual/rust-1.72
 dev-java/openjdk-bin  # libc linking issues, must compile openjdk
 <virtual/jdk-17
 <virtual/jre-17
@@ -2715,6 +2718,7 @@ pypy3-exe/files/pypy3-exe-7.3.0-musl-compat-fix-stdio-defs.patch>
 **** pypy3-exe trashcan patch
 https://foss.heptapod.net/pypy/pypy/-/issues/3959
 this does not work, it allows pycurl to build but running the code results in a fatal error in pypy at runtime
+note that pycurl is only a =test= dependency for kombu and tornado so the is not strictly necessary right now
 #+begin_src diff :tangle ./docker-profile/base/pypy3-trashcan.patch :mkdirp yes
 --- a/pypy/module/cpyext/include/object.h
 +++ b/pypy/module/cpyext/include/object.h
@@ -5158,15 +5162,80 @@ RUN --mount=type=secret,id=scigraph-api-key,uid=1000 source /run/secrets/scigrap
 ; git -C ~/git/NIF-Ontology status
 #+end_src
 
+** postgresql
+*** run
+- configure
+- migrate
+- etc.
+
+#+begin_src screen
+docker run \
+--volumes-from local-repos-snap \
+-it tgbugs/musl:postgresql
+
+# -v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
+# -v ~/.pgpass-interlex:/var/lib/interlex/.pgpass \
+# -v ~/.mypass-interlex:/var/lib/interlex/.mypass \
+# -v /tmp/.X11-unix:/tmp/.X11-unix \
+# -e DISPLAY=$DISPLAY \
+
+#+end_src
+
+configure the database cluster
+#+begin_src bash
+function config-pg () {
+local PG_SLOT PG_CONFD
+PG_SLOT=$(eselect postgresql show)
+PG_CONFD=/etc/conf.d/postgresql-${PG_SLOT}
+# --locale determines LC_COLLATE and it needs to match
+grep -q '^PG_INITDB_OPTS.\+locale=en_US.UTF-8' ${PG_CONFD} || \
+echo 'PG_INITDB_OPTS="${PG_INITDB_OPTS} --locale=en_US.UTF-8"' >> ${PG_CONFD}
+emerge --config dev-db/postgresql:${PG_SLOT}
+}
+#+end_src
+*** build
+#+name: &musl-build-postgresql
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:postgresql \
+--file musl/postgresql/Dockerfile musl/postgresql
+#+end_src
+*** file
+#+begin_src dockerfile :tangle ./musl/postgresql/Dockerfile :mkdirp yes
+FROM tgbugs/musl:binpkg-only
+
+<<&build-world-common>>
+#+end_src
+*** world
+#+begin_src conf :tangle ./musl/postgresql/world :mkdirp yes
+dev-db/postgresql
+dev-db/pguri
+#+end_src
 ** interlex
 *** run
 WARNING! If you mount your postgres data directory like this make sure
 the host system is NOT also running postgres on top of that directory
 otherwise you will have a BAD TIME.
+**** setup
+#+begin_src screen
+# container-check
+docker run \
+--volumes-from local-repos-snap \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
+-v ~/.pgpass-interlex:/var/lib/interlex/.pgpass \
+-v ~/.mypass-interlex:/var/lib/interlex/.mypass \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:interlex
+#+end_src
+
+**** ops
 #+begin_src screen
 docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
+-v ~/.pgpass-interlex:/var/lib/interlex/.pgpass \
+-v ~/.mypass-interlex:/var/lib/interlex/.mypass \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:interlex
 #+end_src
@@ -5195,6 +5264,37 @@ FROM tgbugs/musl:binpkg-only
 #+begin_src conf :tangle ./musl/interlex/world
 dev-python/interlex
 dev-libs/redland
+#+end_src
+FIXME there has got to be a better way to do this ...
+*** entrypoints
+**** initial configuration
+yeold run once stuff
+- postgres
+- bin/interlex-dbsetup
+#+begin_src bash
+PG_SLOT=$(eselect postgresql show)
+config-pg
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/postgresql-${PG_SLOT} start
+interlex-dbsetup  # quite broken due to install path issues right now
+#+end_src
+FIXME completely missing resources in the source
+#+begin_src bash
+/usr/share/interlex/sql/permissions.sql
+/usr/bin/interlex-dbsetup
+#+end_src
+**** mysql dump
+**** sync
+**** run
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :tangle ./musl/interlex/entrypoint.sh :mkdirp yes
+PG_SLOT=$(eselect postgresql show)
+rc-status
+touch /run/openrc/softlevel
+/etc/init.d/postgresql-${PG_SLOT} start  # FIXME symlink to version to avoid need to rewrite here?
+/etc/init.d/interlex start
+tail -f /dev/null
 #+end_src
 
 ** blazegraph
