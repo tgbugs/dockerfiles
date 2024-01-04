@@ -5182,16 +5182,38 @@ docker run \
 #+end_src
 
 configure the database cluster
+#+name: &config-pg
 #+begin_src bash
-function config-pg () {
+# XXX DO NOT USE THIS OUTSIDE A musl docker image !!!
+# changes here deviate from gentoo standard practice
+# because PGDATA and DATA_DIR must be the same because
+# /etc/postgresql-${PG_SLOT}/ is not persisted to the image
+# when the database cluster is created, we may consider
+# running this during the initial image build or in an interlex-user image build
+# but this seems like a reasonable solution for now
+# one issue is that if emerge --config was called without these
+# changes the whole cluster must be re-initialized so watch out
+
+function fix-pg-config () {
+# FIXME this should almost certainly be run during image creation
+# because otherwise we have to run it every single time we restart the image
 local PG_SLOT PG_CONFD
 PG_SLOT=$(eselect postgresql show)
 PG_CONFD=/etc/conf.d/postgresql-${PG_SLOT}
 # --locale determines LC_COLLATE and it needs to match
 grep -q '^PG_INITDB_OPTS.\+locale=en_US.UTF-8' ${PG_CONFD} || \
 echo 'PG_INITDB_OPTS="${PG_INITDB_OPTS} --locale=en_US.UTF-8"' >> ${PG_CONFD}
+grep -q '^PGDATA="\${DATA_DIR}"' ${PG_CONFD} || \
+echo 'PGDATA="${DATA_DIR}"  # overwrite to simplify image reuse' >> ${PG_CONFD}
+}
+
+function config-pg () {
+fix-pg-config
+local PG_SLOT
+PG_SLOT=$(eselect postgresql show)
 emerge --config dev-db/postgresql:${PG_SLOT}
 }
+
 #+end_src
 *** build
 #+name: &musl-build-postgresql
@@ -5217,14 +5239,18 @@ WARNING! If you mount your postgres data directory like this make sure
 the host system is NOT also running postgres on top of that directory
 otherwise you will have a BAD TIME.
 **** setup
+FIXME file ownership issues on pgpass and mypass AS IS TRADITION
+see https://www.postgresql.org/docs/current/libpq-envars.html for possible alternate approaches
+but for now we just have entrypoints do the very stupid thing of copying the =.*pass= files from
+=/root/= to the actual location SIGH.
 #+begin_src screen
 # container-check
 docker run \
 --volumes-from local-repos-snap \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
--v ~/.pgpass-interlex:/var/lib/interlex/.pgpass \
--v ~/.mypass-interlex:/var/lib/interlex/.mypass \
+-v ~/.pgpass-interlex:/root/.pgpass-interlex \
+-v ~/.mypass-interlex:/root/.mypass-interlex \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:interlex
 #+end_src
@@ -5234,8 +5260,8 @@ docker run \
 docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
--v ~/.pgpass-interlex:/var/lib/interlex/.pgpass \
--v ~/.mypass-interlex:/var/lib/interlex/.mypass \
+-v ~/.pgpass-interlex:/root/.pgpass-interlex \
+-v ~/.mypass-interlex:/root/.mypass-interlex \
 -e DISPLAY=$DISPLAY \
 -it tgbugs/musl:interlex
 #+end_src
@@ -5253,6 +5279,14 @@ docker run \
 FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
+
+# quick rebuild
+# RUN echo 0
+# RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+#   emerge -q interlex
+
+ADD entrypoints /etc/entrypoints
+ENTRYPOINT /etc/entrypoints/default.sh
 #+end_src
 *** world
 # app-misc/elasticsearch  # XXX license issues, likely must handle separately
@@ -5267,33 +5301,84 @@ dev-libs/redland
 #+end_src
 FIXME there has got to be a better way to do this ...
 *** entrypoints
+**** default
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/default.sh :mkdirp yes
+<<&config-pg>>
+rc-status
+touch /run/openrc/softlevel
+fix-pg-config  # FIXME REMOVE once this is done when building the image
+/bin/bash
+#+end_src
+**** common
+SIGH FIXME HACK
+
+FIXME this is beyond dumb/annoying because we always have
+to start the container as root and then either use docker exec
+to run something else as another user or who knows
+#+header: :shebang "#!/usr/bin/env sh"
+#+name: &interlex-entrypoint-common
+#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/common.sh :mkdirp yes
+_oum=$(umask)
+umask 0077
+cp /root/.pgpass-interlex /var/lib/interlex/.pgpass
+cp /root/.mypass-interlex /var/lib/interlex/.mypass
+umask ${_oum}
+chown interlex:interlex /var/lib/interlex/.*pass
+#+end_src
+
 **** initial configuration
 yeold run once stuff
 - postgres
 - bin/interlex-dbsetup
-#+begin_src bash
-PG_SLOT=$(eselect postgresql show)
+#+begin_src bash :noweb yes
+<<&config-pg>>
 config-pg
+# FIXME if the database is already initialized then it assumes that the config files will be in /etc/postgresql-${PG_SLOT}/
+# which is not the case if the docker image is removed/recycled, need a solution for that
 rc-status
 touch /run/openrc/softlevel
+PG_SLOT=$(eselect postgresql show)
 /etc/init.d/postgresql-${PG_SLOT} start
 interlex-dbsetup  # quite broken due to install path issues right now
+# FIXME I think we need to set interlex-user and interlex-admin passwords after this step? or is that automated now?
+# XXX it isn't checking likely because pg_hba.conf is set to trust for all which is probably bad???
 #+end_src
-FIXME completely missing resources in the source
-#+begin_src bash
-/usr/share/interlex/sql/permissions.sql
-/usr/bin/interlex-dbsetup
-#+end_src
+
+=test/test_constraints.py= also missing (but is expected to be missing) since it is only needed when testing
+
 **** mysql dump
 **** sync
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/sync.sh :mkdirp yes
+<<&interlex-common>>
+# FIXME this needs to run as the interlex user probably due to the way we provide config files
+# FIXME if hitting prod this needs the port to change, if syncing from a dev copy dumped from prod --network=host probably needed
+su interlex -c 'INTERLEX_ALT_DB_HOST=localhost INTERLEX_ALT_DB_PORT=3306 INTERLEX_DATABASE=__interlex_testing interlex sync'
+#+end_src
 **** run
-#+header: :shebang "#!/usr/bin/env sh"
-#+begin_src bash :tangle ./musl/interlex/entrypoint.sh :mkdirp yes
+#+name: &interlex-common
+#+begin_src bash :noweb yes
+# FIXME obviously move some of this stuff into the image etc.
+<<&config-pg>>
+fix-pg-config  # FIXME remove once we move this to image creation
 PG_SLOT=$(eselect postgresql show)
 rc-status
 touch /run/openrc/softlevel
 /etc/init.d/postgresql-${PG_SLOT} start  # FIXME symlink to version to avoid need to rewrite here?
-/etc/init.d/interlex start
+/etc/entrypoints/common.sh
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/service.sh :mkdirp yes
+<<&interlex-common>>
+# XXX FIXME adjust conf.d for testing
+# DATABASE=__interlex_testing
+# FIXME runs off a unix socket right now
+# /etc/init.d/interlex start
+
+# FIXME TODO config file probably
+su interlex -c 'INTERLEX_DATABASE=__interlex_testing interlex server uri'  # FIXME temp until fix socket and/or switch to uwsgi
 tail -f /dev/null
 #+end_src
 
