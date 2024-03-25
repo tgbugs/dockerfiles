@@ -1320,7 +1320,8 @@ www-servers/uwsgi python
 # needed for matplotlib apparently
 media-gfx/imagemagick jpeg tiff
 virtual/imagemagick-tools jpeg tiff
-dev-python/pillow webp
+dev-python/pillow webp tiff  # tiff needed for inkscape
+media-libs/tiff jpeg  # lol
 
 # keep ipykernel deps minimal for emacs-jupyter
 dev-python/ipython -smp
@@ -2432,7 +2433,7 @@ ADD sets/license /etc/portage/sets/license
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
-&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=n --usepkg"' >> /etc/portage/make.conf
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
 #+end_src
 
 *** entrypoints
@@ -3755,6 +3756,12 @@ docker build \
 *** file
 # TODO distcc
 # COPY patches /etc/portage/patches
+binpkg-changed-deps=y causes way too many big things to rebuild
+way too frequently, however, if it is not enabled there are certain
+hard to debug failures that are the result of the fact that there is
+not currently a way to indicate that certain packages must be rebuild
+when a given dependency changes ... portage does have the ability to
+approximate this behavior  but I don't think it has the exact feature?
 #+name: &musl-package-builder-common
 #+begin_src dockerfile
 COPY --from=tgbugs/common:portage-maven / /
@@ -3771,7 +3778,7 @@ ADD sets/license /etc/portage/sets/license
 
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
-&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=n --usepkg"' >> /etc/portage/make.conf
+&& echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
 #+end_src
 
 We don't add distcc until we get to the builder here to avoid issues
