@@ -3363,6 +3363,21 @@ int main(void)
 }
 #+end_src
 
+#+name: &docker-run-prefix
+#+begin_src bash :noweb yes
+container-check
+docker run \
+<<&builder-args>>
+${_builder} \
+#+end_src
+
+#+name: &docker-run-suffix
+#+begin_src bash :noweb yes
+OUT=$?
+docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
+[ ${OUT} -eq 0 ] || return ${OUT}
+#+end_src
+
 # TODO crossdev aarch64-unknown-linux-gnu-emerge
 #+name: &builder-world
 #+begin_src bash :noweb yes
@@ -3401,49 +3416,50 @@ OUT=$?
 
 [ "${targets}" ] || return 0  # we're done here
 
+targets_ghc=$(echo ${targets} | awk -v RS='\\s' '/^=dev-lang\/ghc/')
 targets_group=$(echo ${targets} | awk -v RS='\\s' '/^=acct-group/')
 targets_nogroup=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-group/')
+
+[ "${targets_ghc}" ] && {
+# FIXME this should probably go in a musl-bootstrap-ghc like we do with musl-bootstrap-sbcl ???
+# except the situation is slightly different in that ghc is built, but the ghcbootstrap use flag causes issues
+# TODO generalize for cases where the bootstrapped package needs to be present, pulled in, built, etc.
+echo ghc targets
+<<&docker-run-prefix>>
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going ${targets_ghc}
+<<&docker-run-suffix>>
+
+
+<<&docker-run-prefix>>
+emerge --color=y -j4 -q --keep-going ${targets_ghc}
+<<&docker-run-suffix>>
+
+}
 
 echo only target bdeps
 # emerge only build dependencies of targets
 # FIXME for some reason there are sporadic package rebuilds that are being missed here
 # e.g. due to slot depends changes
-container-check
-docker run \
-<<&builder-args>>
-${_builder} \
+<<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN ${targets}
-
-OUT=$?
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
-[ ${OUT} -eq 0 ] || return ${OUT}
+<<&docker-run-suffix>>
 
 [ "${targets_group}" ] && {
 echo only acct-group targets  # XXX avoid --nodeps order issues
 # FIXME this is currently broken if a dependency and a dependent are in the same list
 # because of the behavior described in https://bugs.gentoo.org/902207
-container-check
-docker run \
-<<&builder-args>>
-${_builder} \
+<<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets_group}
+<<&docker-run-suffix>>
 
-OUT=$?
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
-[ ${OUT} -eq 0 ] || return ${OUT}
 }
 
 [ "${targets_nogroup}" ] && {
 echo only targets not acct-group
-container-check
-docker run \
-<<&builder-args>>
-${_builder} \
+<<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets_nogroup}
+<<&docker-run-suffix>>
 
-OUT=$?
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
-return $OUT
 }
 }
 
