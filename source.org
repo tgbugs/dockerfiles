@@ -900,10 +900,8 @@ dev-util/shellcheck::gentoo
 #+begin_src conf :tangle ./docker-profile/base/package.mask
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
->=dev-lang/rust-1.72  # cc issue https://bugs.gentoo.org/888936
->=dev-lang/rust-bin-1.72
->=virtual/rust-1.72
 dev-java/openjdk-bin  # libc linking issues, must compile openjdk
+dev-lang/rust-bin  # prefer our own
 <virtual/jdk-17
 <virtual/jre-17
 #+end_src
