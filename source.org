@@ -7674,7 +7674,7 @@ emerge --usepkgonly dev-lisp/sbcl || {
 # because once we cross bootstrap our pure musl process with system-bootstrap
 # will keep everything up to date, yes a new system will have to bootstrap from
 # a new version, but that is a given, XXX watch out for missing ebuild after long period of not updating though?
-PKGDIR=/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs/ USE='-zstd -system-bootstrap' emerge -K dev-lisp/sbcl
+PKGDIR=/usr/x86_64-pc-linux-musl/var/cache/binpkgs/ USE='-zstd -system-bootstrap' emerge -K dev-lisp/sbcl
 env-update
 source /etc/profile
 emerge -q --buildpkg=n dev-lisp/sbcl
@@ -7687,7 +7687,7 @@ emerge -q dev-lisp/sbcl
 #+begin_src screen
 function gnu-cross-musl-sbcl () {
 # FIXME super hacked way to determine whether we already bootstrapped
-{ [ -z "$(ls -A ${_path_binpkgs_root}/cross/gnu/x86_64-gentoo-linux-musl/dev-lisp/sbcl)" ] && gnu-cross-musl-sbcl-build; } || return 0
+{ [ -z "$(ls -A ${_path_binpkgs_root}/cross/gnu/x86_64-pc-linux-musl/dev-lisp/sbcl)" ] && gnu-cross-musl-sbcl-build; } || return 0
 }
 
 function gnu-cross-musl-sbcl-build () {
@@ -7698,10 +7698,11 @@ gnu-builder-run emerge -q -j4 dev-lisp/sbcl
 gnu-builder-run env-update
 # gnu-builder-run source /etc/profile
 
-gnu-builder-run x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  # FIXME not sure if needed
+gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  # FIXME not sure if needed
 
 # configure the gnu cross to musl environment
-# must use x86_64-gentoo-linux-musl NOT x86_64-pc-linux-musl because the gentoo musl images are x86_64-gentoo-linux-musl
+# must use x86_64-pc-linux-musl NOT x86_64-gentoo-linux-musl because the gentoo musl images are x86_64-pc-linux-musl
+# NOTE this filpped some time around 2024-04-01 from gentoo -> pc
 docker run \
 -v ${PWD}/gnu/package-builder/sbcl-cross.env:/tmp/sbcl-cross.env \
 -v ${PWD}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
@@ -7709,18 +7710,18 @@ docker run \
 ${_tg_pbs} \
 sh -c \
 "
-mkdir -p               /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp
-cp /tmp/sbcl-cross.env /usr/x86_64-gentoo-linux-musl/etc/portage/env/dev-lisp/sbcl
-mkdir -p        /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/;\
-cp /tmp/99-sbcl /usr/x86_64-gentoo-linux-musl/etc/portage/package.use/99-sbcl;\
-cat /tmp/cross-make.defaults >> /usr/x86_64-gentoo-linux-musl/etc/portage/make.conf\
+mkdir -p               /usr/x86_64-pc-linux-musl/etc/portage/env/dev-lisp
+cp /tmp/sbcl-cross.env /usr/x86_64-pc-linux-musl/etc/portage/env/dev-lisp/sbcl
+mkdir -p        /usr/x86_64-pc-linux-musl/etc/portage/package.use/;\
+cp /tmp/99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl;\
+cat /tmp/cross-make.defaults >> /usr/x86_64-pc-linux-musl/etc/portage/make.conf\
 "
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}  # TODO possibly write to own lineage or make own script and --rm
 
 # this symlink is critical to get the whole thing to work otherwise the tools-for-build/determine-endianness error will show up
 # FIXME the string is getting split when passing through the function
-gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-gentoo-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1'
+gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1'
 # the symlink trick we do for ld doesn't work for libzstd so have to
 # USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
 #gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl"
@@ -7728,8 +7729,8 @@ gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-gent
 
 # FIXME somehow only x86_64-pc-linux-musl-emerge is installed? did we miss a cross build?
 # since we have sbcl installed on the builder we can use system-bootstrap to reduce useflag noise
-gnu-builder-run sh -c 'USE=system-bootstrap x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl'
-# reminder can't use LD_LIBRARY_PATH=/usr/x86_64-gentoo-linux-musl/usr/lib because it breaks the builder (gnu) binaries
+gnu-builder-run sh -c 'USE=system-bootstrap x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl'
+# reminder can't use LD_LIBRARY_PATH=/usr/x86_64-pc-linux-musl/usr/lib because it breaks the builder (gnu) binaries
 }
 
 function musl-bootstrap-sbcl () {
