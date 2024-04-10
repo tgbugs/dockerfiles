@@ -4523,7 +4523,7 @@ FROM tgbugs/musl:nox
 #+begin_src conf
 app-editors/vim
 app-portage/eix
-sys-devel/gdb
+dev-debug/gdb
 #+end_src
 
 ** docker :bootstrap:
