@@ -3841,13 +3841,33 @@ haskell-updater --all --no-deep -- --usepkg=n
 # start from the builder snapshot but do not overwrite the snapshot when we're done i.e. use builder-debug-nowrite
 # check here for latest version: https://pkgs.alpinelinux.org/package/edge/community/x86_64/ghc
 # FIXME except ... that 9.4.4 seeminly can't bootstrap 9.0.2 ... what utter nonsense
+#+begin_src bash :noweb yes
+container-check
+docker run \
+--privileged \
+<<&builder-args>>
+--rm -it ${_tm_pb}
+#+end_src
+see https://pkgs.alpinelinux.org/packages?name=ghc&repo=&arch=&maintainer=
 #+begin_src bash
 # curl -L -o ghc-9.0.2-r1.tar.bz http://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/ghc-9.0.2-r1.apk
 # tar xvzf ghc-9.0.2-r1.tar.bz  # yes this is crazy, throw the container away when when are done
-curl -L -o ghc-9.4.4-r1.tar.bz http://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/ghc-9.4.4-r1.apk
-tar xvzf ghc-9.4.4-r1.tar.bz  # yes this is crazy, throw the container away when when are done
+#curl -L -o ghc-9.4.4-r1.tar.bz http://dl-cdn.alpinelinux.org/alpine/edge/community/x86_64/ghc-9.4.4-r1.apk
+#curl -L -o ghc-${ghc_version}.tar.bz http://dl-cdn.alpinelinux.org/alpine/v3.19/community/x86_64/ghc-${ghc_version}.apk
+#ghc_version=9.4.7-rl;alpine_branch=v3.19  # 9.0.2-r4 fail
+#ghc_version=9.4.4-r1;alpine_branch=v3.18  # 9.0.2-r4 fail
+ghc_version=9.0.2-r1;alpine_branch=v3.17  # 9.0.2-r4 ok
+curl -L -o ghc-${ghc_version}.tar.bz http://dl-cdn.alpinelinux.org/alpine/${alpine_branch}/community/x86_64/ghc-${ghc_version}.apk
+tar xvzf ghc-${ghc_version}.tar.bz  # yes this is crazy, throw the container away when when are done
+
+# have to force the fix by setting chost so we can use our old package (don't lose it!) XXX this doesn't work EITHER
+# CHOST=x86_64-gentoo-linux-musl emerge -1q dev-lang/ghc --usepkg
+# unset CHOST
+
+# finally biuld the package
 FEATURES=-distcc emerge -1q dev-lang/ghc
 #+end_src
+
 since we are lucky enough to have an existing ghc xpak file from another system we can use that sigh
 technically can skip the emerge dev-lang/ghc bit if the versions match ...
 #+begin_src screen
