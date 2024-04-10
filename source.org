@@ -355,9 +355,7 @@ local REPOS="${_repos}"
 <<&musl-build-eselect-repo>> || return $?;
   [ -z $REPOS ] || {
   <<&repos-build-repos>> || return $?;
-  docker container inspect local-repos-snap > /dev/null &&
-  docker rm local-repos-snap;
-  docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
+  <<&re-local-repos-snap>>
   echo repos done;
   }
 
@@ -1923,7 +1921,8 @@ keep the images a bit slimmer. We can publish the build images
 independently, and it is also worth noting that from a reproducibility
 perspective the exact ebuilds are stored in file:/var/db/pkg/.
 
-*** debug
+*** run
+**** debug
 #+begin_src bash
 docker create -v /var/db/repos --name portage-snap gentoo/portage:latest /bin/true
 docker run \
@@ -1931,6 +1930,26 @@ docker run \
 --entrypoint /bin/bash \
 -it tgbugs/repos:latest
 #+end_src
+**** rebuild for single package change
+yes this is hilariously inefficient we can try to find a better way in the future
+#+begin_src bash :noweb yes
+builder-debug
+# emaint sync --repo tgbugs-overlay
+# builder-arb pennsieve
+./source.org tangle
+./source.org build-image tgbugs/repos:latest
+<<&re-local-repos-snap>>
+./source.org build-image tgbugs/musl:sparcron
+./source.org build-image tgbugs/musl:sparcron-user
+#+end_src
+
+#+name: &re-local-repos-snap
+#+begin_src bash
+docker container inspect local-repos-snap > /dev/null &&
+docker rm local-repos-snap;
+docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
+#+end_src
+
 *** build
 # FIXME the --no-cache option here means that setting --repos forces a
 # rebuild of _everything_ downstream even if repos didn't change
