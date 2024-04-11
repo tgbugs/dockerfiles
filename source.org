@@ -490,6 +490,7 @@ echo start image builds
 <<&musl-build-kg-dev>> || return $?; echo mbkgd;
 <<&musl-build-kg-dev-user>> || return $?; echo mbkgdu;
 
+## FIXME nox-builder-arb virtual/jdk somehow never got packaged? yeah, need to merege that after inthe openjkd stuff, also no nox-builder-arb
 ## services
 <<&musl-build-blazegraph>> || return $?; echo mbb;
 
@@ -502,6 +503,9 @@ echo start image builds
 <<&musl-build-racket-user>> || return $?; echo mbracu;
 
 ## dynapad
+# FIXME somehow pulling in builder-arb dev-lang/tk bug it isn't being built? worlds must be misaligned or not included?
+# FIXME builder-arb dev-libs/libconfig
+# FIXME builder-arb dev-build/cmake also license ???
 <<&musl-build-dynapad-base>> || return $?; echo mbdb;
 <<&musl-build-dynapad-user>> || return $?; echo mbdbu;
 #<<&musl-build-dynapad>> || return $?; # needs to be done by hand
@@ -820,6 +824,7 @@ docker build \
 
 *** file
 # FIXME split these out so they go in their own images and don't cause global rebuilds
+# FIXME some of these patches e.g. those from alpine often are musl specific
 #+name: &profile-adds
 #+begin_src dockerfile
 # we don't put this in var/db/repos because repos is managed via tgbugs/repos:latest
@@ -1104,6 +1109,9 @@ also makes it much easier for the package builder to operate based on world file
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/packages
 *dev-vcs/git
 *app-eselect/eselect-repository
+*media-fonts/dejavu
+*media-libs/fontconfig
+*media-libs/freetype
 #+end_src
 **** make.defaults
 # old, we use INSTALL_MASK for simplicity
@@ -1528,12 +1536,6 @@ docker build \
 **** parent
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/parent
 ..
-#+end_src
-**** packages
-#+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/packages
-*media-fonts/dejavu
-*media-libs/fontconfig
-*media-libs/freetype
 #+end_src
 **** make.defaults
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/make.defaults
@@ -2034,7 +2036,7 @@ USER $USER_NAME
 WORKDIR /home/${USER_NAME}
 
 RUN \
-{ command -v xdg-user-dirs-update && xdg-user-dirs-update; rmdir Desktop Pictures Documents Public Downloads Templates Music Videos;} || true
+{ command -v xdg-user-dirs-update && xdg-user-dirs-update; rmdir Desktop Pictures Documents Public Downloads Templates Music Videos > /dev/null 2>&1;} || true
 
 ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 #+end_src
@@ -4973,7 +4975,7 @@ docker run \
 *** build
 # TODO progress prints to stderr
 #+name: &musl-build-NIF-ontology
-#+begin_src bash
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:NIF-Ontology \
 --file musl/NIF-Ontology/Dockerfile musl/NIF-Ontology
@@ -5850,7 +5852,7 @@ USER ${USER_NAME}
 
 RUN \
 xdg-user-dirs-update \
-;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
+;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos > /dev/null 2>&1
 
 RUN \
 sed -i 's/-no-site-file//' ./sckan/queries.org \
@@ -6186,7 +6188,7 @@ WORKDIR $HOME
 
 RUN \
 xdg-user-dirs-update \
-;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
+;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos > /dev/null 2>&1
 
 <<&emacs-sanity>>
 
@@ -6679,7 +6681,6 @@ container id, and then =docker logs -f= the container.
 Development =docker run= example.
 #+begin_src screen
 _f=$(basename ~/ni/dev/sparc-curation-*.json)
-_h=protocols-io-api-token-rw.pickle
 docker run \
 -v /var/lib/sparc/files:/var/lib/sparc/files \
 -v /var/lib/sparc/.local/share/sparcur:/var/lib/sparc/.local/share/sparcur \
@@ -6687,7 +6688,6 @@ docker run \
 -v /var/lib/sparc/.config/sparcur/docker-config.yaml:/var/lib/sparc/.config/sparcur/config.yaml \
 -v ~/ni/dev/secrets-sparcron.yaml:/var/lib/sparc/.config/orthauth/secrets.yaml \
 -v ~/ni/dev/${_f}:/var/lib/sparc/.config/orthauth/${_f} \
--v ~/ni/dev/${_h}:/var/lib/sparc/.config/orthauth/${_h} \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -e SCIGRAPH_API=http://192.168.1.207:9000/scigraph \
@@ -6699,7 +6699,6 @@ Production =docker run= example. Must be run as root.
 #+begin_src screen
 function docker-run-sparcron () {
 _f=$(su sparc -c 'basename /var/lib/sparc/.config/pyontutils/sparc-curation-*.json')
-_h=protocols-io-api-token-rw.pickle
 docker run \
 -d \
 -v /var/lib/sparc/files:/var/lib/sparc/files \
@@ -6708,7 +6707,6 @@ docker run \
 -v /var/lib/sparc/.config/sparcur/docker-config.yaml:/var/lib/sparc/.config/sparcur/config.yaml \
 -v /var/lib/sparc/.config/pyontutils/secrets.yaml:/var/lib/sparc/.config/orthauth/secrets.yaml \
 -v /var/lib/sparc/.config/pyontutils/${_f}:/var/lib/sparc/.config/orthauth/${_f} \
--v /var/lib/sparc/.config/pyontutils/${_h}:/var/lib/sparc/.config/orthauth/${_h} \
 -e SCIGRAPH_API=https://scigraph.olympiangods.org/scigraph \
 -e UWSGI_SOCKET_SPARCRON=0.0.0.0:7260 \
 -p 7260:7260 \
@@ -6777,7 +6775,7 @@ pypy3 -m sparcur.sparcron.rerun
 **** An example of how to rapidly redeploy changes using the tools here.
 # FIXME move to build section probably?
 1. There is a bug. Oh no! e.g. you forgot to bump __internal_version__ so nothing reruns.
-2. Chance sparcur code, commit, push.
+2. Change sparcur code, commit, push.
 3. bump ~echo~ in [[(sparcron-echo)]]
 4. ~C-ucvt~ aka src_elisp[:eval never]{(org-babel-tangle '(4))} or ~./source.org tangle~
 
@@ -6786,12 +6784,17 @@ On the build machine.
 builder-arb --getbinpkg=y --onlydeps --onlydeps-with-rdeps=n sparcur
 builder-arb --nodeps sparcur
 
+./source.org build-image tgbugs/musl:sparcron  # FIXME need a way to enable blocking for sequential operation
+./source.org build-image tgbugs/musl:sparcron-user
+
 <<&musl-build-sparcron>> &&
 
 <<&musl-build-sparcron-user>> &&
 
 docker push tgbugs/musl:sparcron; docker push tgbugs/musl:sparcron-user
 #+end_src
+If the buildcache is missing for sparcron, move the rebuild to the top of
+sparcron-user.
 
 On prod as root.
 #+begin_src bash :noweb yes :eval never
@@ -6858,7 +6861,7 @@ ARG HOME=/var/lib/sparc
 WORKDIR $HOME
 
 RUN \
-su "$(id -nu 836)" -c "xdg-user-dirs-update; rmdir Desktop Pictures Documents Public Downloads Templates Music Videos"
+su "$(id -nu 836)" -c "xdg-user-dirs-update; rmdir Desktop Pictures Documents Public Downloads Templates Music Videos > /dev/null 2>&1;"
 
 ADD entrypoints /etc/entrypoints
 ADD entrypoint.sh /etc/entrypoint.sh
@@ -6891,10 +6894,8 @@ auth-stores:
   secrets:
     path: '{:user-config-path}/orthauth/secrets.yaml'
 auth-variables:
-  protocols-io-api-creds-file:
-    path: protocols-io api creds-file
-  protocols-io-api-store-file:
-    path: protocols-io api store-file
+  protocols-io-api-client-token:
+    path: protocols-io api client-token
 #+end_src
 
 *** entrypoints
@@ -7722,7 +7723,9 @@ gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  #
 
 # configure the gnu cross to musl environment
 # must use x86_64-pc-linux-musl NOT x86_64-gentoo-linux-musl because the gentoo musl images are x86_64-pc-linux-musl
-# NOTE this filpped some time around 2024-04-01 from gentoo -> pc
+# NOTE this filpped some time around 2024-04-01 from gentoo -> pc yep, it is the 17.0 to 23.0 profile change
+# https://github.com/gentoo/releng/blob/master/releases/specs/amd64/musl-hardened/stage1-23.spec
+# so probably should be sourcing that from the target profile or something?
 docker run \
 -v ${PWD}/gnu/package-builder/sbcl-cross.env:/tmp/sbcl-cross.env \
 -v ${PWD}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
@@ -8424,7 +8427,7 @@ addgroup -g ${_UID} ${USER_NAME} \
 
 xdg-user-dirs-update
 
-rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
+rmdir Desktop Pictures Documents Public Downloads Templates Music Videos > /dev/null 2>&1
 
 git clone https://github.com/tgbugs/dockerfiles.git
 
@@ -8506,7 +8509,7 @@ WORKDIR /home/${USER_NAME}
 
 RUN \
 xdg-user-dirs-update \
-;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos
+;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos > /dev/null 2>&1
 
 RUN \
 git clone https://github.com/tgbugs/dockerfiles.git
