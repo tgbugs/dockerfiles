@@ -977,7 +977,7 @@ post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/rabbitmq; }
 # XXX manually setting FEATURES=-distcc worked, but it seems that stacking features in make.conf doesn't?
 #+begin_src conf :tangle ./docker-profile/base/package.env
 dev-python/pypy3 no-distcc
-dev-util/cmake no-distcc
+dev-build/cmake no-distcc
 dev-util/colm no-distcc
 # cases where the issue disappears in builder-debug
 dev-util/lapack no-distcc
@@ -1507,6 +1507,7 @@ dev-lisp/sbcl -system-bootstrap
 **** package.unmask
 #+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.unmask
 dev-lisp/sbcl
+media-gfx/renderdoc
 #+end_src
 ** gnu
 TODO need the gnu specific tweaks
@@ -1558,7 +1559,7 @@ app-editors/emacs gui jpeg png Xaw3d xft # XXX note that latest reccomendations 
 app-emacs/emacs-common gui
 
 # avoid extra deps
-dev-util/cmake -ncurses
+dev-build/cmake -ncurses
 
 # scigraph
 x11-base/xorg-server xvfb
@@ -1973,7 +1974,6 @@ COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
 
 RUN \
    emaint sync --repo musl \
-&& emaint sync --repo lisp \
 && emaint sync --repo haskell \
 && emaint sync --repo tgbugs-overlay
 
@@ -2255,7 +2255,6 @@ emerge -j4 -q \
 
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
-&& eselect repository enable lisp \
 && eselect repository enable haskell
 #+end_src
 # TODO should we be adding the mount points here as well or is that not necessary?
