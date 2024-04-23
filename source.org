@@ -448,6 +448,8 @@ echo musl builder start
 [ ! -z $NOBUILD ] || builder-world || return $?
 # TODO smart-live-rebuild
 [ -z $LIVE_REBUILD ] || builder-smart-live-rebuild || return $?
+# TODO
+# builder-license || return $?
 
 fi
 
@@ -1231,6 +1233,9 @@ app-misc/yq ~amd64
 
 # harfbuzz 3.1.2 needs freetype-2.11.1 otherwise build fails
 =media-libs/freetype-2.11.1 ~amd64
+
+# needed for media-gfx/renderdoc
+dev-libs/miniz ~amd64
 
 # tgbugs-overlay
 dev-db/blazegraph-bin ~amd64
@@ -3396,11 +3401,9 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}
 [ ${OUT} -eq 0 ] || return ${OUT}
 #+end_src
 
-# TODO crossdev aarch64-unknown-linux-gnu-emerge
-#+name: &builder-world
-#+begin_src bash :noweb yes
-function builder-world () {
-local OUT _builder _axis
+#+name: &builder-axes
+#+begin_src bash
+local _builder _axis
 
 _axis=${1}
 
@@ -3415,6 +3418,14 @@ _builder=${_tm_pbs}
 fi
 
 echo builder ${_builder}
+#+end_src
+
+# TODO crossdev aarch64-unknown-linux-gnu-emerge
+#+name: &builder-world
+#+begin_src bash :noweb yes
+function builder-world () {
+<<&builder-axes>>
+local OUT
 
 echo get targets
 # get targets
@@ -4021,6 +4032,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-docker>>
 <<world-interlex>>
 <<world-sparcron>>
+<<world-dynapad-base>>
 <<world-package-builder-common-x>>
 x11-base/xorg-server
 x11-libs/gtk+
@@ -6411,7 +6423,7 @@ FROM tgbugs/musl:racket
 #+name: world-dynapad-base
 #+begin_src conf :tangle ./musl/dynapad-base/world
 <<world-racket>>
-dev-util/cmake
+dev-build/cmake
 dev-libs/libconfig
 sys-libs/db
 dev-lang/tk
