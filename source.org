@@ -3446,8 +3446,9 @@ OUT=$?
 [ "${targets}" ] || return 0  # we're done here
 
 targets_ghc=$(echo ${targets} | awk -v RS='\\s' '/^=dev-lang\/ghc/')
+targets_user=$(echo ${targets} | awk -v RS='\\s' '/^=acct-user/')
 targets_group=$(echo ${targets} | awk -v RS='\\s' '/^=acct-group/')
-targets_nogroup=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-group/')
+targets_nogruser=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-(group|user)/')
 
 [ "${targets_ghc}" ] && {
 # FIXME this should probably go in a musl-bootstrap-ghc like we do with musl-bootstrap-sbcl ???
@@ -3465,14 +3466,6 @@ emerge --color=y -j4 -q --keep-going ${targets_ghc}
 
 }
 
-echo only target bdeps
-# emerge only build dependencies of targets
-# FIXME for some reason there are sporadic package rebuilds that are being missed here
-# e.g. due to slot depends changes
-<<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN ${targets}
-<<&docker-run-suffix>>
-
 [ "${targets_group}" ] && {
 echo only acct-group targets  # XXX avoid --nodeps order issues
 # FIXME this is currently broken if a dependency and a dependent are in the same list
@@ -3483,10 +3476,24 @@ emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_gro
 
 }
 
-[ "${targets_nogroup}" ] && {
+[ "${targets_user}" ] && {
+echo only acct-user targets  # XXX avoid --nodeps order issues
+<<&docker-run-prefix>>
+emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_user}
+<<&docker-run-suffix>>
+
+}
+
+echo only targets_nogruser bdeps
+# FIXME for some reason this fails to pull in the user packages needed by e.g. redis thus the manual merge above
+<<&docker-run-prefix>>
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -j4 -q --keep-going -uDN ${targets_nogruser}
+<<&docker-run-suffix>>
+
+[ "${targets_nogruser}" ] && {
 echo only targets not acct-group
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_nogroup}
+emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_nogruser}
 <<&docker-run-suffix>>
 
 }
