@@ -3455,7 +3455,7 @@ targets_nogroup=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-group/')
 # TODO generalize for cases where the bootstrapped package needs to be present, pulled in, built, etc.
 echo ghc targets
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going ${targets_ghc}
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -1 -q --keep-going ${targets_ghc}
 <<&docker-run-suffix>>
 
 
@@ -3478,7 +3478,7 @@ echo only acct-group targets  # XXX avoid --nodeps order issues
 # FIXME this is currently broken if a dependency and a dependent are in the same list
 # because of the behavior described in https://bugs.gentoo.org/902207
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets_group}
+emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_group}
 <<&docker-run-suffix>>
 
 }
@@ -3486,10 +3486,11 @@ emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets_group}
 [ "${targets_nogroup}" ] && {
 echo only targets not acct-group
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --nodeps -j4 -q --keep-going -u ${targets_nogroup}
+emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_nogroup}
 <<&docker-run-suffix>>
 
 }
+
 }
 
 # FIXME SIGH code dupe
