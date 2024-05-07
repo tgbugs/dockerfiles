@@ -3484,13 +3484,15 @@ emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_use
 
 }
 
+[ "${targets_nogruser}" ] && {
 echo only targets_nogruser bdeps
+# FIXME for some reason there are sporadic package rebuilds that are being missed here
+# e.g. due to slot depends changes
 # FIXME for some reason this fails to pull in the user packages needed by e.g. redis thus the manual merge above
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -j4 -q --keep-going -uDN ${targets_nogruser}
 <<&docker-run-suffix>>
 
-[ "${targets_nogruser}" ] && {
 echo only targets not acct-group
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_nogruser}
