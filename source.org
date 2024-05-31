@@ -3500,6 +3500,10 @@ emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_nog
 
 }
 
+# if we get to the even if there are no targets
+# then we should not return the value of [ "${targets_nogruser}" ]
+return 0
+
 }
 
 # FIXME SIGH code dupe
