@@ -6775,6 +6775,24 @@ for img in $(docker image ls tgbugs/musl:sparcron-user-* --format '{{.Repository
 docker image rm "${img}" || break
 done
 #+end_src
+**** An example of how to rerun one or more datasets
+As user in docker group (or if using =sudo= don't forget to add the =sudo= before the nested =docker ps=) run the following.
+Multiple values for =dataset_id_to_rerun= can be provided separated by a space.
+#+begin_src bash
+docker exec --user 836 -it $(docker ps -lqf ancestor=tgbugs/musl:sparcron-user) pypy3 -m sparcur.sparcron.rerun ${dataset_id_to_rerun}
+#+end_src
+=dataset_id_to_rerun= can be a raw uuid, =N:dataset:{uuid}=, or =dataset:{uuid}=
+
+If there was e.g. a network failure that caused multiple datasets to fail and they all need to be rerun you can use the following command.
+#+begin_src bash
+docker exec --user 836 -it $(docker ps -lqf ancestor=tgbugs/musl:sparcron-user) pypy3 -m sparcur.sparcron.rerun --all
+#+end_src
+
+you can also check the status by running
+#+begin_src bash
+docker exec --user 836 -it $(docker ps -lqf ancestor=tgbugs/musl:sparcron-user) pypy3 -m sparcur.sparcron.status
+#+end_src
+
 **** An example of how to force rerun (e.g. after cache clear)
 as user in docker group
 #+begin_src bash
