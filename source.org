@@ -920,7 +920,6 @@ dev-haskell/hxt-unicode::haskell
 dev-haskell/hxt::haskell
 dev-haskell/polyparse::haskell
 dev-haskell/wl-pprint-text::haskell
-dev-python/frozendict::tgbugs-overlay
 #+end_src
 **** package.use
 #+begin_src conf :tangle ./docker-profile/base/package.use
@@ -1244,6 +1243,7 @@ dev-java/robot-bin ~amd64
 dev-java/scigraph-bin ~amd64
 dev-node/apinat-converter **
 #dev-scheme/racket ~amd64  # profile can't restrict by repo :(
+sci-libs/readstat ~amd64
 
 # tgbugs-overlay python
 dev-python/interlex **
