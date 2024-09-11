@@ -332,6 +332,8 @@ return $?
 
 <<&cross-bootstrap-sbcl>>
 
+<<&image-testing>>
+
 function run-profile () {
 <<&build-profile-base>> || return $?;
 <<&build-profile-gnu>> || return $?;
@@ -2078,6 +2080,73 @@ FROM scratch
 WORKDIR /
 COPY --from=builder /build /
 #+end_src
+** testing
+
+#+name: &bash-abs-path
+#+begin_src bash
+SOURCE="${BASH_SOURCE[0]}"
+while [ -h "$SOURCE" ]; do # resolve all symlinks
+  DIR="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$DIR/$SOURCE" # resolve relative symlinks
+done
+ABS_PATH="$( cd -P "$( dirname "$SOURCE" )" && pwd )"
+#+end_src
+
+#+name: &bash-at-abs-path
+#+begin_src bash :noweb yes
+<<&bash-abs-path>>
+pushd "${ABS_PATH}" > /dev/null 2>&1
+# end setup
+#+end_src
+
+#+begin_src bash
+# isn't the actual thing to test
+#pushd /var/db/repos/gentoo/dev-python/pypy3
+#ebuild $(basename /var/db/pkg/dev-python/pypy3-*/*.ebuild) test
+
+# this doesn't work for pypy3 in particular because it requires python2 and we just need some stdlib tests
+ebuild_name=$(basename /var/db/pkg/dev-python/pypy3_10-*/*.ebuild)
+package_name="${ebuild_name%.*}"
+ebuild ${ebuild_name} clean unpack
+#touch /var/tmp/portage/dev-python/${package_name}/.setuped
+#touch /var/tmp/portage/dev-python/${package_name}/.unpacked
+touch /var/tmp/portage/dev-python/${package_name}/.prepared
+touch /var/tmp/portage/dev-python/${package_name}/.configured
+touch /var/tmp/portage/dev-python/${package_name}/.compiled
+pushd /var/db/repos/gentoo/dev-python/pypy3_10
+# unfortunately testing is restricted?
+ebuild ${ebuild_name} test
+#+end_src
+
+#+name: &image-testing
+#+begin_src bash
+function test-image () {
+image=${1}
+docker run \
+--volumes-from local-repos-snap \
+-v ${_path_dockerfiles}:/dockerfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+-v ${_path_distfiles}:/var/cache/distfiles \
+--rm \
+${image} \
+/dockerfiles/bin/test/${image//://}/test
+}
+
+function test-images () {
+for i in ${@}; do
+# TODO also need a negative test
+test-image ${i} > /dev/null 2>&1;
+OK=$?
+if [ ${OK} -eq 0 ]; then
+echo "${i} [ OK ]";  # TODO alignment
+else
+echo "${i} [ FAIL ]";  # TODO alignment
+fi
+done
+}
+
+#+end_src
 
 ** portage-maven
 :PROPERTIES:
@@ -2550,6 +2619,26 @@ docker run \
 -e DISPLAY=${DISPLAY} \
 -it tgbugs/musl:pypy3
 #+end_src
+*** test
+#+name: &test-musl-pypy3
+#+begin_src screen
+test-image tgbugs/musl:pypy3
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh\nset -e"
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/pypy3/test :mkdirp yes :noweb yes
+<<&bash-at-abs-path>>
+pypy3 test.py
+#+end_src
+
+#+begin_src python :tangle ./bin/test/tgbugs/musl/pypy3/test.py :mkdirp yes
+import os, sys, json, importlib, functools, collections, pathlib
+print(sys.version_info)
+print(sys.pypy_version_info)
+print('ok')
+#raise NotImplementedError('expected to fail')  # FIXME a hack to ensure tests can fail
+#+end_src
+
 *** build
 #+name: &musl-build-pypy3
 #+begin_src screen
@@ -3217,6 +3306,7 @@ usually stable per system.
 # in the environment when you change the default value
 #+name: &builder-vars
 #+begin_src bash :noweb yes
+_path_dockerfiles=${PWD}
 _path_binpkgs_root=${_path_root_binpkgs:-<<&host-binpkgs-root-path()>>}
 _binpkgs_repo_name=${_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
 _path_binpkgs=${_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
@@ -3297,6 +3387,7 @@ gnu-container-check
 #+name: &builder-args-gnu
 #+begin_src bash
 --volumes-from local-repos-snap \
+-v ${_path_dockerfiles}:/dockerfiles \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
 -v ${_path_distfiles}:/var/cache/distfiles \
 -v ${_path_ssh}:/var/lib/portage/home/.ssh \
@@ -6342,6 +6433,27 @@ echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
 ENTRYPOINT /etc/entrypoint.sh
 #+end_src
 ** racket
+*** test
+#+name: &test-musl-racket
+#+begin_src screen
+test-image tgbugs/musl:racket
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh\nset -e"
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/racket/test :mkdirp yes :noweb yes
+<<&bash-at-abs-path>>
+racket test.rkt
+#+end_src
+
+#+begin_src racket :tangle ./bin/test/tgbugs/musl/racket/test.rkt :mkdirp yes :noweb yes
+#lang racket/base
+(require racket/string)
+(displayln (version))
+(displayln "ok")
+(flush-output)
+;(error "expected to fail") ; FIXME a hack to ensure tests can fail
+#+end_src
+
 *** build
 #+name: &musl-build-racket
 #+begin_src screen
