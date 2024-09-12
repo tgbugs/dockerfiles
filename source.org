@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 11963bf4a366352fb9dacad87caf35a328d093160c1782dfe4d28e8a86635d5a; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 4db4c529f5d1c2287e2413375adf8e608a1a5985951e66dbe4d21fbdd4888835; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -2038,7 +2038,7 @@ ARG USER_NAME=user
 RUN \
 <<&run-user-noskel>>
 
-USER $USER_NAME
+USER ${USER_NAME}
 
 WORKDIR /home/${USER_NAME}
 
@@ -2119,18 +2119,43 @@ pushd /var/db/repos/gentoo/dev-python/pypy3_10
 ebuild ${ebuild_name} test
 #+end_src
 
-#+name: &image-testing
+#+name: &image-testing-common
 #+begin_src bash
-function test-image () {
-image=${1}
 docker run \
 --volumes-from local-repos-snap \
 -v ${_path_dockerfiles}:/dockerfiles \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
 -v ${_path_distfiles}:/var/cache/distfiles \
+--entrypoint /bin/bash \
+#+end_src
+
+#+name: &image-testing
+#+begin_src bash :noweb yes
+function test-image () {
+local POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+key="$1"
+case $key in
+    --debug)              local DEBUG=YES; shift ;;
+    ,*)                    local POSITIONAL+=("$1"); shift ;;
+esac
+done
+
+image=${POSITIONAL[0]}
+
+if [[ -n ${DEBUG} ]]; then
+<<&image-testing-common>>
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=${DISPLAY} \
+-it ${image}
+else
+<<&image-testing-common>>
 --rm \
 ${image} \
 /dockerfiles/bin/test/${image//://}/test
+fi
+
 }
 
 function test-images () {
@@ -2967,6 +2992,7 @@ FROM ${START_IMAGE}
 
 ARG PROFILE=docker-profile:tgbugs/musl/x
 
+# reminder: you will see scary errors here because /var/db/repos is not mounted
 RUN \
 eselect profile set $PROFILE \
 && env-update
@@ -3306,7 +3332,7 @@ usually stable per system.
 # in the environment when you change the default value
 #+name: &builder-vars
 #+begin_src bash :noweb yes
-_path_dockerfiles=${PWD}
+_path_dockerfiles=${_path_dockerfiles:-${PWD}}
 _path_binpkgs_root=${_path_root_binpkgs:-<<&host-binpkgs-root-path()>>}
 _binpkgs_repo_name=${_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
 _path_binpkgs=${_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
@@ -4811,6 +4837,37 @@ Error loading shared library libbsd.so.0: No such file or directory (needed by /
 Error relocating /usr/lib/libICE.so.6: arc4random_buf: symbol not found
 Error relocating /usr/lib/libXdmcp.so.6: arc4random_buf: symbol not found
 #+end_example
+*** test
+#+name: &test-musl-emacs
+#+begin_src screen
+test-image tgbugs/musl:emacs
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh\nset -e"
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/emacs/test :mkdirp yes :noweb yes
+<<&bash-at-abs-path>>
+HOME=/tmp/test-home
+INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simple.el
+
+emacs --batch --quick --load test.el
+
+/dockerfiles/source.org
+
+false && {  # extended testing
+emacs --batch --quick --eval \
+"(progn (setq ow-site-packages '(vterm zmq)) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
+"${INIT_URL}"
+}
+
+#+end_src
+
+#+begin_src elisp :tangle ./bin/test/tgbugs/musl/emacs/test.el :mkdirp yes :noweb yes
+(require 'org)
+(message "%s" emacs-version)
+(message "ok")
+(flush-standard-output)
+;(error "expected to fail") ; FIXME a hack to ensure tests can fail
+#+end_src
 
 *** build
 #+name: &musl-build-emacs
@@ -6192,6 +6249,36 @@ docker run \
 #+end_src
 
 *** test
+#+name: &test-musl-kg-dev-user
+#+begin_src screen
+test-image tgbugs/musl:kg-dev-user
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh\nset -e"
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/kg-dev-user/test :mkdirp yes :noweb yes
+# <<&bash-at-abs-path>>
+#emerge --color=y -j4 -q -1q --usepkgonly pytest
+su - user -c "sh /dockerfiles/bin/test/tgbugs/musl/kg-dev-user/test.sh"
+#+end_src
+
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/kg-dev-user/test.sh :mkdirp yes :noweb yes
+set -e
+sh ~/git/pyontutils/nifstd/scigraph/README.org tangle
+~/git/sparc-curation/docs/release.org build --sckan --no-blaze --no-load
+#+end_src
+
+#+begin_src bash
+set -e
+export PYTHONBREAKPOINT=0
+pushd ~/git/pyontutils
+pypy3 -m pytest -x || true
+popd
+pushd ~/git/sparc-curation
+pypy3 -m pytest -x || true
+popd
+#+end_src
+
+**** with data
 #+name: &test-kg-dev-user
 #+begin_src screen
 <<&create-sckan-data-if-not-exists>>
@@ -6211,10 +6298,25 @@ docker run \
 docker build \
 --tag tgbugs/musl:kg-dev-user \
 --build-arg UID=${UID} \
---file musl/kg-dev-user/Dockerfile musl/kg-dev-user
+--file musl/kg-dev-user/Dockerfile .
+#--file musl/kg-dev-user/Dockerfile musl/kg-dev-user
 #+end_src
 
 *** entrypoint
+1. sync
+   1. sparc curation (done separately)
+   2. NPO
+   3. NIF-Ontology general
+   4. ApiNATOMY
+   5. prrequaestor stuff
+
+2. build release
+   1. scigraph
+   2. blazegraph
+   3. docker
+3. test
+4. deploy
+
 #+begin_src bash
 if [ -d /tmp/blazegraph ]; then
     cp /tmp/blazegraph/blazegraph.jnl /var/lib/blazegraph/
@@ -6278,9 +6380,8 @@ pushd ~/.emacs.d \
 && popd
 #+end_src
 
-#+begin_src dockerfile :tangle ./musl/kg-dev-user/Dockerfile
-FROM tgbugs/musl:kg-dev as builder
-
+#+name: &dev-user-common-1
+#+begin_src dockerfile
 WORKDIR /build
 
 <<&user-skel-common>>
@@ -6289,6 +6390,10 @@ RUN \
 usermod --move-home --home /home/user ${USER_NAME}
 #mv /build/home/user /home/ \
 #&& usermod -d /home/user -m
+
+# FIXME TEMP needed for sbcl quicklisp https stuff
+RUN \
+chown ${USER_NAME} /build
 
 USER ${USER_NAME}
 
@@ -6312,6 +6417,39 @@ RUN \
 mkdir ~/git \
 && mkdir ~/.ssh_tmp \
 && chmod 0700 ~/.ssh_tmp
+#+end_src
+
+#+name: &dev-user-common-2
+#+begin_src dockerfile
+COPY --from=builder /home/${USER_NAME} /home/${USER_NAME}
+
+<<&musl-file-user-base>>
+#+end_src
+
+#+name: &dev-user-common-3
+#+begin_src dockerfile
+# root stuff must run after &musl-file-user-base because user must already exist
+
+USER 0
+
+RUN \
+usermod -a -G blazegraph user \
+;  usermod -a -G scigraph user \
+;  usermod -a -G wheel user
+
+RUN \
+echo 'root:<<kg-root-password()>>' | chpasswd
+
+# make it easier to use portage inside a container
+RUN \
+echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
+&& echo 'FEATURES=""' >> /etc/portage/make.conf
+#+end_src
+
+#+begin_src dockerfile :tangle ./musl/kg-dev-user/Dockerfile
+FROM tgbugs/musl:kg-dev as builder
+
+<<&dev-user-common-1>>
 
 # FIXME that is going to need to go in .bashrc or something
 ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
@@ -6395,14 +6533,58 @@ raco pkg install --no-docs --type git-url https://github.com/zussitarze/qrcode.g
 &&     popd \
 && popd
 
+# sbcl quicklisp https
+RUN \
+git clone --branch version-2021-02-13 --depth=1 https://github.com/quicklisp/quicklisp-client.git /build/quicklisp
+
+RUN \
+git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /tmp/ql-https
+
+COPY musl/sbcl-stripped/quicklisp-https-always /build/quicklisp/local-projects/quicklisp-https-always
+ADD musl/sbcl-stripped/bootstrap-1.lisp /tmp/bootstrap-1.lisp
+ADD musl/sbcl-stripped/bootstrap-2.lisp /tmp/bootstrap-2.lisp
+ADD musl/sbcl-stripped/bootstrap-3.lisp /tmp/bootstrap-3.lisp
+
+RUN --network=none \
+sbcl --no-userinit --disable-debugger \
+--load /tmp/bootstrap-1.lisp
+
+RUN \
+sbcl --core /tmp/continue.core --no-userinit --disable-debugger \
+--load /tmp/bootstrap-2.lisp
+
+# FIXME shouldn't need to do this dance
+RUN \
+mv /build/quicklisp /quicklisp
+
+RUN \
+sbcl --no-interactive --no-userinit --disasble-debugger \
+--load /tmp/boostrap-3.lisp
+
+# FIXME find a better location for this
+RUN \
+mv /quicklisp ${HOME}/quicklisp
+
+# FIXME HACK workaround for bad prcl assumptions
+RUN \
+mkdir ${HOME}/code/lisp
+
+RUN \
+ln -s ${HOME}/code/lisp/quicklisp ../../quicklisp
+
+RUN \
+pushd git \
+&&     git clone https://github.com/tgbugs/git-share.git \
+&&     git-share/README.org tangle \
+&&     git clone https://github.com/tgbugs/prrequaestor.git \
+&&     pushd ~/git/prrequaestor \
+&&         ./prcl-build.lisp \
+&&     popd \
+&& popd
+
 FROM tgbugs/musl:kg-dev
 
-COPY --from=builder /home/${USER_NAME} /home/${USER_NAME}
-
-ADD entrypoints /etc/entrypoints
-ADD entrypoint.sh /etc/entrypoint.sh
-
-<<&musl-file-user-base>>
+<<&dev-user-common-2>>
 
 ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 
@@ -6413,25 +6595,203 @@ ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 #git/sparc-curation \
 #&& rm -r ~/.cache/pip
 
-USER 0
+<<&dev-user-common-3>>
 
-RUN \
-usermod -a -G blazegraph user \
-;  usermod -a -G scigraph user \
-;  usermod -a -G wheel user
-
-RUN \
-echo 'root:<<kg-root-password()>>' | chpasswd
-
-# make it easier to use portage inside a container
-RUN \
-echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
-&& echo 'FEATURES=""' >> /etc/portage/make.conf
+ADD musl/kg-dev-user/entrypoints /etc/entrypoints
+ADD musl/kg-dev-user/entrypoint.sh /etc/entrypoint.sh
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
 ENTRYPOINT /etc/entrypoint.sh
 #+end_src
+** tgbugs-dev
+*** build
+#+name: &musl-build-tgbugs
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:tgbugs-dev \
+--file musl/tgbugs-dev/Dockerfile musl/tgbugs-dev
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/tgbugs-dev/Dockerfile :mkdirp yes
+FROM tgbugs/musl:kg-dev
+#+end_src
+
+** tgbugs-dev-user
+*** notes
+Replication of the environment used to develop all the various projects used throughout this file.
+
+This is distinct from kg-dev-user which is specifically for developing
+the KG but NOT the development of the code to develop the KG.
+
+This section is referenced in
+[[file:~/git/sparc-curation/docs/setup.org::*Variables]] and
+[[file:~/git/sparc-curation/sparcur_internal/sparcur/README.org::*python]]
+
+and extend it to tangle the
+envars we need to get all the git repos and those should be cloned into
+the parent system in some sandboxed directory
+see also the sparcur racket viewer readme which should converge there too
+*** run
+#+begin_src bash
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:tgbugs-dev-user
+#+end_src
+
+*** build
+#+name: &musl-build-tgbugs-dev-user
+#+begin_src screen
+docker build \
+--tag tgbugs/musl:tgbugs-dev-user \
+--file musl/tgbugs-dev-user/Dockerfile musl/tgbugs-dev-user
+#+end_src
+
+iteration during devel could use
+#+begin_src bash
+./source.org tangle && ./source.org build-image tgbugs/musl:tgbugs-dev-user
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/tgbugs-dev-user/Dockerfile :mkdirp yes
+FROM tgbugs/musl:tgbugs-dev as builder
+
+ADD repo-setup.sh /tmp/repo-setup.sh
+
+<<&dev-user-common-1>>
+
+# TODO this is the point where we need to decide whether we do this in build or in run
+RUN \
+sh /tmp/repo-setup.sh
+
+FROM tgbugs/musl:tgbugs-dev
+
+<<&dev-user-common-2>>
+
+<<&dev-user-common-3>>
+
+USER ${USER_NAME}
+#+end_src
+
+*** build helper script
+TODO there is a question of whether to use =docker build= or =docker run= for this.
+The advantage of using =docker run= is that
+
+#+header: :shebang "#!/usr/bin/env sh"
+#+begin_src bash :noweb yes :tangle ./musl/tgbugs-dev-user/repo-setup.sh
+<<&dev-repo-setup()>>
+#+end_src
+
+#+name: &dev-group-repo
+| tgbugs/augpathlib
+| tgbugs/dynapad
+| tgbugs/hyputils
+| tgbugs/idlib
+| tgbugs/interlex
+| tgbugs/ontquery
+| tgbugs/orgstrap
+| tgbugs/orthauth
+| tgbugs/parsercomb
+| tgbugs/protc
+| tgbugs/pyontutils
+| tgbugs/racket-breadcrumb
+| tgbugs/racket-json-view
+| tgbugs/racket-mode
+| tgbugs/rkdf
+| tgbugs/sxpyr
+| SciCrunch/scibot
+| SciCrunch/sparc-curation
+| Ophirr33/pda
+| zussitarze/qrcode
+
+#+name: &dev-py-install-order
+| pyontutils/clifn
+| sxpyr
+| augpathlib
+| idlib
+| pyontutils/htmlfn
+| pyontutils/ttlser
+| hyputils
+| orthauth
+| ontquery
+| parsercomb
+| pyontutils
+| protc/protcur
+| sparc-curation
+| scibot
+| interlex
+
+#+name: &dev-rkt-install-order-name
+| qrcode/                                 |             |
+| pda/                                    |             |
+| rkdf/rkdf-lib                           |             |
+| rkdf/rkdf                               |             |
+| NIF-Ontology/                           |             |
+| protc/protc-lib                         |             |
+| protc/protc-tools-lib                   |             |
+| protc/protc                             |             |
+| protc/protc-tools                       |             |
+| rrid-metadata/rrid                      |             |
+| orthauth/racket/orthauth                |             |
+| racket-breadcrumb/                      | breadcrumb  |
+| racket-json-view/                       | json-view   |
+| sparc-curation/sparcur_internal/sparcur |             |
+| racket-mode/racket                      | racket-mode |
+| dynapad/dynapad                         |             |
+| dynapad/dynapad-collects                |             |
+
+#+name: &dev-repo-setup
+#+begin_src elisp :noweb yes :results drawer :lexical yes
+; elisp-safe-block
+(let ((clone-ssh nil)) ; TODO
+  (let ((group-repo '<<&dev-group-repo()>>)
+        (py-inst '<<&dev-py-install-order()>>)
+        (rkt-inst (mapcar (lambda (l)
+                            (cons (car l)
+                                  (let ((cl (cadr l)))
+                                    (if (string= cl "")
+                                        nil
+                                      cl))))
+                          '<<&dev-rkt-install-order-name()>>))
+        (ontology-repo-rkt-setup "
+pushd NIF-Ontology
+git checkout dev
+PATH=../rkdf/bin:${PATH} rkdf-convert-all
+git checkout master
+popd
+")
+        (fgitstr (if clone-ssh "git@github.com:%s.git" "https://github.com/%s.git")))
+    (pp-to-string (list group-repo py-inst rkt-inst))
+    (string-join
+     (flatten-list
+      (list
+       "set -e"
+       "pushd ~/git"
+       (cl-loop
+        for (gr . _) in group-repo
+        collect
+        (concat "git clone " (format fgitstr gr)))
+       ontology-repo-rkt-setup
+       (cl-loop
+        for (rp . name) in rkt-inst
+        collect
+        (concat "raco pkg install --no-docs --auto --batch " (if name (concat "--name " name " ") "") rp))
+       (cl-loop
+        for (pi . _) in py-inst
+        collect
+        (concat "pushd " pi "
+python -m pip install --break-system-packages --user -e .
+pypy3 -m pip install --break-system-packages --user -e .
+popd"))
+       "popd"
+       ))
+     "\n")
+    )
+  )
+#+end_src
+
 ** racket
 *** test
 #+name: &test-musl-racket
@@ -7424,12 +7784,15 @@ WORKDIR /build
 RUN \
 lddtree -l /usr/bin/sbcl /usr/bin/openssl       | \
 xargs -n 1 qfile -q                             | \
-xargs      qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
-xargs -n 1 qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
-xargs -n 1 qdepends -rpq                        | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
-xargs -n 1 qdepends -rpq -F '%{CATEGORY}/%{PN}' | sort -u | tr ' ' '\n' | grep -v '^!<net-misc/openssh' | \
+xargs      qdepends -rpq                        | sed 's/^[<>=~]+//' | sort -u | tr ' ' '\n' | grep -v -e '^virtual/' -e '^!' | \
+xargs -n 1 qdepends -rpq                        | sed 's/^[<>=~]+//' | sort -u | tr ' ' '\n' | grep -v -e '^virtual/' -e '^!' | \
+xargs -n 1 qdepends -rpq                        | sed 's/^[<>=~]+//' | sort -u | tr ' ' '\n' | grep -v -e '^virtual/' -e '^!' | \
+xargs -n 1 qdepends -rpq -F '%{CATEGORY}/%{PN}' | sed 's/^[<>=~]+//' | sort -u | tr ' ' '\n' | grep -v -e '^virtual/' -e '^!' | \
 cut -d':' -f1                                   | \
-xargs qlist | xargs -P8 -I{} -n 1 rsync -aR {} /build
+xargs qlist | grep -v -e 'usr/share/doc' -e 'usr/share/man' | xargs -P8 -I{} -n 1 rsync -aR {} /build
+
+RUN \
+ln -s usr/lib
 
 #RUN \
 #curl -O https://beta.quicklisp.org/quicklisp.lisp
@@ -7445,29 +7808,22 @@ RUN \
 git clone --branch version-2021-02-13 --depth=1 https://github.com/quicklisp/quicklisp-client.git quicklisp
 
 RUN \
-git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /ql-https
+git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /tmp/ql-https
 
 # quicklisp-https does not actually force https >_<
 #RUN \
 #git clone --depth=1 https://github.com/snmsts/quicklisp-https.git quicklisp/local-projects/quicklisp-https
 
+COPY bootstrap-1.lisp /bootstrap-1.lisp
+COPY bootstrap-2.lisp /bootstrap-2.lisp
+
 RUN --network=none \
 sbcl --no-userinit --disable-debugger \
---eval '(asdf:initialize-source-registry (list :source-registry (list :tree #p"/ql-https") (list :tree #p"/build/quicklisp") :inherit-configuration))' \
---eval '(defpackage #:ql-setup)' \
-# don't forget the trailing slash for files >_<
---eval '(defvar ql-setup::*quicklisp-home* (probe-file "/build/quicklisp/"))' \
---eval '(load "/ql-https/ql-setup.lisp")' \
---eval '(asdf:load-system :ql-https)' \
---eval '(save-lisp-and-die "/continue.core" :purify nil)'
+--load /bootstrap-1.lisp
 
 RUN \
-sbcl --core /continue.core --no-userinit --disable-debugger \
---eval '(setf ql-https::*quietly-use-https* t)' \
---eval '(quicklisp:setup)' \
---eval '(ql:quickload :dexador)' \
---eval '(format t "YOU WHAT NOW??")' \
---quit
+sbcl --core /tmp/continue.core --no-userinit --disable-debugger \
+--load /bootstrap-2.lisp
 
 COPY quicklisp-https-always quicklisp/local-projects/quicklisp-https-always
 
@@ -7477,19 +7833,55 @@ WORKDIR /
 
 COPY --from=builder /build /
 
+COPY bootstrap-3.lisp /bootstrap-3.lisp
+
 RUN --network=none \
 ["/usr/bin/sbcl", \
 "--non-interactive", \
 "--no-userinit", "--disable-debugger", \
-"--load", "/quicklisp/setup.lisp", \
-"--eval", "(asdf:load-system :dexador :verbose nil)", \
-"--eval", "(asdf:load-system :quicklisp-https-always :verbose nil)", \
-"--quit"]
+"--load", "/bootstrap-3.lisp"]
 
 ENTRYPOINT ["/usr/bin/sbcl"]
 #+end_src
 
+*** quicklisp https bootstrap files
+#+name: lisp-ql-https-bootstrap-1
+#+begin_src lisp :tangle ./musl/sbcl-stripped/bootstrap-1.lisp :mkdirp yes
+(asdf:initialize-source-registry
+ (list :source-registry (list :tree #p"/tmp/ql-https")
+       (list :tree #p"/build/quicklisp") :inherit-configuration))
+(defpackage #:ql-setup)
+; don't forget the trailing slash for files >_<
+(defvar ql-setup::*quicklisp-home* (probe-file "/build/quicklisp/"))
+(load "/tmp/ql-https/ql-setup.lisp")
+(asdf:load-system :ql-https)
+(save-lisp-and-die "/tmp/continue.core" :purify nil)
+#+end_src
+
+#+name: lisp-ql-https-bootstrap-2
+#+begin_src lisp :tangle ./musl/sbcl-stripped/bootstrap-2.lisp :mkdirp yes
+(setf ql-https::*quietly-use-https* t)
+(quicklisp:setup)
+(ql:quickload :dexador) ; FIXME this breaks when building kg-dev-user
+(format t "YOU WHAT NOW??")
+(quit)
+#+end_src
+
+#+name: lisp-ql-https-bootstrap-3
+#+begin_src lisp :tangle ./musl/sbcl-stripped/bootstrap-3.lisp :mkdirp yes
+(load "/quicklisp/setup.lisp")
+(asdf:load-system :dexador :verbose nil)
+(asdf:load-system :quicklisp-https-always :verbose nil)
+(delete-file *load-truename*)
+(quit)
+#+end_src
+# probably don't delete the file and don't quit because I think we
+# need this any time we start quicklisp so likely will want a way to
+# either register this in clrc or something similar, or just always
+# run the first 3 lines via clrc or something
+
 *** quicklisp-https-always
+#+name: lisp-qlha-lisp
 #+begin_src lisp :tangle ./musl/sbcl-stripped/quicklisp-https-always/quicklisp-https-always.lisp :mkdirp yes
 (defpackage quicklisp-https-always
   (:use :cl)
@@ -7522,6 +7914,7 @@ ENTRYPOINT ["/usr/bin/sbcl"]
 (setup)
 #+end_src
 
+#+name: lisp-qlha-asdf
 #+begin_src lisp :tangle ./musl/sbcl-stripped/quicklisp-https-always/quicklisp-https-always.asd :mkdirp yes
 (in-package :asdf-user)
 
@@ -9534,7 +9927,10 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
    (lambda (lang body)
      (not (or (and (member lang '("elisp" "emacs-lisp"))
                    (or (string= body "value")
-                       (string= body "(make-screen-vars)")))
+                       (string= body "(make-screen-vars)")
+                       ;; XXX WARNING BE SURE TO REVIEW ALL INSTANCES OF elisp-safe-block
+                       (string-prefix-p "; elisp-safe-block
+" body)))
               (and (member lang '("screen"))
                    (string= (cl-subseq body 0 15) "HISTFILE=~/.org")))))))
 
