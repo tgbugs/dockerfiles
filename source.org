@@ -6540,10 +6540,16 @@ git clone --branch version-2021-02-13 --depth=1 https://github.com/quicklisp/qui
 RUN \
 git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /tmp/ql-https
 
+USER 0
 COPY musl/sbcl-stripped/quicklisp-https-always /build/quicklisp/local-projects/quicklisp-https-always
 ADD musl/sbcl-stripped/bootstrap-1.lisp /tmp/bootstrap-1.lisp
 ADD musl/sbcl-stripped/bootstrap-2.lisp /tmp/bootstrap-2.lisp
 ADD musl/sbcl-stripped/bootstrap-3.lisp /tmp/bootstrap-3.lisp
+RUN \
+chown ${USER_NAME}:${USER_NAME} /tmp/bootstrap-*.lisp \
+&& chown -R ${USER_NAME}:${USER_NAME} /build/quicklisp
+
+USER ${USER_NAME}
 
 RUN --network=none \
 sbcl --no-userinit --disable-debugger \
@@ -6555,27 +6561,23 @@ sbcl --core /tmp/continue.core --no-userinit --disable-debugger \
 
 # FIXME shouldn't need to do this dance
 RUN \
-mv /build/quicklisp /quicklisp
+mv /build/quicklisp ${HOME}/quicklisp
 
 RUN \
 sbcl --no-interactive --no-userinit --disasble-debugger \
 --load /tmp/boostrap-3.lisp
 
-# FIXME find a better location for this
-RUN \
-mv /quicklisp ${HOME}/quicklisp
-
 # FIXME HACK workaround for bad prcl assumptions
 RUN \
-mkdir ${HOME}/code/lisp
+mkdir -p ${HOME}/code/lisp
 
 RUN \
-ln -s ${HOME}/code/lisp/quicklisp ../../quicklisp
+ln -s ../../quicklisp ${HOME}/code/lisp/quicklisp
 
 RUN \
 pushd git \
 &&     git clone https://github.com/tgbugs/git-share.git \
-&&     git-share/README.org tangle \
+&&     sh git-share/README.org tangle \
 &&     git clone https://github.com/tgbugs/prrequaestor.git \
 &&     pushd ~/git/prrequaestor \
 &&         ./prcl-build.lisp \
@@ -7869,7 +7871,17 @@ ENTRYPOINT ["/usr/bin/sbcl"]
 
 #+name: lisp-ql-https-bootstrap-3
 #+begin_src lisp :tangle ./musl/sbcl-stripped/bootstrap-3.lisp :mkdirp yes
-(load "/quicklisp/setup.lisp")
+(let ((quicklisp-init
+        (if (= 0 (sb-unix:unix-getuid))
+            ;; use sb-unix:unix-getuid instead of sb-posix:getuid
+            ;; because sb-posix: is not available at bootstrap-3 time
+            "/quicklisp/setup.lisp"
+            (merge-pathnames
+             "quicklisp/setup.lisp"
+             (user-homedir-pathname)))))
+  (if (probe-file quicklisp-init)
+      (load quicklisp-init)
+      (error "path to quicklisp-init is missing!? ~a" quicklisp-init)))
 (asdf:load-system :dexador :verbose nil)
 (asdf:load-system :quicklisp-https-always :verbose nil)
 (delete-file *load-truename*)
