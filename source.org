@@ -4853,11 +4853,11 @@ emacs --batch --quick --load test.el
 
 /dockerfiles/source.org
 
-false && {  # extended testing
+if $(false); then  # extended testing
 emacs --batch --quick --eval \
 "(progn (setq ow-site-packages '(vterm zmq)) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
 "${INIT_URL}"
-}
+fi
 
 #+end_src
 
@@ -6264,7 +6264,7 @@ su - user -c "sh /dockerfiles/bin/test/tgbugs/musl/kg-dev-user/test.sh"
 #+begin_src bash :tangle ./bin/test/tgbugs/musl/kg-dev-user/test.sh :mkdirp yes :noweb yes
 set -e
 sh ~/git/pyontutils/nifstd/scigraph/README.org tangle
-~/git/sparc-curation/docs/release.org build --sckan --no-blaze --no-load
+~/git/sparc-curation/docs/release.org # build --sckan --no-blaze --no-load
 #+end_src
 
 #+begin_src bash
@@ -6415,6 +6415,8 @@ xdg-user-dirs-update \
 
 RUN \
 mkdir ~/git \
+&& mkdir ~/.ssh \
+&& chmod 0700 ~/.ssh \
 && mkdir ~/.ssh_tmp \
 && chmod 0700 ~/.ssh_tmp
 #+end_src
@@ -6489,19 +6491,6 @@ pushd git \
 RUN \
 sh ./git/pyontutils/nifstd/scigraph/README.org --tangle
 
-RUN \
-./git/sparc-curation/docs/queries.org
-
-RUN \
-./git/sparc-curation/docs/apinatomy.org
-
-RUN \
-emacs -batch -eval \
-"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))))" \
-$HOME/.emacs.d/init.el \
-./git/sparc-curation/docs/queries.org \
-./git/sparc-curation/docs/apinatomy.org
-
 # curation viewer setup
 RUN \
 raco pkg install --no-docs --name breadcrumb --type git-url https://github.com/tgbugs/racket-breadcrumb.git \
@@ -6541,10 +6530,12 @@ RUN \
 git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /tmp/ql-https
 
 USER 0
+
 COPY musl/sbcl-stripped/quicklisp-https-always /build/quicklisp/local-projects/quicklisp-https-always
 ADD musl/sbcl-stripped/bootstrap-1.lisp /tmp/bootstrap-1.lisp
 ADD musl/sbcl-stripped/bootstrap-2.lisp /tmp/bootstrap-2.lisp
 ADD musl/sbcl-stripped/bootstrap-3.lisp /tmp/bootstrap-3.lisp
+
 RUN \
 chown ${USER_NAME}:${USER_NAME} /tmp/bootstrap-*.lisp \
 && chown -R ${USER_NAME}:${USER_NAME} /build/quicklisp
@@ -6574,6 +6565,21 @@ mkdir -p ${HOME}/code/lisp
 RUN \
 ln -s ../../quicklisp ${HOME}/code/lisp/quicklisp
 
+RUN \
+./git/sparc-curation/docs/queries.org
+
+RUN \
+./git/sparc-curation/docs/apinatomy.org
+
+RUN \
+emacs -batch -eval \
+"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))))" \
+$HOME/.emacs.d/init.el \
+./git/sparc-curation/docs/queries.org \
+./git/sparc-curation/docs/apinatomy.org
+
+# FIXME something around here is installing slime without checking to see if sly exists
+# the issue is probably that the git share readme orgstrap doesn't enable packages to check
 RUN \
 pushd git \
 &&     git clone https://github.com/tgbugs/git-share.git \
