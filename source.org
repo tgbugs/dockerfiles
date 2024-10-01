@@ -5670,6 +5670,13 @@ docker run \
 curl http://127.0.0.1:9999/blazegraph/sparql
 #+end_src
 
+run simple sckan inserts
+see [[file:../sparc-curation/docs/queries.org::hackathon 2023]]
+
+validate inserts (in particular =Example 7: Neurons with Processes in IMG=)
+https://github.com/smtifahim/sckan-query-examples
+https://nbviewer.org/github/smtifahim/sckan-query-examples/blob/main/example-queries/sckan-sparql-query-examples.ipynb
+
 cleanup old images
 #+begin_src bash
 docker container prune -f
