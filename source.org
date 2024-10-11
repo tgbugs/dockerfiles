@@ -838,6 +838,7 @@ ADD ${bp}docker-profile                          var/db/docker-profile
 ADD ${bp}docker-profile.conf                     etc/portage/repos.conf/docker-profile.conf
 ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi.conf
 ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
+ADD ${bp}package.accept_keywords.haskell.gentoo  etc/portage/package.accept_keywords/profile.haskell
 ADD ${bp}package.mask                            etc/portage/package.mask/profile
 ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
 ADD ${bp}package.use                             etc/portage/package.use/profile
@@ -892,17 +893,266 @@ sync-uri = http://local.binhost:8089/multi
 #+end_src
 **** package.accept_keywords
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
+app-text/pandoc-cli::gentoo
 dev-python/*::tgbugs-overlay
 dev-scheme/racket::tgbugs-overlay
 dev-haskell/*::tgbugs-overlay **
 dev-haskell/*::haskell
+dev-lang/ghc::gentoo
 app-admin/haskell-updater::gentoo
 dev-util/shellcheck::gentoo
 #+end_src
-# dev-haskell/*::gentoo
-# dev-lang/ghc::gentoo
-# app-text/pandoc::gentoo
+
+We only use the =::haskell= overlay for the graphviz dependencies.
+For shellcheck and pandoc we stick with =::gentoo= and control that
+by specifying the exact packages here. Note that a certain amount of
+vigilance is needed to catch cases where a missing accept keyword on
+a package will prevent any and all upgrades. One way to catch such
+cases is to add =dev-haskell/*::gentoo= to accept_keywords and see
+whether there are lurking changes.
+#+begin_src conf :tangle ./docker-profile/base/package.accept_keywords.haskell.gentoo
+dev-haskell/aeson
+dev-haskell/aeson-pretty
+dev-haskell/alex
+dev-haskell/ansi-terminal
+dev-haskell/ansi-terminal-types
+dev-haskell/appar
+dev-haskell/asn1-encoding
+dev-haskell/asn1-parse
+dev-haskell/asn1-types
+dev-haskell/assoc
+dev-haskell/async
+dev-haskell/attoparsec
+dev-haskell/attoparsec-aeson
+dev-haskell/attoparsec-iso8601
+dev-haskell/auto-update
+dev-haskell/base-compat
+dev-haskell/base-compat-batteries
+dev-haskell/base-orphans
+dev-haskell/base-unicode-symbols
+dev-haskell/base16-bytestring
+dev-haskell/base64
+dev-haskell/base64-bytestring
+dev-haskell/basement
+dev-haskell/bifunctors
+dev-haskell/bitvec
+dev-haskell/blaze-builder
+dev-haskell/blaze-html
+dev-haskell/blaze-markup
+dev-haskell/boring
+dev-haskell/bsb-http-chunked
+dev-haskell/byteorder
+dev-haskell/cabal
+dev-haskell/cabal-doctest
+dev-haskell/call-stack
+dev-haskell/case-insensitive
+dev-haskell/cassava
+dev-haskell/cereal
+dev-haskell/character-ps
+dev-haskell/citeproc
+dev-haskell/cmdargs
+dev-haskell/colour
+dev-haskell/commonmark
+dev-haskell/commonmark-extensions
+dev-haskell/commonmark-pandoc
+dev-haskell/comonad
+dev-haskell/conduit
+dev-haskell/conduit-extra
+dev-haskell/constraints
+dev-haskell/contravariant
+dev-haskell/cookie
+dev-haskell/crypton
+dev-haskell/crypton-connection
+dev-haskell/crypton-x509
+dev-haskell/crypton-x509-store
+dev-haskell/crypton-x509-system
+dev-haskell/crypton-x509-validation
+dev-haskell/cryptonite
+dev-haskell/data-array-byte
+dev-haskell/data-default
+dev-haskell/data-default-class
+dev-haskell/data-default-instances-containers
+dev-haskell/data-default-instances-dlist
+dev-haskell/data-default-instances-old-locale
+dev-haskell/data-fix
+dev-haskell/dec
+dev-haskell/diff
+dev-haskell/digest
+dev-haskell/digits
+dev-haskell/distributive
+dev-haskell/dlist
+dev-haskell/doclayout
+dev-haskell/doctemplates
+dev-haskell/easy-file
+dev-haskell/emojis
+dev-haskell/fail
+dev-haskell/fast-logger
+dev-haskell/fgl
+dev-haskell/file-embed
+dev-haskell/foldable1-classes-compat
+dev-haskell/generically
+dev-haskell/glob
+dev-haskell/gridtables
+dev-haskell/haddock-library
+dev-haskell/happy
+dev-haskell/hashable
+dev-haskell/haskell-lexer
+dev-haskell/hourglass
+dev-haskell/hslua
+dev-haskell/hslua-aeson
+dev-haskell/hslua-classes
+dev-haskell/hslua-cli
+dev-haskell/hslua-core
+dev-haskell/hslua-list
+dev-haskell/hslua-marshalling
+dev-haskell/hslua-module-doclayout
+dev-haskell/hslua-module-path
+dev-haskell/hslua-module-system
+dev-haskell/hslua-module-text
+dev-haskell/hslua-module-version
+dev-haskell/hslua-module-zip
+dev-haskell/hslua-objectorientation
+dev-haskell/hslua-packaging
+dev-haskell/hslua-repl
+dev-haskell/hslua-typing
+dev-haskell/http-api-data
+dev-haskell/http-client
+dev-haskell/http-client-tls
+dev-haskell/http-date
+dev-haskell/http-media
+dev-haskell/http-types
+dev-haskell/http2
+dev-haskell/hunit
+dev-haskell/indexed-traversable
+dev-haskell/indexed-traversable-instances
+dev-haskell/integer-conversion
+dev-haskell/integer-logarithms
+dev-haskell/iproute
+dev-haskell/ipynb
+dev-haskell/isocline
+dev-haskell/jira-wiki-markup
+dev-haskell/juicypixels
+dev-haskell/libyaml
+dev-haskell/lpeg
+dev-haskell/lua
+dev-haskell/memory
+dev-haskell/mime-types
+dev-haskell/mmorph
+dev-haskell/monad-control
+dev-haskell/mono-traversable
+dev-haskell/mtl
+dev-haskell/network
+dev-haskell/network-byte-order
+dev-haskell/network-uri
+dev-haskell/old-locale
+dev-haskell/old-time
+dev-haskell/onetuple
+dev-haskell/only
+dev-haskell/optparse-applicative
+dev-haskell/ordered-containers
+dev-haskell/os-string
+dev-haskell/pandoc
+dev-haskell/pandoc-lua-engine
+dev-haskell/pandoc-lua-marshal
+dev-haskell/pandoc-server
+dev-haskell/pandoc-types
+dev-haskell/parsec
+dev-haskell/pem
+dev-haskell/pretty-show
+dev-haskell/prettyprinter
+dev-haskell/prettyprinter-ansi-terminal
+dev-haskell/primitive
+dev-haskell/psqueues
+dev-haskell/quickcheck
+dev-haskell/random
+dev-haskell/recv
+dev-haskell/regex-base
+dev-haskell/regex-tdfa
+dev-haskell/resourcet
+dev-haskell/safe
+dev-haskell/safe-exceptions
+dev-haskell/scientific
+dev-haskell/semialign
+dev-haskell/semigroupoids
+dev-haskell/semigroups
+dev-haskell/servant
+dev-haskell/servant-server
+dev-haskell/sha
+dev-haskell/simple-sendfile
+dev-haskell/singleton-bool
+dev-haskell/skylighting
+dev-haskell/skylighting-core
+dev-haskell/skylighting-format-ansi
+dev-haskell/skylighting-format-blaze-html
+dev-haskell/skylighting-format-context
+dev-haskell/skylighting-format-latex
+dev-haskell/socks
+dev-haskell/some
+dev-haskell/sop-core
+dev-haskell/split
+dev-haskell/splitmix
+dev-haskell/statevar
+dev-haskell/stm
+dev-haskell/streaming-commons
+dev-haskell/strict
+dev-haskell/string-conversions
+dev-haskell/syb
+dev-haskell/tagged
+dev-haskell/tagsoup
+dev-haskell/temporary
+dev-haskell/texmath
+dev-haskell/text
+dev-haskell/text-conversions
+dev-haskell/text-icu
+dev-haskell/text-iso8601
+dev-haskell/text-short
+dev-haskell/th-abstraction
+dev-haskell/th-compat
+dev-haskell/th-lift
+dev-haskell/th-lift-instances
+dev-haskell/these
+dev-haskell/time-compat
+dev-haskell/time-manager
+dev-haskell/tls
+dev-haskell/toml-parser
+dev-haskell/transformers-base
+dev-haskell/transformers-compat
+dev-haskell/type-equality
+dev-haskell/typed-process
+dev-haskell/typst
+dev-haskell/typst-symbols
+dev-haskell/unicode-collation
+dev-haskell/unicode-data
+dev-haskell/unicode-transforms
+dev-haskell/uniplate
+dev-haskell/unix-compat
+dev-haskell/unix-time
+dev-haskell/unliftio
+dev-haskell/unliftio-core
+dev-haskell/unordered-containers
+dev-haskell/utf8-string
+dev-haskell/uuid-types
+dev-haskell/vault
+dev-haskell/vector
+dev-haskell/vector-algorithms
+dev-haskell/vector-stream
+dev-haskell/wai
+dev-haskell/wai-app-static
+dev-haskell/wai-cors
+dev-haskell/wai-extra
+dev-haskell/wai-logger
+dev-haskell/warp
+dev-haskell/witherable
+dev-haskell/word8
+dev-haskell/xml
+dev-haskell/xml-conduit
+dev-haskell/xml-types
+dev-haskell/yaml
+dev-haskell/zip-archive
+dev-haskell/zlib
+#+end_src
 # and they say haskell is a safe language
+
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
 dev-scheme/racket::gentoo
@@ -914,6 +1164,7 @@ dev-lang/rust-bin  # prefer our own
 #+end_src
 **** package.unmask
 #+begin_src conf :tangle ./docker-profile/base/package.unmask
+dev-haskell/colour::haskell
 dev-haskell/fgl::haskell
 dev-haskell/graphviz::haskell
 dev-haskell/hxt-charproperties::haskell
@@ -921,6 +1172,7 @@ dev-haskell/hxt-regex-xmlschema::haskell
 dev-haskell/hxt-unicode::haskell
 dev-haskell/hxt::haskell
 dev-haskell/polyparse::haskell
+dev-haskell/temporary::haskell
 dev-haskell/wl-pprint-text::haskell
 #+end_src
 **** package.use
@@ -1255,6 +1507,8 @@ dev-python/sparcur **
 app-text/xlsx2csv ~amd64
 dev-python/semver ~amd64
 dev-python/click-didyoumean ~amd64
+dev-db/redict ~amd64
+dev-libs/hiredict ~amd64
 
 # gtknor
 <gnome-base/librsvg-2.41 **
@@ -1318,6 +1572,9 @@ media-libs/gd truetype fontconfig
 
 # needed for inkscape
 app-text/poppler cairo
+
+# needed for redict
+dev-libs/jemalloc stats
 
 # pypy3
 dev-python/pypy3-exe jit
@@ -3605,7 +3862,7 @@ emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_use
 echo only targets_nogruser bdeps
 # FIXME for some reason there are sporadic package rebuilds that are being missed here
 # e.g. due to slot depends changes
-# FIXME for some reason this fails to pull in the user packages needed by e.g. redis thus the manual merge above
+# FIXME for some reason this fails to pull in the user packages needed by e.g. redict thus the manual merge above
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -j4 -q --keep-going -uDN ${targets_nogruser}
 <<&docker-run-suffix>>
@@ -3975,7 +4232,7 @@ what a nightmare, fortunately just pandoc and dot2graphml for now, but that is 1
 that we have to rebuild, sometimes haskell-updater will miss some packages and you will
 have to rebuild them manually
 #+begin_src bash
-emerge -q -j12 app-text/pandoc dev-haskell/dot2graphml
+emerge -q -j12 app-text/pandoc dev-haskell/dot2graphml shellcheck
 emerge -q --usepkg=n haskell-updater
 haskell-updater --all --no-deep -- --usepkg=n
 #+end_src
@@ -6153,7 +6410,7 @@ dev-java/robot-bin
 dev-node/apinat-converter
 dev-python/nifstd-tools
 dev-python/sparcur
-dev-db/redis
+dev-db/redict
 net-misc/rabbitmq-server
 dev-scheme/racket
 dev-util/shellcheck
@@ -7162,7 +7419,7 @@ emerge -j4 -q -uDN dev-python/sparcur \
 *** world
 # FIXME sparcur ebuild could pull this all in under test + cron or
 # something like that , but the variant use flags issue rears its head,
-# and more to the point, redis and rabbitmq-server could be running
+# and more to the point, redict and rabbitmq-server could be running
 # elsewhere and are requirements for this image, or meta ebuild but not
 # actually for sparcur. In principle We could move to managing some of
 # these world files as meta ebuilds in some cases.
@@ -7172,7 +7429,7 @@ emerge -j4 -q -uDN dev-python/sparcur \
 # reuse of the base image for the -user variant as the builder
 #+name: world-sparcron
 #+begin_src conf :tangle ./musl/sparcron/world
-dev-db/redis
+dev-db/redict
 dev-python/pip
 dev-python/sparcur
 net-misc/rabbitmq-server
@@ -7440,7 +7697,7 @@ fi
 
 rc-status
 touch /run/openrc/softlevel
-/etc/init.d/redis start
+/etc/init.d/redict start
 /etc/init.d/rabbitmq start
 /etc/init.d/sparcron-server start
 
@@ -7452,7 +7709,7 @@ su sparc -c 'EPYTHON=pypy3 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron work
 su sparc -c 'EPYTHON=pypy3 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wexport -Q export --loglevel=INFO'
 # FIXME missing rmeta stuff ?
 
-#/etc/init.d/redis stop
+#/etc/init.d/redict stop
 #/etc/init.d/rabbitmq stop
 #+end_src
 
@@ -7466,14 +7723,14 @@ rc-status
 touch /run/openrc/softlevel
 
 # check that services are working as expected
-/etc/init.d/redis start
+/etc/init.d/redict start
 RED_OOPS=$?
 /etc/init.d/rabbitmq start
 RAB_OOPS=$?
 /etc/init.d/sparcron-server start
 SVR_OOPS=$?
 
-[ ${RED_OOPS} -eq 0 ] || { echo redis failed to start;}
+[ ${RED_OOPS} -eq 0 ] || { echo redict failed to start;}
 [ ${RAB_OOPS} -eq 0 ] || { echo rabbitmq failed to start;}
 [ ${SVR_OOPS} -eq 0 ] || { echo sparcron-server failed to start;}
 [ ${RED_OOPS} -ne 0 ] || [ ${RAB_OOPS} -ne 0 ] || [ ${SVR_OOPS} -ne 0 ] && { echo at least on service failed; exit 1;}
