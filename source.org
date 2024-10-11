@@ -4232,7 +4232,7 @@ what a nightmare, fortunately just pandoc and dot2graphml for now, but that is 1
 that we have to rebuild, sometimes haskell-updater will miss some packages and you will
 have to rebuild them manually
 #+begin_src bash
-emerge -q -j12 app-text/pandoc dev-haskell/dot2graphml shellcheck
+emerge -q -j12 app-text/pandoc-cli dev-haskell/dot2graphml shellcheck
 emerge -q --usepkg=n haskell-updater
 haskell-updater --all --no-deep -- --usepkg=n
 #+end_src
@@ -6405,7 +6405,7 @@ docker run \
 app-arch/zip
 app-misc/screen
 app-misc/yq
-app-text/pandoc
+app-text/pandoc-cli
 dev-java/robot-bin
 dev-node/apinat-converter
 dev-python/nifstd-tools
