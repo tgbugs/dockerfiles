@@ -5294,7 +5294,7 @@ tgbugs/musl:protege= default to =protegeuser=.
 FROM tgbugs/musl:xorg as builder
 
 ARG ARCHIVE
-ARG PROTEGE_VERSION="5.6.1"
+ARG PROTEGE_VERSION="5.6.4"
 
 WORKDIR /build
 
@@ -5307,7 +5307,7 @@ ARG HOME=/build/home/${USER_NAME}
 WORKDIR $HOME
 
 # phase two protege and reasoners
-ARG URL_PROTEGE="https://github.com/protegeproject/protege-distribution/releases/download/protege-5.6.1/Protege-5.6.1-linux.tar.gz"
+ARG URL_PROTEGE="https://github.com/protegeproject/protege-distribution/releases/download/protege-${PROTEGE_VERSION}/Protege-${PROTEGE_VERSION}-linux.tar.gz"
 ARG URL_FACT="https://bitbucket.org/dtsarkov/factplusplus/downloads/uk.ac.manchester.cs.owl.factplusplus-P5.x-v1.6.5.jar"
 
 RUN \
