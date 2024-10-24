@@ -1907,9 +1907,11 @@ docker build \
 --file docker-profile/axes.Dockerfile .
 #+end_src
 *** file
+XXX implementation moved to [[&file-package-builder-static]].
+TODO remove this section probably
 #+name: &profile-static-adds
 #+begin_src dockerfile
-ARG sbp=docker-profile/static/
+#ARG sbp=docker-profile/static/
 ARG hr=<<&helper-repos()>>/
 
 # ADD ${sbp}sbcl.env etc/portage/env/dev-lisp/sbcl  # gets klobbered when we make the profile so have to do it differently
@@ -3881,6 +3883,7 @@ return 0
 }
 
 # FIXME SIGH code dupe
+# TODO install sbcl for system bootstrap if it is missing
 function static-builder-world () {
    builder-world static
 }
@@ -6819,8 +6822,8 @@ RUN \
 mv /build/quicklisp ${HOME}/quicklisp
 
 RUN \
-sbcl --no-interactive --no-userinit --disasble-debugger \
---load /tmp/boostrap-3.lisp
+sbcl --non-interactive --no-userinit --disasble-debugger \
+--load /tmp/bootstrap-3.lisp
 
 # FIXME HACK workaround for bad prcl assumptions
 RUN \
@@ -7814,6 +7817,8 @@ docker build \
 --file musl/package-builder/static.Dockerfile musl/package-builder
 #+end_src
 *** file
+FIXME sbcl patches require a manual step [[&fn-sbcl-static-patch]].
+#+name: &file-package-builder-static
 #+begin_src dockerfile :tangle ./musl/package-builder/static.Dockerfile
 FROM tgbugs/musl:static-xorg
 
@@ -7822,6 +7827,9 @@ FROM tgbugs/musl:static-xorg
 # overwrite the regular world file
 ADD static.world /etc/portage/sets/docker
 
+# sbcl patches and env
+# FIXME beware may need to rerun the copy command in [[&fn-sbcl-static-patch]]
+ADD patches/dev-lisp /etc/portage/patches/dev-lisp
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 #+end_src
 *** world
@@ -7889,7 +7897,7 @@ FIXME this needs to be moved to run inside a builder phase
 #+name: &fn-sbcl-static-patch
 #+begin_src bash :noweb yes
 function sbcl-static-patch () {
-local version tag spath tpath patch
+local version tag spath tpath patch ipath sighpath
 version=${1}
 tag=sbcl-${version}
 patch=static-${version}.patch
@@ -7922,9 +7930,15 @@ fi
 
 #+begin_src bash :noweb no-export
 <<&fn-sbcl-static-patch>>
-sbcl-static-patch 2.2.6
-sbcl-static-patch 2.2.7
+sbcl-static-patch 2.3.5
+sbcl-static-patch 2.4.3
+sbcl-static-patch 2.4.9
+cp -a <<&helper-repos()>>/sbcl/patches musl/package-builder
 #+end_src
+# FIXME currently need to copy these into the musl/package-builder
+# tree because everything is sandboxed into that folder and it is not
+# straight forward to switch the build directory to be the
+# ~/git/dockerfiles
 
 #+name: &sbcl-env-static
 #+begin_src ebuild :tangle ./docker-profile/static/sbcl.env :tangle no
@@ -8154,7 +8168,7 @@ ENTRYPOINT ["/usr/bin/sbcl"]
       (error "path to quicklisp-init is missing!? ~a" quicklisp-init)))
 (asdf:load-system :dexador :verbose nil)
 (asdf:load-system :quicklisp-https-always :verbose nil)
-(delete-file *load-truename*)
+;;(delete-file *load-truename*) ; don't delete this
 (quit)
 #+end_src
 # probably don't delete the file and don't quit because I think we
