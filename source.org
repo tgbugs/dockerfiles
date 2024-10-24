@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 4db4c529f5d1c2287e2413375adf8e608a1a5985951e66dbe4d21fbdd4888835; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 5d5f97b8dc35d172f6af745e761b3d7f92908bfeaf09209fe26ea42266477cf1; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -7933,12 +7933,9 @@ fi
 sbcl-static-patch 2.3.5
 sbcl-static-patch 2.4.3
 sbcl-static-patch 2.4.9
-cp -a <<&helper-repos()>>/sbcl/patches musl/package-builder
 #+end_src
-# FIXME currently need to copy these into the musl/package-builder
-# tree because everything is sandboxed into that folder and it is not
-# straight forward to switch the build directory to be the
-# ~/git/dockerfiles
+
+Then run =./source.org tangle= and the patches will be copied over correctly in =do-non-tangled-files=.
 
 #+name: &sbcl-env-static
 #+begin_src ebuild :tangle ./docker-profile/static/sbcl.env :tangle no
@@ -10230,6 +10227,8 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
               (and (member lang '("screen"))
                    (string= (cl-subseq body 0 15) "HISTFILE=~/.org")))))))
 
+(fix-ocbe-source)
+
 (defun dedupe-lines (blockname)
   (let* ((info (save-excursion
                  (org-save-outline-visibility 'use-markers
@@ -10244,7 +10243,13 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
                        #'string<)
                  "\n")))
 
-(fix-ocbe-source)
+(defun do-non-tangled-files ()
+  "process any non-tangled files generated in other ways
+currently only sbcl static uses this but other things might need it in the future"
+  ;; TODO run [[&fn-sbcl-static-patch]] and friends as well
+  (let ((sbcl-static-patches-source "<<&helper-repos()>>/sbcl/patches")
+        (sbcl-static-patches-target "musl/package-builder/patches"))
+    (copy-directory sbcl-static-patches-source sbcl-static-patches-target 'keep-time 'parents 'copy-contents)))
 
 (defmacro with-error-on-fail (&rest body)
   `(cl-letf (((symbol-function 'org-babel-eval-error-notify)
@@ -10373,7 +10378,8 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
             (revert-buffer nil t nil)
             (setq-local find-file-literally nil))
           (fix-ocbe-source)
-          (org-babel-tangle))
+          (org-babel-tangle)
+          (do-non-tangled-files))
         (when test
           ;; sckan
           ;; kg-dev
