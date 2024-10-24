@@ -7865,6 +7865,29 @@ FROM tgbugs/musl:static-xorg
 #+end_src
 
 ** sbcl
+*** test
+#+name: &test-musl-sbcl
+#+begin_src screen
+test-image tgbugs/musl:sbcl
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh\nset -e"
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/sbcl/test :mkdirp yes :noweb yes
+<<&bash-at-abs-path>>
+sbcl --noinform --noprint --non-interactive --load test.lisp
+#+end_src
+
+#+begin_src lisp :tangle ./bin/test/tgbugs/musl/sbcl/test.lisp :mkdirp yes
+(let ()
+  (format t "~a ~a~%" (lisp-implementation-type) (lisp-implementation-version))
+  (format t "core path: ~a~%" (truename sb-ext:*core-pathname*))
+  (format t "obj path exists: ~a~%" (probe-file (merge-pathnames "sbcl.o" sb-ext:*core-pathname*)))
+  (format t "ok~%")
+  (values))
+#+end_src
+# these are build time features and don't show up in the image itself
+# (and (member :sb-linkable-runtime *features*) (member :sb-prelink-linkage-table *features*))
+
 *** build
 #+name: &musl-build-sbcl
 #+begin_src screen
