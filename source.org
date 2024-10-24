@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 5d5f97b8dc35d172f6af745e761b3d7f92908bfeaf09209fe26ea42266477cf1; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: f019dfa1114b3ed906dcb6130d17df42257716168cf8b90c59b610b88e6b7de9; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -10249,6 +10249,15 @@ currently only sbcl static uses this but other things might need it in the futur
   ;; TODO run [[&fn-sbcl-static-patch]] and friends as well
   (let ((sbcl-static-patches-source "<<&helper-repos()>>/sbcl/patches")
         (sbcl-static-patches-target "musl/package-builder/patches"))
+    (cl-loop
+     for (source . target) in
+     (list
+      (cons
+       sbcl-static-patches-source
+       sbcl-static-patches-target))
+     do
+     (when (file-exists-p source)
+       (copy-directory source target 'keep-time 'parents 'copy-contents)))
     (copy-directory sbcl-static-patches-source sbcl-static-patches-target 'keep-time 'parents 'copy-contents)))
 
 (defmacro with-error-on-fail (&rest body)
