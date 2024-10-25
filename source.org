@@ -10397,8 +10397,7 @@ currently only sbcl static uses this but other things might need it in the futur
        sbcl-static-patches-target))
      do
      (when (file-exists-p source)
-       (copy-directory source target 'keep-time 'parents 'copy-contents)))
-    (copy-directory sbcl-static-patches-source sbcl-static-patches-target 'keep-time 'parents 'copy-contents)))
+       (copy-directory source target 'keep-time 'parents 'copy-contents)))))
 
 (defmacro with-error-on-fail (&rest body)
   `(cl-letf (((symbol-function 'org-babel-eval-error-notify)
