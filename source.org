@@ -493,6 +493,8 @@ echo start image builds
 <<&musl-build-kg-release-user>> || return $?; echo mbkgru;
 <<&musl-build-kg-dev>> || return $?; echo mbkgd;
 <<&musl-build-kg-dev-user>> || return $?; echo mbkgdu;
+<<&musl-build-tgbugs-dev>> || return $?; echo mbtgd;
+<<&musl-build-tgbugs-dev-user>> || return $?; echo mbtgdu;
 
 ## FIXME nox-builder-arb virtual/jdk somehow never got packaged? yeah, need to merege that after inthe openjkd stuff, also no nox-builder-arb
 ## services
@@ -501,6 +503,7 @@ echo start image builds
 ## sbcl
 <<&musl-build-sbcl>> || return $?; echo mbsbcl;
 <<&musl-build-sbcl-user>> || return $?; echo mbsbclu;
+<<&musl-build-sbcl-stripped>> || return $?; echo mbsbcls;
 
 ## racket
 <<&musl-build-racket>> || return $?; echo mbrac;
@@ -6399,6 +6402,16 @@ docker run \
 --file musl/kg-dev/Dockerfile musl/kg-dev
 #+end_src
 
+*** file
+#+name: &musl/kg-dev
+#+begin_src dockerfile :tangle ./musl/kg-dev/Dockerfile
+FROM tgbugs/musl:kg-release
+<<&build-world-common>>
+
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+eselect racket set cs
+#+end_src
+
 *** world
 #+name: world-kg-dev
 #+begin_src conf :tangle ./musl/kg-dev/world
@@ -6456,16 +6469,6 @@ dev-texlive/texlive-music
 #+end_src
 We specify =texlive-latexextra= and =texlive-music= explicitly instead
 of as use flags on texlive to avoid pulling in xetex as a dependency.
-
-*** file
-#+name: &musl/kg-dev
-#+begin_src dockerfile :tangle ./musl/kg-dev/Dockerfile
-FROM tgbugs/musl:kg-release
-<<&build-world-common>>
-
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-eselect racket set cs
-#+end_src
 
 ** kg-dev-user
 :PROPERTIES:
@@ -6917,7 +6920,7 @@ the links between =:tangle= paths and =<<noweb>>= references.
 
 ** tgbugs-dev
 *** build
-#+name: &musl-build-tgbugs
+#+name: &musl-build-tgbugs-dev
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:tgbugs-dev \
@@ -6927,6 +6930,12 @@ docker build \
 *** file
 #+begin_src dockerfile :tangle ./musl/tgbugs-dev/Dockerfile :mkdirp yes
 FROM tgbugs/musl:kg-dev
+#+end_src
+
+*** TODO world
+#+name: world-tgbugs-dev
+#+begin_src conf :tangle ./musl/tgbugs-dev/world
+dev-python/pytest
 #+end_src
 
 ** tgbugs-dev-user
@@ -6978,6 +6987,9 @@ ADD repo-setup.sh /tmp/repo-setup.sh
 # TODO this is the point where we need to decide whether we do this in build or in run
 RUN \
 sh /tmp/repo-setup.sh
+
+# TODO pip install --user --break-system-packages pudb
+# TODO set PYTHONBREAKPOINT=pudb.set_trace etc. in bashrc
 
 FROM tgbugs/musl:tgbugs-dev
 
@@ -8169,7 +8181,7 @@ swank-api:*emacs-connection*
 #+end_src
 
 *** build
-#+name: &musl-build-sbcl
+#+name: &musl-build-sbcl-stripped
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:sbcl-stripped \
