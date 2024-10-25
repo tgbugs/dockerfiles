@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: f019dfa1114b3ed906dcb6130d17df42257716168cf8b90c59b610b88e6b7de9; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 32d716f0fd3e4f82f758f6e47dbf5afc4d3d76cd17f81f0ebda5dd4c88a438be; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -6565,8 +6565,7 @@ docker run \
 docker build \
 --tag tgbugs/musl:kg-dev-user \
 --build-arg UID=${UID} \
---file musl/kg-dev-user/Dockerfile .
-#--file musl/kg-dev-user/Dockerfile musl/kg-dev-user
+--file musl/kg-dev-user/Dockerfile musl/kg-dev-user
 #+end_src
 
 *** entrypoint
@@ -6773,7 +6772,7 @@ pushd git \
 && popd
 
 RUN \
-raco pkg install --no-docs --type git-url https://github.com/zussitarze/qrcode.git \
+raco pkg install --no-docs --name barcode --type git-url https://github.com/zussitarze/qrcode.git \
 && pushd git \
 &&     pushd rkdf \
 &&         raco pkg install --no-docs --auto --batch rkdf-lib/ rkdf/ \
@@ -6785,52 +6784,11 @@ raco pkg install --no-docs --type git-url https://github.com/zussitarze/qrcode.g
 &&     popd \
 &&     raco pkg install --no-docs --auto --batch NIF-Ontology/ \
 &&     pushd protc \
-&&         raco pkg install --no-docs --auto --batch protc-lib/ protc-tools-lib/ protc/ protc-tools/ \
+&&         raco pkg install --no-docs --auto --batch protc-lib/ protc/ protc-tools-lib/ protc-tools/ \
 &&     popd \
 && popd
 
-# sbcl quicklisp https
-RUN \
-git clone --branch version-2021-02-13 --depth=1 https://github.com/quicklisp/quicklisp-client.git /build/quicklisp
-
-RUN \
-git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /tmp/ql-https
-
-USER 0
-
-COPY musl/sbcl-stripped/quicklisp-https-always /build/quicklisp/local-projects/quicklisp-https-always
-ADD musl/sbcl-stripped/bootstrap-1.lisp /tmp/bootstrap-1.lisp
-ADD musl/sbcl-stripped/bootstrap-2.lisp /tmp/bootstrap-2.lisp
-ADD musl/sbcl-stripped/bootstrap-3.lisp /tmp/bootstrap-3.lisp
-
-RUN \
-chown ${USER_NAME}:${USER_NAME} /tmp/bootstrap-*.lisp \
-&& chown -R ${USER_NAME}:${USER_NAME} /build/quicklisp
-
-USER ${USER_NAME}
-
-RUN --network=none \
-sbcl --no-userinit --disable-debugger \
---load /tmp/bootstrap-1.lisp
-
-RUN \
-sbcl --core /tmp/continue.core --no-userinit --disable-debugger \
---load /tmp/bootstrap-2.lisp
-
-# FIXME shouldn't need to do this dance
-RUN \
-mv /build/quicklisp ${HOME}/quicklisp
-
-RUN \
-sbcl --non-interactive --no-userinit --disasble-debugger \
---load /tmp/bootstrap-3.lisp
-
-# FIXME HACK workaround for bad prcl assumptions
-RUN \
-mkdir -p ${HOME}/code/lisp
-
-RUN \
-ln -s ../../quicklisp ${HOME}/code/lisp/quicklisp
+<<&dev-sbcl-stuff-1>>
 
 RUN \
 ./git/sparc-curation/docs/queries.org
@@ -6844,18 +6802,6 @@ emacs -batch -eval \
 $HOME/.emacs.d/init.el \
 ./git/sparc-curation/docs/queries.org \
 ./git/sparc-curation/docs/apinatomy.org
-
-# FIXME something around here is installing slime without checking to see if sly exists
-# the issue is probably that the git share readme orgstrap doesn't enable packages to check
-RUN \
-pushd git \
-&&     git clone https://github.com/tgbugs/git-share.git \
-&&     sh git-share/README.org tangle \
-&&     git clone https://github.com/tgbugs/prrequaestor.git \
-&&     pushd ~/git/prrequaestor \
-&&         ./prcl-build.lisp \
-&&     popd \
-&& popd
 
 FROM tgbugs/musl:kg-dev
 
@@ -6872,13 +6818,103 @@ ENV PATH="/home/${USER_NAME}/.local/bin:${PATH}"
 
 <<&dev-user-common-3>>
 
-ADD musl/kg-dev-user/entrypoints /etc/entrypoints
-ADD musl/kg-dev-user/entrypoint.sh /etc/entrypoint.sh
+ADD entrypoints /etc/entrypoints
+ADD entrypoint.sh /etc/entrypoint.sh
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
 ENTRYPOINT /etc/entrypoint.sh
 #+end_src
+
+#+name: &dev-sbcl-stuff-1
+#+begin_src dockerfile
+# sbcl quicklisp https
+RUN \
+git clone --branch version-2021-02-13 --depth=1 https://github.com/quicklisp/quicklisp-client.git /build/quicklisp
+
+RUN \
+git clone --depth=1 https://github.com/rudolfochrist/ql-https.git /tmp/ql-https
+
+USER 0
+
+COPY quicklisp-https-always /build/quicklisp/local-projects/quicklisp-https-always
+ADD bootstrap-1.lisp /tmp/bootstrap-1.lisp
+ADD bootstrap-2.lisp /tmp/bootstrap-2.lisp
+ADD bootstrap-3.lisp /tmp/bootstrap-3.lisp
+
+RUN \
+chown ${USER_NAME}:${USER_NAME} /tmp/bootstrap-*.lisp \
+&& chown -R ${USER_NAME}:${USER_NAME} /build/quicklisp
+
+USER ${USER_NAME}
+
+RUN --network=none \
+sbcl --no-userinit --non-interactive \
+--load /tmp/bootstrap-1.lisp
+
+RUN \
+sbcl --core /tmp/continue.core --no-userinit --non-interactive \
+--load /tmp/bootstrap-2.lisp
+
+# FIXME shouldn't need to do this dance
+RUN \
+mv /build/quicklisp ${HOME}/quicklisp
+
+RUN \
+sbcl --no-userinit --non-interactive \
+--load /tmp/bootstrap-3.lisp
+
+# FIXME HACK workaround for bad prcl assumptions
+RUN \
+mkdir -p ${HOME}/code/lisp
+
+RUN \
+ln -s ../../quicklisp ${HOME}/code/lisp/quicklisp
+
+ADD clrc ${HOME}/.sbclrc
+
+# FIXME something around here is installing slime without checking to see if sly exists
+# the issue is probably that the git share readme orgstrap doesn't enable packages to check
+RUN \
+pushd git \
+&&     git clone https://github.com/tgbugs/git-share.git \
+&&     sh git-share/README.org tangle \
+&&     git clone https://github.com/tgbugs/prrequaestor.git \
+&&     pushd ~/git/prrequaestor \
+&&         ./prcl-build.lisp \
+&&     popd \
+&& popd
+#+end_src
+
+*** retangles
+In general we should prefer to retangle rather than move the working
+directory for docker build because this is explicit and we can trace
+the links between =:tangle= paths and =<<noweb>>= references.
+
+#+begin_src lisp :noweb yes :tangle ./musl/kg-dev-user/bootstrap-1.lisp :mkdirp yes
+<<lisp-ql-https-bootstrap-1>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/kg-dev-user/bootstrap-2.lisp
+<<lisp-ql-https-bootstrap-2>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/kg-dev-user/bootstrap-3.lisp
+<<lisp-ql-https-bootstrap-3>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/kg-dev-user/clrc
+<<lisp-ql-https-clrc>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/kg-dev-user/quicklisp-https-always/quicklisp-https-always.lisp :mkdirp yes
+<<lisp-qlha-lisp>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/kg-dev-user/quicklisp-https-always/quicklisp-https-always.asd
+<<lisp-qlha-asdf>>
+#+end_src
+
 ** tgbugs-dev
 *** build
 #+name: &musl-build-tgbugs
@@ -6933,9 +6969,11 @@ iteration during devel could use
 #+begin_src dockerfile :tangle ./musl/tgbugs-dev-user/Dockerfile :mkdirp yes
 FROM tgbugs/musl:tgbugs-dev as builder
 
-ADD repo-setup.sh /tmp/repo-setup.sh
-
 <<&dev-user-common-1>>
+
+<<&dev-sbcl-stuff-1>>
+
+ADD repo-setup.sh /tmp/repo-setup.sh
 
 # TODO this is the point where we need to decide whether we do this in build or in run
 RUN \
@@ -6950,6 +6988,31 @@ FROM tgbugs/musl:tgbugs-dev
 USER ${USER_NAME}
 #+end_src
 
+*** retangles
+#+begin_src lisp :noweb yes :tangle ./musl/tgbugs-dev-user/bootstrap-1.lisp :mkdirp yes
+<<lisp-ql-https-bootstrap-1>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/tgbugs-dev-user/bootstrap-2.lisp
+<<lisp-ql-https-bootstrap-2>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/tgbugs-dev-user/bootstrap-3.lisp
+<<lisp-ql-https-bootstrap-3>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/tgbugs-dev-user/clrc
+<<lisp-ql-https-clrc>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/tgbugs-dev-user/quicklisp-https-always/quicklisp-https-always.lisp :mkdirp yes
+<<lisp-qlha-lisp>>
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/tgbugs-dev-user/quicklisp-https-always/quicklisp-https-always.asd
+<<lisp-qlha-asdf>>
+#+end_src
+
 *** build helper script
 TODO there is a question of whether to use =docker build= or =docker run= for this.
 The advantage of using =docker run= is that
@@ -6962,6 +7025,7 @@ The advantage of using =docker run= is that
 #+name: &dev-group-repo
 | tgbugs/augpathlib
 | tgbugs/dynapad
+| tgbugs/elasticsearch.rkt
 | tgbugs/hyputils
 | tgbugs/idlib
 | tgbugs/interlex
@@ -6975,7 +7039,9 @@ The advantage of using =docker run= is that
 | tgbugs/racket-json-view
 | tgbugs/racket-mode
 | tgbugs/rkdf
+| tgbugs/rrid-metadata
 | tgbugs/sxpyr
+| SciCrunch/NIF-Ontology
 | SciCrunch/scibot
 | SciCrunch/sparc-curation
 | Ophirr33/pda
@@ -6999,15 +7065,16 @@ The advantage of using =docker run= is that
 | interlex
 
 #+name: &dev-rkt-install-order-name
-| qrcode/                                 |             |
+| qrcode/                                 | barcode     |
 | pda/                                    |             |
 | rkdf/rkdf-lib                           |             |
 | rkdf/rkdf                               |             |
 | NIF-Ontology/                           |             |
 | protc/protc-lib                         |             |
-| protc/protc-tools-lib                   |             |
 | protc/protc                             |             |
+| protc/protc-tools-lib                   |             |
 | protc/protc-tools                       |             |
+| elasticsearch.rkt/elasticsearch         |             |
 | rrid-metadata/rrid                      |             |
 | orthauth/racket/orthauth                |             |
 | racket-breadcrumb/                      | breadcrumb  |
@@ -7030,6 +7097,7 @@ The advantage of using =docker run= is that
                                         nil
                                       cl))))
                           '<<&dev-rkt-install-order-name()>>))
+        (rkt-known-fail '("rrid-metadata/rrid"))
         (ontology-repo-rkt-setup "
 pushd NIF-Ontology
 git checkout dev
@@ -7046,16 +7114,21 @@ popd
        "pushd ~/git"
        (cl-loop
         for (gr . _) in group-repo
+        unless (string-match "dynapad\\|interlex" gr) ; TODO needs ssh
         collect
         (concat "git clone " (format fgitstr gr)))
-       ontology-repo-rkt-setup
        (cl-loop
         for (rp . name) in rkt-inst
+        unless (string-match "dynapad" rp) ; TODO needs ssh
         collect
-        (concat "raco pkg install --no-docs --auto --batch " (if name (concat "--name " name " ") "") rp))
+        (concat (when (string= rp "NIF-Ontology/") ontology-repo-rkt-setup)
+                "raco pkg install --no-docs --auto --batch " (if name (concat "--name " name " ") "") rp
+                (when (member rp rkt-known-fail)
+                  (concat " || echo " rp " failed with $? ... continuing"))))
        (cl-loop
         for (pi . _) in py-inst
-        collect
+        unless (string-match "interlex" pi) ; TODO needs ssh
+        collect ; FIXME didn't we wind up having to use PYTHONPATH ???
         (concat "pushd " pi "
 python -m pip install --break-system-packages --user -e .
 pypy3 -m pip install --break-system-packages --user -e .
@@ -7951,6 +8024,10 @@ fi
 }
 #+end_src
 
+# FIXME TODO consider using noweb eval like we do with
+# [[&dev-repo-setup]] the main issue is that we probably
+# don't want to have to maintain the full list of versions
+# in this file
 #+begin_src bash :noweb no-export
 <<&fn-sbcl-static-patch>>
 sbcl-static-patch 2.3.5
@@ -8013,12 +8090,31 @@ docker run \
 --network host \
 --rm \
 -it tgbugs/musl:sbcl-stripped \
+--eval '(ql:quickload :swank)' \
+--eval '(defvar *swank-server* (swank:create-server :port 4009))'
+#+end_src
+
+alternate version with slynk
+#+begin_src screen
+docker run \
+--network host \
+--rm \
+-it tgbugs/musl:sbcl-stripped \
+--eval '(ql:quickload :slynk)' \
+--eval '(defvar *slynk-server* (slynk:create-server :port 4005))'
+#+end_src
+
+now also old since quicklisp https is loaded by default via sbclrc
+#+begin_src screen
+docker run \
+--network host \
+--rm \
+-it tgbugs/musl:sbcl-stripped \
 --load /quicklisp/setup.lisp \
 --eval '(asdf:load-system :dexador)' \
 --eval '(push :dexador *features*)' \
 --eval '(asdf:load-system :quicklisp-https-always)'
 #+end_src
-
 
 It is BEYOND stupid how difficult it is to configure iptables to be
 able to connect to 4009 when =--network host= produces the desired
@@ -8124,11 +8220,11 @@ COPY bootstrap-1.lisp /bootstrap-1.lisp
 COPY bootstrap-2.lisp /bootstrap-2.lisp
 
 RUN --network=none \
-sbcl --no-userinit --disable-debugger \
+sbcl --no-userinit --non-interactive \
 --load /bootstrap-1.lisp
 
 RUN \
-sbcl --core /tmp/continue.core --no-userinit --disable-debugger \
+sbcl --core /tmp/continue.core --no-userinit --non-interactive \
 --load /bootstrap-2.lisp
 
 COPY quicklisp-https-always quicklisp/local-projects/quicklisp-https-always
@@ -8139,13 +8235,13 @@ WORKDIR /
 
 COPY --from=builder /build /
 
-COPY bootstrap-3.lisp /bootstrap-3.lisp
+COPY bootstrap-3.lisp /.sbclrc
 
 RUN --network=none \
 ["/usr/bin/sbcl", \
+"--no-userinit", \
 "--non-interactive", \
-"--no-userinit", "--disable-debugger", \
-"--load", "/bootstrap-3.lisp"]
+"--load", "/.sbclrc"]
 
 ENTRYPOINT ["/usr/bin/sbcl"]
 #+end_src
@@ -8169,9 +8265,9 @@ ENTRYPOINT ["/usr/bin/sbcl"]
 (setf ql-https::*quietly-use-https* t)
 (quicklisp:setup)
 (ql:quickload :dexador) ; FIXME this breaks when building kg-dev-user
-(format t "YOU WHAT NOW??")
-(quit)
 #+end_src
+
+=bootstrap-3.lisp= doubles as clrc for sbcl-stripped.
 
 #+name: lisp-ql-https-bootstrap-3
 #+begin_src lisp :tangle ./musl/sbcl-stripped/bootstrap-3.lisp :mkdirp yes
@@ -8186,15 +8282,36 @@ ENTRYPOINT ["/usr/bin/sbcl"]
   (if (probe-file quicklisp-init)
       (load quicklisp-init)
       (error "path to quicklisp-init is missing!? ~a" quicklisp-init)))
+#-dexador
 (asdf:load-system :dexador :verbose nil)
+#-dexador
+(push :dexador *features*)
+#-quicklisp-https-always
 (asdf:load-system :quicklisp-https-always :verbose nil)
-;;(delete-file *load-truename*) ; don't delete this
-(quit)
+#-quicklisp-https-always
+(push :quicklisp-https-always *features*)
 #+end_src
-# probably don't delete the file and don't quit because I think we
-# need this any time we start quicklisp so likely will want a way to
-# either register this in clrc or something similar, or just always
-# run the first 3 lines via clrc or something
+
+There are many other things that could go in clrc but these are
+critical for ensuring that quicklisp always uses https.
+#+name: lisp-ql-https-clrc
+#+begin_src lisp :tangle ./musl/sbcl-stripped/clrc :mkdirp yes
+(let ((quicklisp-init
+        (merge-pathnames
+         "quicklisp/setup.lisp"
+         (user-homedir-pathname))))
+  (if (probe-file quicklisp-init)
+      (load quicklisp-init)
+      (error "path to quicklisp-init is missing!? ~a" quicklisp-init)))
+#-dexador
+(asdf:load-system :dexador :verbose nil)
+#-dexador
+(push :dexador *features*)
+#-quicklisp-https-always
+(asdf:load-system :quicklisp-https-always :verbose nil)
+#-quicklisp-https-always
+(push :quicklisp-https-always *features*)
+#+end_src
 
 *** quicklisp-https-always
 #+name: lisp-qlha-lisp
@@ -8231,7 +8348,7 @@ ENTRYPOINT ["/usr/bin/sbcl"]
 #+end_src
 
 #+name: lisp-qlha-asdf
-#+begin_src lisp :tangle ./musl/sbcl-stripped/quicklisp-https-always/quicklisp-https-always.asd :mkdirp yes
+#+begin_src lisp :tangle ./musl/sbcl-stripped/quicklisp-https-always/quicklisp-https-always.asd
 (in-package :asdf-user)
 
 (defsystem quicklisp-https-always
