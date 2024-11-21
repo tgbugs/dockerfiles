@@ -2962,7 +2962,7 @@ FROM tgbugs/musl:updated
 RUN \
 ln -s pypy3_x /etc/portage/patches/dev-python/pypy3_10 \
 && ln -s pypy3_x-exe /etc/portage/patches/dev-python/pypy3_10-exe \
-&& ln -s ../dev-python/pypy3_x /etc/portage/patches/dev-lang/pypy
+&& ln -s ../dev-python/pypy3_x /etc/portage/patches/dev-lang/pypy:3.10
 
 # FIXME /emerge-fail and &archive-or-rm have a very bad interaction
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
