@@ -76,7 +76,7 @@ they have some basic metadata, otherwise trying to emerge binpkgs will
 fail with strange errors in strange ways.
 #+name: &run-quickpkg-first-time
 #+begin_src screen
-for stage3 in {hardened,amd64-musl-hardened}; do
+for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
     docker pull gentoo/stage3:${stage3}
     docker run \
     -v ~/files/binpkgs/multi:/var/cache/binpkgs \
@@ -170,7 +170,7 @@ _img_portage=${_img_portage:-gentoo/portage:latest}
 
 _musl_img_stage3=${_musl_img_stage3:-gentoo/stage3:amd64-musl-hardened}
 
-__is3_0=${_img_stage3/\//-}
+__is3_0=${_musl_img_stage3/\//-}
 __is3_1=${__is3_0/:/-}
 __src_from_img=${__is3_1/gentoo/latest}
 _musl_src_stage3=${__src_stage3:-${__src_from_img}}
@@ -216,8 +216,8 @@ run-main
 #+begin_src screen
 function run-main () {
 package-server || return $?
-pull musl
-pull gnu
+pull musl || echo "ERROR pull musl failed with ${?}"
+pull gnu || echo "ERROR pull gnu failed with ${?}"
 pushd ~/git/dockerfiles  # FIXME hardcoded path
 tangle && {
   # FIXME popd sigh ... unwind-protect when
@@ -276,7 +276,8 @@ if [ -n "${_refresh}" ]; then  # FIXME implicit global variable when it is hard 
     # even when refresh is set avoid spurious pulls where the underlying stage3 has not changed
     local DIST="https://distfiles.gentoo.org/releases/amd64/autobuilds"
     local STAGE3_LATEST="$(curl --fail --silent "${DIST}/${_src_stage3}.txt" |\
-        tail -n 1 | cut -f 1 -d'/' | sed -r 's/(....)(..)(..)T(..)(..)(..)/\1-\2-\3T\4:\5:\6/')"
+        grep -B99 '^-----BEGIN PGP SIGNATURE-----$' | tail -n 2 | head -n 1 |\
+        cut -f 1 -d'/' | sed -r 's/(....)(..)(..)T(..)(..)(..)/\1-\2-\3T\4:\5:\6/')"
     local LOCDOC_LATEST="$(docker image inspect ${_img_stage3} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
     local S3_DATE=$(date -In --utc --date "${STAGE3_LATEST}")
     local LD_DATE=$(date -In --utc --date "${LOCDOC_LATEST}")
@@ -295,10 +296,10 @@ if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
     local AFTER="$(docker image inspect ${_img_portage} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
     local A_DATE=$(date -In --utc --date "${AFTER}")
     local B_DATE=$(date -In --utc --date "${BEFORE}")
-    { [[ ${B_DATE} < ${A_DATE} ]] || { docker container inspect local-portage-snap > /dev/null && false;};} && {
-    docker rm local-portage-snap
-    docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
-    }
+    if [[ ${B_DATE} < ${A_DATE} ]] || ! docker container inspect local-portage-snap > /dev/null; then
+        docker rm local-portage-snap
+        docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
+    fi
 fi
 }
 
@@ -1526,6 +1527,7 @@ dev-lisp/uiop ~amd64
 dev-lisp/sbcl ~amd64
 
 # pypy3
+dev-lang/pypy ~amd64
 dev-python/pypy3-exe ~amd64
 dev-python/pypy3 ~amd64
 dev-python/pypy3_10-exe ~amd64
@@ -1580,6 +1582,7 @@ app-text/poppler cairo
 dev-libs/jemalloc stats
 
 # pypy3
+dev-lang/pypy sqlite
 dev-python/pypy3-exe jit
 dev-python/pypy3 sqlite
 dev-python/pypy3_10-exe jit
@@ -1663,7 +1666,7 @@ intentionally empty
 **** gnu/
 ***** parent
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/gnu/parent
-gentoo:default/linux/amd64/17.1/hardened
+gentoo:default/linux/amd64/23.0/hardened
 ..
 #+end_src
 **** gnu/x/
@@ -2958,7 +2961,8 @@ FROM tgbugs/musl:updated
 
 RUN \
 ln -s pypy3_x /etc/portage/patches/dev-python/pypy3_10 \
-&& ln -s pypy3_x-exe /etc/portage/patches/dev-python/pypy3_10-exe
+&& ln -s pypy3_x-exe /etc/portage/patches/dev-python/pypy3_10-exe \
+&& ln -s ../dev-python/pypy3_x /etc/portage/patches/dev-lang/pypy
 
 # FIXME /emerge-fail and &archive-or-rm have a very bad interaction
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
@@ -7999,6 +8003,7 @@ FROM tgbugs/musl:static-binpkg-only
 dev-lisp/sbcl
 #+end_src
 *** patches
+[[file:~/git/NOFORK/sbcl/README.static-executable]]
 make the patches since they are too much to tangle
 FIXME this is currently an entirely manual step
 FIXME this needs to be moved to run inside a builder phase
@@ -8045,6 +8050,7 @@ fi
 sbcl-static-patch 2.3.5
 sbcl-static-patch 2.4.3
 sbcl-static-patch 2.4.9
+sbcl-static-patch 2.4.10
 #+end_src
 
 Then run =./source.org tangle= and the patches will be copied over correctly in =do-non-tangled-files=.
@@ -8093,6 +8099,8 @@ COPY --from=tgbugs/common:user / /
 
 # FIXME builder to factor common here
 <<&emacs-sanity>>
+
+# TODO quicklisp https
 #+end_src
 
 ** sbcl-stripped
