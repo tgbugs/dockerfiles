@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 32d716f0fd3e4f82f758f6e47dbf5afc4d3d76cd17f81f0ebda5dd4c88a438be; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 142723cf58822212da5776140e059d32abc8f6be2fc34b9315b70962c788e7db; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -558,6 +558,13 @@ Sometimes may have to rebuild individual packages when they depend on a specific
 e.g. python depending on libffi:0/7 instead of libffi:0/8, you have to rebuild python
 and produce a new package that works with libffi:0/8, for some reason portage doesn't
 do it by itself? Possibly missing =--with-bdeps=y= or something?
+** Test
+Run all =&test-= blocks in the file. =screen= blocks are converted to bash.
+#+begin_src bash
+./source.org test
+#+end_src
+# TODO overview of images with and without tests
+
 ** Push
 To push the latest cycle of images to the default remote run the
 following after checking that they work as expected.
@@ -6183,8 +6190,9 @@ docker run \
 -v ${PWD}/musl/kg-release-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
--it tgbugs/musl:kg-release-user
+tgbugs/musl:kg-release-user
 #+end_src
+
 *** build
 # FIXME move this into a container
 #+name: &musl-build-kg-release-user
@@ -6564,7 +6572,7 @@ docker run \
 -v ${PWD}/musl/kg-dev-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
--it tgbugs/musl:kg-dev-user
+tgbugs/musl:kg-dev-user
 #+end_src
 *** build
 #+name: &musl-build-kg-dev-user
@@ -7688,6 +7696,7 @@ Since tests currently use screen, the suggestion mentioned in
 rc file (e.g. [[~/.bashrc]]) applies here as well. In the future if we
 move away from using =ob-screen= then passing via =--user-init-file=
 on the command line is also and option.
+
 #+name: &test-sparcron-user
 #+begin_src screen
 <<&screen-set-vars>>
@@ -7700,8 +7709,9 @@ docker run \
 -v ${PWD}/musl/sparcron-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
--it tgbugs/musl:sparcron-user
+tgbugs/musl:sparcron-user
 #+end_src
+
 **** unused :noexport:
 Since we are passing these via ref:&screen-set-vars at the moment we
 do not need these, and if we switch to running via bash or something
@@ -10429,6 +10439,22 @@ currently only sbcl static uses this but other things might need it in the futur
                          (if stderr stderr ""))))))
      ,@body))
 
+(defmacro with-store-error-on-fail (&rest body)
+  `(let (heh)
+    (cl-letf (((symbol-function 'org-babel-eval-error-notify)
+               (lambda (exit-code stderr)
+                 (when (> exit-code 0)
+                   (setq heh
+                         (format "Babel evaluation failed with %s%s%s"
+                                 exit-code
+                                 (if stderr "\n" "")
+                                 (if stderr stderr "")))))))
+      (let ((out ,@body))
+        (if heh
+            (signal 'error (cons out heh))
+          out)
+        ))))
+
 (defun find-tag-build-scr-block (tag &optional execute)
   (save-excursion
     (goto-char (point-min))
@@ -10451,6 +10477,14 @@ currently only sbcl static uses this but other things might need it in the futur
 (defun cli-opt (opt)
   (let ((index (cl-position opt argv :test #'string=)))
     (and index (elt argv (1+ index)))))
+
+(defun --results-silent (fun &rest args)
+  "See `ow--results-silent'."
+  (let ((result (car args))
+        (result-params (cadr args)))
+    (if (member "silent" result-params)
+        result
+      (apply fun args))))
 
 (when noninteractive
   (when (string= system-type "windows-nt")
@@ -10554,15 +10588,58 @@ currently only sbcl static uses this but other things might need it in the futur
           ;; kg-release
           ;; sparcron (probably not? should do it)
           (fix-ocbe-source)
+          (save-excursion ; make sure ./bin/workflow-funs.sh is up to date
+            (goto-char (point-min))
+            (re-search-forward "^#\\+name: &workflow-funs-main-to-tangle$" nil t)
+            (org-babel-tangle '(4)))
           ;; collect named test blocks by pattern
-          (let (blocks)
+          (let (blocks errors)
             (save-excursion
               (goto-char (point-min))
-              (while (re-search-forward "#\\+name: \\(&test-.+\\)" nil t)
+              (while (re-search-forward "^#\\+name: \\(&test-.+\\)" nil t)
                 (setq blocks (cons (match-string 1) blocks))
-                ;; FIXME in screen these kind of need to block??? FIXME alternately forward stdout/err instead of capturing?
-                (ignore-errors (org-babel-execute-src-block))))
-            (message "test blocks run: %s" blocks)))))))
+                (let* ((info-raw (org-babel-get-src-block-info))
+                       (info (if (string= (nth 0 info-raw) "screen")
+                                 (cons "bash" (cdr info-raw))
+                               info-raw)))
+                  ;; we use setf here instead of passing :results in params below
+                  ;; because if "none" is specified on a block directly then it will
+                  ;; appear after silent and "result silenced" will still print :/
+                  (setf (alist-get :results (nth 2 info)) "raw silent") ; heh setf power
+                  (setf (nth 1 info)
+                        (concat
+                         "source ./bin/workflow-funs.sh\n" ; ensure test-image is defined
+                         "exec 2>&1\n"
+                         (nth 1 info)))
+                  (let* ((org-confirm-babel-evaluate (lambda (_l _b)))
+                         (out
+                          (unwind-protect
+                              ;; see `ow-babel-execute-src-block' for the full implementation
+                              (progn
+                                (advice-add #'org-babel-insert-result :around #'--results-silent)
+                                (condition-case out-err
+                                    (with-store-error-on-fail
+                                     (org-babel-execute-src-block ; ensure no session is set or we also lose return value
+                                      nil info '(;(:results . "raw silent") ; see above about :results "none" interaction
+                                                 (:session))))
+                                  (error
+                                   (setq errors (cons (car blocks) errors))
+                                   (princ (cddr out-err) #'external-debugging-output)
+                                   (cadr out-err))))
+                            (advice-remove #'org-babel-insert-result #'--results-silent)
+                            )))
+                    (princ out #'external-debugging-output)
+                    (princ "\n\n" #'external-debugging-output)
+                    nil))))
+            (message "test blocks run: %s" (reverse blocks))
+            (when errors
+              (message "the following tests failed: %s" (reverse errors))
+              (kill-emacs 1))))))))
+#+end_src
+
+# #+name: &test-expect-fail
+#+begin_src bash :none
+false
 #+end_src
 
 Helper block to make it easier to use elisp functions as noweb inputs.
