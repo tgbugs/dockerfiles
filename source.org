@@ -1577,6 +1577,9 @@ sys-devel/gdb -nls -python
 net-libs/zeromq drafts
 dev-python/pyzmq drafts
 
+# needed for apinat-converter
+net-libs/nodejs npm
+
 dev-scheme/racket jit
 
 # graphviz
