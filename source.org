@@ -878,7 +878,7 @@ ADD ${bp}musl-renderdoc-execinfo.patch           etc/portage/patches/media-gfx/r
 # ADD ${bp}pypy3-trashcan.patch                    etc/portage/patches/dev-python/pypy3_x-exe/trashcan.patch
 
 #+begin_src dockerfile :tangle ./docker-profile/base/Dockerfile
-FROM busybox:latest as builder
+FROM busybox:latest AS builder
 
 WORKDIR /build
 
@@ -1757,7 +1757,7 @@ docker build \
 #+end_src
 *** file
 #+begin_src dockerfile :tangle ./docker-profile/axes.Dockerfile
-FROM busybox:latest as builder
+FROM busybox:latest AS builder
 
 ARG PROFILE_AXIS=x
 
@@ -2250,7 +2250,7 @@ docker build \
 #+begin_src dockerfile :tangle ./repos/Dockerfile
 ARG IMG_REPOS_BUILDER=tgbugs/musl:eselect-repo
 
-FROM ${IMG_REPOS_BUILDER} as builder
+FROM ${IMG_REPOS_BUILDER} AS builder
 
 COPY --from=gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
 
@@ -2344,7 +2344,7 @@ On the off chance that we don't have a musl source image around make it possible
 #+begin_src dockerfile :tangle ./common/user/Dockerfile
 ARG IMG_USER_BUILDER=gentoo/stage3:amd64-musl-hardened
 
-FROM ${IMG_USER_BUILDER} as builder
+FROM ${IMG_USER_BUILDER} AS builder
 
 WORKDIR /build
 
@@ -2484,7 +2484,7 @@ chown -R 250:250 var/lib/portage \
 #+end_src
 
 #+begin_src dockerfile :tangle ./common/portage-maven/Dockerfile
-FROM busybox:latest as builder
+FROM busybox:latest AS builder
 
 WORKDIR /build
 
@@ -3255,7 +3255,7 @@ and then run the builder again.
 # FIXME switch to use pypy3 profile instead probably ??? or do we do that in the pypy3 image probably?
 ARG START_IMAGE=tgbugs/musl:pypy3
 
-#FROM ${PROFILE_IMAGE} as profile_image
+#FROM ${PROFILE_IMAGE} AS profile_image
 
 FROM ${START_IMAGE}
 
@@ -5311,7 +5311,7 @@ tgbugs/musl:protege= default to =protegeuser=.
 # TODO FIXME we should be able to install protege as root
 #+name: &musl/protege
 #+begin_src dockerfile :tangle ./musl/protege/Dockerfile
-FROM tgbugs/musl:xorg as builder
+FROM tgbugs/musl:xorg AS builder
 
 ARG ARCHIVE
 ARG PROTEGE_VERSION="5.6.4"
@@ -6294,7 +6294,7 @@ su user -c 'sckan/queries.org test query neurons datasets protocols' || { echo a
 
 #+name: &musl/kg-release-user
 #+begin_src dockerfile :tangle ./musl/kg-release-user/Dockerfile
-FROM tgbugs/musl:kg-release as builder
+FROM tgbugs/musl:kg-release AS builder
 
 WORKDIR /build
 
@@ -6733,7 +6733,7 @@ echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
 #+end_src
 
 #+begin_src dockerfile :tangle ./musl/kg-dev-user/Dockerfile
-FROM tgbugs/musl:kg-dev as builder
+FROM tgbugs/musl:kg-dev AS builder
 
 <<&dev-user-common-1>>
 
@@ -6991,7 +6991,7 @@ iteration during devel could use
 
 *** file
 #+begin_src dockerfile :tangle ./musl/tgbugs-dev-user/Dockerfile :mkdirp yes
-FROM tgbugs/musl:tgbugs-dev as builder
+FROM tgbugs/musl:tgbugs-dev AS builder
 
 <<&dev-user-common-1>>
 
@@ -8212,7 +8212,7 @@ docker build \
 # TODO add libgit2 so we can use cl-git
 #+begin_src dockerfile :tangle ./musl/sbcl-stripped/Dockerfile :comments no
 # syntax=docker/dockerfile:experimental
-FROM tgbugs/musl:sbcl as builder
+FROM tgbugs/musl:sbcl AS builder
 
 WORKDIR /build
 
@@ -9774,7 +9774,7 @@ d-build-sckan-services
 
 *** file
 #+begin_src dockerfile :tangle ./sckan/services/Dockerfile
-FROM busybox:latest as builder
+FROM busybox:latest AS builder
 
 WORKDIR /build
 
@@ -9837,7 +9837,7 @@ d-build-sckan-base
 # TODO also consider splitting blazegraph and scigraph volume images ?
 # TODO have a version of this that does the builds itself instead of just copying everything in
 #+begin_src dockerfile :tangle ./sckan/base/Dockerfile
-FROM busybox:latest as builder
+FROM busybox:latest AS builder
 
 WORKDIR /build
 
