@@ -864,13 +864,7 @@ ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/goog
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
-ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
-ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3_x-exe/musl-include-sys-time.patch
-ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3_x-exe/musl-fix-stdio-defs.patch
-ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3_x/json-str-subclass-safety.patch
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
-ADD ${bp}musl-renderdoc-plthook-elf.patch        etc/portage/patches/media-gfx/renderdoc/musl-renderdoc-plthook-elf.patch
-ADD ${bp}musl-renderdoc-execinfo.patch           etc/portage/patches/media-gfx/renderdoc/musl-renderdoc-execinfo.patch
 #+end_src
 # has been fixed in a better way by upstream
 # ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
@@ -1753,9 +1747,26 @@ TODO separate musl and gnu specific stuff
 docker build \
 --tag tgbugs/docker-profile:musl \
 --build-arg PROFILE_AXIS=musl \
---file docker-profile/axes.Dockerfile .
+--file docker-profile/axes-musl.Dockerfile .
 #+end_src
 *** file
+
+#+begin_src dockerfile :tangle ./docker-profile/axes-musl.Dockerfile
+<<&profile-axes>>
+
+ARG bp=docker-profile/base/
+
+# profile specific patches
+ADD ${bp}musl-find_library.patch                 etc/portage/patches/dev-lang/python:2.7/musl-find_library.patch
+ADD ${bp}musl-include-sys-time.patch             etc/portage/patches/dev-python/pypy3_x-exe/musl-include-sys-time.patch
+ADD ${bp}musl-fix-stdio-defs.patch               etc/portage/patches/dev-python/pypy3_x-exe/musl-fix-stdio-defs.patch
+ADD ${bp}pypy3-json-str-subclass-safety.patch    etc/portage/patches/dev-python/pypy3_x/json-str-subclass-safety.patch
+ADD ${bp}musl-renderdoc-plthook-elf.patch        etc/portage/patches/media-gfx/renderdoc/musl-renderdoc-plthook-elf.patch
+ADD ${bp}musl-renderdoc-execinfo.patch           etc/portage/patches/media-gfx/renderdoc/musl-renderdoc-execinfo.patch
+ADD ${bp}tini-musl-basename.patch                etc/portage/patches/sys-process/tini-0.19.0/tini-musl-basename.patch
+#+end_src
+
+#+name: &profile-axes
 #+begin_src dockerfile :tangle ./docker-profile/axes.Dockerfile
 FROM busybox:latest AS builder
 
@@ -1769,6 +1780,74 @@ FROM scratch
 
 WORKDIR /
 COPY --from=builder /build /
+#+end_src
+
+*** patches
+**** sys-process/tini
+From https://github.com/krallin/tini/pull/223
+See also https://bugs.gentoo.org/934990
+#+begin_src diff :tangle ./docker-profile/base/tini-musl-basename.patch
+From 10479a6eef32f8e64fd5bf894dee9c7a6f21ce4c Mon Sep 17 00:00:00 2001
+Date: Sun, 14 Apr 2024 15:33:51 +0200
+Subject: [PATCH] Support POSIX basename() from musl libc
+
+Musl libc 1.2.5 removed the definition of the basename() function from
+string.h and only provides it in libgen.h as the POSIX standard
+defines it.
+
+basename() modifies the input string, copy it first with strdup(), If
+strdup() returns NULL the code will handle it.
+
+---
+ src/tini.c | 15 +++++++++++----
+ 1 file changed, 11 insertions(+), 4 deletions(-)
+
+diff --git a/src/tini.c b/src/tini.c
+index 7914d3a..41d1506 100644
+--- a/src/tini.c
++++ b/src/tini.c
+@@ -14,6 +14,7 @@
+ #include <stdlib.h>
+ #include <unistd.h>
+ #include <stdbool.h>
++#include <libgen.h>
+ 
+ #include "tiniConfig.h"
+ #include "tiniLicense.h"
+@@ -224,14 +225,19 @@ int spawn(const signal_configuration_t* const sigconf_ptr, char* const argv[], i
+ }
+ 
+ void print_usage(char* const name, FILE* const file) {
+-	fprintf(file, "%s (%s)\n", basename(name), TINI_VERSION_STRING);
++	char *dirc, *bname;
++
++	dirc = strdup(name);
++	bname = basename(dirc);
++
++	fprintf(file, "%s (%s)\n", bname, TINI_VERSION_STRING);
+ 
+ #if TINI_MINIMAL
+-	fprintf(file, "Usage: %s PROGRAM [ARGS] | --version\n\n", basename(name));
++	fprintf(file, "Usage: %s PROGRAM [ARGS] | --version\n\n", bname);
+ #else
+-	fprintf(file, "Usage: %s [OPTIONS] PROGRAM -- [ARGS] | --version\n\n", basename(name));
++	fprintf(file, "Usage: %s [OPTIONS] PROGRAM -- [ARGS] | --version\n\n", bname);
+ #endif
+-	fprintf(file, "Execute a program under the supervision of a valid init process (%s)\n\n", basename(name));
++	fprintf(file, "Execute a program under the supervision of a valid init process (%s)\n\n", bname);
+ 
+ 	fprintf(file, "Command line options:\n\n");
+ 
+@@ -261,6 +267,7 @@ void print_usage(char* const name, FILE* const file) {
+ 	fprintf(file, "  %s: Send signals to the child's process group.\n", KILL_PROCESS_GROUP_GROUP_ENV_VAR);
+ 
+ 	fprintf(file, "\n");
++	free(dirc);
+ }
+ 
+ void print_license(FILE* const file) {
+-- 
+2.45.3
 #+end_src
 *** profiles
 **** package.use
@@ -2275,7 +2354,7 @@ FROM busybox:latest
 
 WORKDIR /
 COPY --from=builder /var/db/repos /var/db/repos
-CMD /bin/true
+CMD ["/bin/true"]
 VOLUME /var/db/repos
 #+end_src
 * common
