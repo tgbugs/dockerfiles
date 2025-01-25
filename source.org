@@ -3530,6 +3530,14 @@ emerge -j4 -1q \
 || echo $? > /emerge-fail \
 <<&archive-or-rm>>
 
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -j4 -1q \
+   --getbinpkg \
+   --nodeps \
+   virtual/jdk virtual/jre \
+|| echo $? > /emerge-fail \
+<<&archive-or-rm>>
+
 RUN \
 test ! -e /emerge-fail
 #+end_src
@@ -4835,6 +4843,7 @@ remember whether binpkgs check use flags.
 <<world-python>>
 <<world-schemes>>
 <<world-blazegraph>>
+<<world-scigraph>>
 <<world-package-builder-common>>
 dev-lisp/sbcl
 dev-scheme/racket
@@ -5099,13 +5108,13 @@ pushd dockerfiles
 <<&build-world>>
 ADD source.org /dockerfiles/source.org
 ADD entrypoint-0.sh /etc/entrypoint-0.sh
-ENTRYPOINT /etc/entrypoint-0.sh
+ENTRYPOINT ["/etc/entrypoint-0.sh"]
 #+end_src
 
 #+begin_src dockerfile :tangle ./musl/docker/nox.Dockerfile
 <<&build-world-nox>>
 ADD entrypoint.sh /etc/entrypoint.sh
-ENTRYPOINT /etc/entrypoint.sh
+ENTRYPOINT ["/etc/entrypoint.sh"]
 #+end_src
 
 *** world
@@ -5380,7 +5389,7 @@ docker commit $(docker ps -lq) tgbugs/musl:protege
 *** world
 #+name: world-protege
 #+begin_src conf :tangle ./musl/protege/world
-virtual/jre:17
+virtual/jre
 dev-python/pip
 x11-misc/xdg-user-dirs
 #+end_src
@@ -5877,7 +5886,7 @@ FROM tgbugs/musl:binpkg-only
 #   emerge -q interlex
 
 ADD entrypoints /etc/entrypoints
-ENTRYPOINT /etc/entrypoints/default.sh
+ENTRYPOINT ["/etc/entrypoints/default.sh"]
 #+end_src
 *** world
 # app-misc/elasticsearch  # XXX license issues, likely must handle separately
@@ -6071,7 +6080,7 @@ nano /etc/init.d/blazegraph
 #+begin_src dockerfile :tangle ./musl/blazegraph/Dockerfile
 <<&build-world-nox>>
 ADD entrypoint.sh /etc/entrypoint.sh
-ENTRYPOINT /etc/entrypoint.sh
+ENTRYPOINT ["/etc/entrypoint.sh"]
 #+end_src
 
 *** world
@@ -6110,7 +6119,7 @@ tgbugs/musl:scigraph
 #+begin_src dockerfile :tangle ./musl/scigraph/Dockerfile
 <<&build-world>>
 ADD entrypoint.sh /etc/entrypoint.sh
-ENTRYPOINT /etc/entrypoint.sh
+ENTRYPOINT ["/etc/entrypoint.sh"]
 #+end_src
 
 *** world
@@ -6433,7 +6442,7 @@ echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
-ENTRYPOINT /etc/entrypoint.sh
+ENTRYPOINT ["/etc/entrypoint.sh"]
 #+end_src
 
 *** emacs init
@@ -6920,7 +6929,7 @@ ADD entrypoint.sh /etc/entrypoint.sh
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
-ENTRYPOINT /etc/entrypoint.sh
+ENTRYPOINT ["/etc/entrypoint.sh"]
 #+end_src
 
 #+name: &dev-sbcl-stuff-1
@@ -7837,7 +7846,7 @@ su "$(id -nu 836)" -c "xdg-user-dirs-update; rmdir Desktop Pictures Documents Pu
 ADD entrypoints /etc/entrypoints
 ADD entrypoint.sh /etc/entrypoint.sh
 
-ENTRYPOINT /etc/entrypoint.sh
+ENTRYPOINT ["/etc/entrypoint.sh"]
 #+end_src
 
 *** configs
