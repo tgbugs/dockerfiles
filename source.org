@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 142723cf58822212da5776140e059d32abc8f6be2fc34b9315b70962c788e7db; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: df9bbb1e370aac50d4a4d6ca988a0ade892a208340022fae8f66a3250c2672b9; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -864,7 +864,9 @@ ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/goog
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
+# general pataches
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
+ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
 #+end_src
 # has been fixed in a better way by upstream
 # ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
@@ -1783,6 +1785,55 @@ COPY --from=builder /build /
 #+end_src
 
 *** patches
+**** dev-python/rdflib
+See https://github.com/RDFLib/rdflib/pull/3020
+#+begin_src diff :tangle ./docker-profile/base/rdflib-float-nonorm.patch
+diff --git a/rdflib/plugins/parsers/notation3.py b/rdflib/plugins/parsers/notation3.py
+index da71405e..9bc83daa 100755
+--- a/rdflib/plugins/parsers/notation3.py
++++ b/rdflib/plugins/parsers/notation3.py
+@@ -380,6 +380,10 @@ interesting = re.compile(r"""[\\\r\n\"\']""")
+ langcode = re.compile(r"[a-zA-Z0-9]+(-[a-zA-Z0-9]+)*")
+ 
+ 
++class sfloat(str):
++    """ don't normalize raw XSD.double string representation """
++
++
+ class SinkParser:
+     def __init__(
+         self,
+@@ -1528,7 +1532,7 @@ class SinkParser:
+                 m = exponent_syntax.match(argstr, i)
+                 if m:
+                     j = m.end()
+-                    res.append(float(argstr[i:j]))
++                    res.append(sfloat(argstr[i:j]))
+                     return j
+ 
+                 m = decimal_syntax.match(argstr, i)
+@@ -1911,7 +1915,7 @@ class RDFSink:
+     def normalise(
+         self,
+         f: Optional[Formula],
+-        n: Union[Tuple[int, str], bool, int, Decimal, float, _AnyT],
++        n: Union[Tuple[int, str], bool, int, Decimal, sfloat, _AnyT],
+     ) -> Union[URIRef, Literal, BNode, _AnyT]:
+         if isinstance(n, tuple):
+             return URIRef(str(n[1]))
+@@ -1931,7 +1935,7 @@ class RDFSink:
+             s = Literal(value, datatype=DECIMAL_DATATYPE)
+             return s
+ 
+-        if isinstance(n, float):
++        if isinstance(n, sfloat):
+             s = Literal(str(n), datatype=DOUBLE_DATATYPE)
+             return s
+ 
+-- 
+2.45.3
+#+end_src
+
 **** sys-process/tini
 From https://github.com/krallin/tini/pull/223
 See also https://bugs.gentoo.org/934990
@@ -5834,6 +5885,86 @@ dev-db/postgresql
 dev-db/pguri
 #+end_src
 ** interlex
+*** test
+#+begin_src screen
+test-image tgbugs/musl:interlex
+#+end_src
+
+#+header: :shebang "#!/usr/bin/env sh\nset -e"
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/interlex/test :mkdirp yes :noweb yes
+<<&bash-at-abs-path>>
+
+<<&config-interlex-db>>
+
+pypy3 -m interlex.cli --help  # has side effect of creating user config files
+cp /dockerfiles/musl/interlex/test-config.yaml ~/.config/interlex/config.yaml
+cp /dockerfiles/musl/interlex/test-config-pyontutils.yaml ~/.config/pyontutils/config.yaml
+
+mkdir ~/.config/orthauth
+chmod 0700 ~/.config/orthauth
+cp /dockerfiles/musl/interlex/test-secrets.sxpr ~/.config/orthauth/secrets.sxpr
+chmod 0600 ~/.config/orthauth/secrets.sxpr
+
+touch ~/.mypass
+mkdir ~/git
+pushd ~/git
+git clone --depth=1 https://github.com/tgbugs/pyontutils.git
+git clone --depth=1 --branch=dev https://github.com/SciCrunch/NIF-Ontology.git
+popd
+INTERLEX_DATABASE=$(python -c 'from interlex.config import auth; print(auth.get("test-database"))') \
+pypy3 -m pytest --verbose --color=yes -W ignore /usr/share/interlex/test
+
+#+end_src
+
+#+begin_src conf :tangle ./musl/interlex/test-config.yaml
+auth-stores:
+  secrets:
+    path: ~/.config/orthauth/secrets.sxpr
+auth-variables:
+  interlex-api-key:
+    path: interlex api some-user test
+  test-api-user: some-user
+  interlex-test-api-key:
+    path: interlex api some-user test
+  alt-db-host: localhost
+#+end_src
+
+#+begin_src conf :tangle ./musl/interlex/test-config-pyontutils.yaml
+auth-stores:
+  secrets:
+    path: ~/.config/orthauth/secrets.sxpr
+auth-variables:
+  git-local-base: ~/git
+  ontology-local-repo: ~/git/NIF-Ontology
+#+end_src
+
+#+name: ilx-test-key
+#+begin_src python
+# py-safe-block
+from interlex.auth import gen_key
+return gen_key()
+#+end_src
+
+#+begin_src lisp :noweb yes :tangle ./musl/interlex/test-secrets.sxpr
+(
+ :interlex
+ (
+  :flask
+  (
+   :session-secret-key "secret"
+   )
+  :api
+  (
+   :some-user <<ilx-test-key()>>
+   )
+  )
+ )
+#+end_src
+
+#+begin_src conf
+localhost:3306:*:nif_eelg_secure:password
+#+end_src
+
 *** run
 WARNING! If you mount your postgres data directory like this make sure
 the host system is NOT also running postgres on top of that directory
@@ -5874,6 +6005,14 @@ docker run \
 --file musl/interlex/Dockerfile musl/interlex
 #+end_src
 
+rebuild for quick package changes
+#+begin_src screen
+builder-arb --getbinpkg=y --onlydeps --onlydeps-with-rdeps=n interlex
+builder-arb --nodeps interlex
+# increment RUN echo 0 below
+# ./source.org build-image tgbugs/musl:interlex
+#+end_src
+
 *** file
 #+begin_src dockerfile :tangle ./musl/interlex/Dockerfile
 FROM tgbugs/musl:binpkg-only
@@ -5881,9 +6020,9 @@ FROM tgbugs/musl:binpkg-only
 <<&build-world-common>>
 
 # quick rebuild
-# RUN echo 0
-# RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-#   emerge -q interlex
+RUN echo 0
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -q interlex
 
 ADD entrypoints /etc/entrypoints
 ENTRYPOINT ["/etc/entrypoints/default.sh"]
@@ -5931,6 +6070,8 @@ chown interlex:interlex /var/lib/interlex/.*pass
 yeold run once stuff
 - postgres
 - bin/interlex-dbsetup
+
+#+name: &config-interlex-db
 #+begin_src bash :noweb yes
 <<&config-pg>>
 config-pg
@@ -10485,6 +10626,10 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
                        ;; XXX WARNING BE SURE TO REVIEW ALL INSTANCES OF elisp-safe-block
                        (string-prefix-p "; elisp-safe-block
 " body)))
+              (and (member lang '("python"))
+                   ;; XXX WARNING BE SURE TO REVIEW ALL INSTANCES OF py-safe-block
+                   (string-prefix-p "# py-safe-block
+" body))
               (and (member lang '("screen"))
                    (string= (cl-subseq body 0 15) "HISTFILE=~/.org")))))))
 
@@ -10666,6 +10811,9 @@ currently only sbcl static uses this but other things might need it in the futur
             (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
               "Stub to avoid comment-start issues"
               (set (make-local-variable 'comment-start) "#")))
+          (org-babel-do-load-languages
+           'org-babel-load-languages
+           '((python . t)))
           (let (enable-local-eval)
             ;; this pattern is required when tangling to avoid infinite loops
             (revert-buffer nil t nil)
