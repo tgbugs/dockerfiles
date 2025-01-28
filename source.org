@@ -5896,7 +5896,7 @@ test-image tgbugs/musl:interlex
 
 <<&config-interlex-db>>
 
-pypy3 -m interlex.cli --help  # has side effect of creating user config files
+pypy3 -c 'from pyontutils.config import auth; from interlex.config import auth'  # side effect create user config files
 cp /dockerfiles/musl/interlex/test-config.yaml ~/.config/interlex/config.yaml
 cp /dockerfiles/musl/interlex/test-config-pyontutils.yaml ~/.config/pyontutils/config.yaml
 
@@ -5911,25 +5911,30 @@ pushd ~/git
 git clone --depth=1 https://github.com/tgbugs/pyontutils.git
 git clone --depth=1 --branch=dev https://github.com/SciCrunch/NIF-Ontology.git
 popd
-INTERLEX_DATABASE=$(python -c 'from interlex.config import auth; print(auth.get("test-database"))') \
+
+pypy3 -m interlex.cli ops api-key
+PYTHONPATH=~/git/pyontutils INTERLEX_DATABASE=$(python -c 'from interlex.config import auth; print(auth.get("test-database"))') \
 pypy3 -m pytest --verbose --color=yes -W ignore /usr/share/interlex/test
 
 #+end_src
 
-#+begin_src conf :tangle ./musl/interlex/test-config.yaml
+#+begin_src yaml :tangle ./musl/interlex/test-config.yaml
 auth-stores:
   secrets:
     path: ~/.config/orthauth/secrets.sxpr
 auth-variables:
+  email-verify: false
   interlex-api-key:
-    path: interlex api some-user test
-  test-api-user: some-user
+    path: interlex api tgbugs test
+  test-api-user: tgbugs
   interlex-test-api-key:
-    path: interlex api some-user test
+    path: interlex api tgbugs test
   alt-db-host: localhost
+  fl-session-secret-key:
+    path: interlex flask session-secret-key
 #+end_src
 
-#+begin_src conf :tangle ./musl/interlex/test-config-pyontutils.yaml
+#+begin_src yaml :tangle ./musl/interlex/test-config-pyontutils.yaml
 auth-stores:
   secrets:
     path: ~/.config/orthauth/secrets.sxpr
@@ -5954,11 +5959,10 @@ return gen_key()
    :session-secret-key "secret"
    )
   :api
-  (
-   :some-user <<ilx-test-key()>>
-   )
-  )
- )
+  (:tgbugs ; FIXME we use tgbugs here becuase i insert it during setup (which should not be the case)
+   (
+    :test <<ilx-test-key()>>
+    ))))
 #+end_src
 
 #+begin_src conf
