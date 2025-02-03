@@ -5918,7 +5918,7 @@ pypy3 -m pytest --verbose --color=yes -W ignore /usr/share/interlex/test
 
 #+end_src
 
-#+begin_src yaml :tangle ./musl/interlex/test-config.yaml
+#+begin_src yaml :tangle ./musl/interlex/test-config.yaml :mkdirp yes
 auth-stores:
   secrets:
     path: ~/.config/orthauth/secrets.sxpr
