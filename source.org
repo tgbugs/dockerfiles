@@ -8214,10 +8214,13 @@ sbcl --noinform --noprint --non-interactive --load test.lisp
 #+end_src
 
 #+begin_src lisp :tangle ./bin/test/tgbugs/musl/sbcl/test.lisp :mkdirp yes
-(let ()
+(let ((have-static-executable (find-symbol "LINKAGE-TABLE-INDEX" 'sb-sys)))
   (format t "~a ~a~%" (lisp-implementation-type) (lisp-implementation-version))
   (format t "core path: ~a~%" (truename sb-ext:*core-pathname*))
   (format t "obj path exists: ~a~%" (probe-file (merge-pathnames "sbcl.o" sb-ext:*core-pathname*)))
+  (format t "static executables: ~a~%" (and have-static-executable t))
+  (unless have-static-executable
+    (error "this version of sbcl does not support static executables"))
   (format t "ok~%")
   (values))
 #+end_src
