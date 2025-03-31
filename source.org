@@ -571,7 +571,7 @@ following after checking that they work as expected.
 
 # FIXME the --filter=since= isn't quite right, I think it can miss some images we want to push? not entirely sure?
 #+begin_src bash
-for _image in $(docker images \
+for _image in $(docker image ls \
 --filter=reference="tgbugs/musl:*" \
 --filter=since='tgbugs/musl:eselect-repo' \
 --format "{{.Repository}}:{{.Tag}}" | grep -v snap);
@@ -591,6 +591,23 @@ Other things images we don't push right now.
 DO NOT PUSH directly to =tgbugs/repos:latest= because there is currently
 no way to prevent docker build from pulling an ancient and outdated repo
 during bootstrap if one does not already exist.
+
+If for some reason you need to retag so that you can, e.g. push to a
+namespace that you control this can be done as follows.
+#+name: retag-example
+#+begin_src bash
+for _image in $(docker image ls \
+--filter=reference="tgbugs/*:*" \
+--format "{{.Repository}}:{{.Tag}}");
+do
+    echo docker tag ${_image} $(echo ${_image} | sed 's,^tgbugs/,other/,')
+done
+#+end_src
+
+TODO consider doing this as general practice to prevent accidental
+leaks, that is, use an internal namespace like =tgbugs-build= so that
+it is harder to accidentally docker pull a remote image that was not
+derived locally.
 
 ** Emergency quickpkg
 Sometimes you don't want to wait to get to the package builder step
@@ -639,6 +656,18 @@ echo emaint movebin --fix
 popd
 }
 #+end_src
+** Building forks
+If you need to use this file to build a fork (e.g. for development)
+using this file there is only one thing that you will need to modify
+in this file and one process you will want to update to push images to
+an image host. Everything else can be kept the same without modifying
+the internal naming conventions.
+
+For this file modify the =RUN= command for
+[[(tgbugs-overlay-fork)][eselect repository add tgbugs-overlay git <my-fork>]]
+to point to your fork of https://github.com/tgbugs/tgbugs-overlay.
+
+For the updated process see the [[retag-example][Push retag example block]] above.
 * Default variables
 Default variable values that will eventually have cli overrides.
 # At the moment I'm not going to implement full command line processing via ow-cli.
@@ -2758,6 +2787,7 @@ emerge -j4 -q \
    app-eselect/eselect-repository \
 <<&archive-or-rm>>
 
+# if you need to build from a fork change remote for tgbugs-overlay here (ref:tgbugs-overlay-fork)
 RUN --mount=from=gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && eselect repository enable haskell
