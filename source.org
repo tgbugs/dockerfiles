@@ -1561,6 +1561,7 @@ dev-lisp/sbcl ~amd64
 
 # pypy3
 dev-lang/pypy ~amd64
+dev-lang/pypy3-exe ~amd64
 dev-python/pypy3-exe ~amd64
 dev-python/pypy3 ~amd64
 dev-python/pypy3_10-exe ~amd64
@@ -1674,6 +1675,7 @@ elogind
 
 # allow pypy3 as a python target
 -python_targets_pypy3
+-python_targets_pypy3_11
 #+end_src
 **** x/
 intentionally empty
@@ -2071,7 +2073,7 @@ FIXME this is almost certainly not going to produce what we want
 because =+pypy3= doesn't just append to existing in the same way that
 =-*= removes all existing.
 #+begin_src conf :tangle ./docker-profile/pypy3/docker-profile/profiles/tgbugs/pypy3/package.use
-*/* PYTHON_TARGETS: +pypy3
+*/* PYTHON_TARGETS: +pypy3_11
 #+end_src
 ** static
 *** build
@@ -3118,7 +3120,7 @@ ARG USE_PYTHON_TARGETS  # use if there are issues with mismatched python targets
 # issues bootstrapping pypy3
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 sh -c '\
-USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3"} \
+USE_PYTHON_TARGETS=${USE_PYTHON_TARGETS:-"$(portageq envvar PYTHON_TARGETS) pypy3_11"} \
 && [[ -z ${USE_PYTHON_TARGETS} ]] || \
    echo "*/* PYTHON_TARGETS: -* ${USE_PYTHON_TARGETS}" >> /etc/portage/package.use/00-base\
 '
