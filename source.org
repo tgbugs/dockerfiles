@@ -3150,6 +3150,10 @@ emerge -j4 -q -uDN @system @world eselect-python \
 # way that we can truncate further steps and create a debug image
 RUN \
 test ! -e /emerge-fail
+
+# XXX temporary until upstream fixes missing symlink/eselect pypy
+RUN \
+ln -s pypy3.11 /usr/bin/pypy3
 #+end_src
 
 #+begin_comment
