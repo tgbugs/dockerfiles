@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 35bd803c116718f6af5e8ab9f0a909046b64ad227e9dc62dcb1f80071eb53f2d; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 052ded24353aed586bfa745b8b0a52e3567f978e79d93388cdc42aa49dac11d9; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -6,7 +6,7 @@
 # #+property: header-args:bash :var BUILDKIT_PROGRESS="plain"
 #+property: header-args:conf :mkdirp yes :noweb yes
 #+property: header-args:dockerfile :noweb yes :mkdirp yes :comments link
-#+property: header-args:screen :session org-session :cmd sh :noweb no-export :terminal (or)
+#+property: header-args:screen :session org-session :cmd bash :noweb no-export :terminal (or)
 
 #+name: orgstrap-shebang
 #+begin_src bash :eval never :results none :exports none
@@ -194,6 +194,15 @@ HISTFILE=~/.org_session_history
 <<&workflow-common>>
 #+end_src
 
+#+name: package-server-cli
+#+begin_src screen
+HISTFILE=~/.org_session_history
+<<&screen-set-vars>>
+<<&workflow-vars>>
+<<&package-server-funs>>
+package-server
+#+end_src
+
 Source =./bin/workflow-funs.sh= on changes after tangle.
 #+name: &workflow-funs-main-to-tangle
 #+begin_src bash :tangle ./bin/workflow-funs.sh :mkdirp yes :noweb yes :var BUILDKIT_PROGRESS=""
@@ -232,6 +241,27 @@ popd
 }
 #+end_src
 
+#+name: &package-server-funs
+#+begin_src screen
+function package-server () {
+# FIXME needs to run in another terminal, container, or daemon
+# but for now it blocks other commands which is ok
+curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
+    _error=$?
+    # curl returns a 22 if the server is up but there is some other issue e.g. 404
+    # that we might hit during first run when the repo doesn't exist
+    if [ ${_error} -ne 22 ]; then
+        pushd ${_path_binpkgs_root}
+        # XXX FIXME WARNING if ${_path_binpkgs_root} is removed or moved or changed
+        # then this server probably needs to be restarted
+        python -m http.server 8089 --bind 127.0.0.1
+        popd
+        return 1  # indicate that package server was not and now is not running
+    fi
+}
+}
+#+end_src
+
 # reminder that closing parens must be on separate lines or terminate with ;
 # XXX ob-screen doesn't support :var right now
 # #+header: :var _refresh=(or workflow-refresh) _repos=(or workflow-refresh workflow-repos)
@@ -242,21 +272,7 @@ popd
 
 <<&builder-vars>>
 
-function package-server () {
-# FIXME needs to run in another terminal, container, or daemon
-# but for now it blocks other commands which is ok
-curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
-    _error=$?
-    # curl returns a 22 if the server is up but there is some other issue e.g. 404
-    # that we might hit during first run when the repo doesn't exist
-    if [ ${_error} -ne 22 ]; then
-        pushd ${_path_binpkgs_root}
-        python -m http.server 8089 --bind 127.0.0.1
-        popd
-        return 1  # indicate that package server was not and now is not running
-    fi
-}
-}
+<<&package-server-funs>>
 
 function pull () {
 # FIXME abstract _src_stage3 and _img_stage3 for gnu vs musl
@@ -10673,6 +10689,14 @@ and then to the tangle target to the block contents
   ;; anything less than all noweb yes and actually nowebbing something in will not trigger the issue
   (setq org-agenda-file-menu-enabled nil))
 
+(defun screen-x (session &rest args)
+  "run screen -X <ARGS> ... in org screen session SESSION."
+  (let ((socket (org-babel-screen-session-socketname session)))
+    (when socket
+      (apply 'start-process (concat "org-babel: screen (" session ")") "*Messages*"
+             org-babel-screen-location
+             `("-S" ,socket "-X" ,@args)))))
+
 (defun make-screen-vars ()
   (apply #'format
          "export _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
@@ -10702,7 +10726,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
 
   ;; in alpine:latest around 2023-07-11 it seems to be sufficient to just set the binpkgs paths
   ;; at least when running in windows for bootstrap we don't seem to need any further configuration
-  (let ((bp "~/files/binpkgs"))
+  (let ((bp path-binpkgs-root))
     (cl-loop
      for sp in '("multi" "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
      do (make-directory (expand-file-name sp bp) 'parents))))
@@ -10875,11 +10899,30 @@ currently only sbcl static uses this but other things might need it in the futur
           ;; run build
           ;; TODO block until build finishes or fails
           (fix-ocbe-source)
-          (let ((process (execute-src-block "workflow-cli")))
-            ;; prevent emacs exit from killing the subprocess before it has finished
-            ;; send to the screen session
-            (while (eq (process-status process) 'run)
-              (sleep-for 0.1))))
+          ;; because of how ob-screen calls work we have to test whether
+          ;; the package server is running from elisp otherwise we don't
+          ;; know what we need to do at startup FIXME also there isn't
+          ;; a convenient way to capture the return value if something
+          ;; fails here :/
+          (require 'url-http)
+          (let ((package-server-running
+                 (condition-case out-err
+                     (url-http-file-exists-p (format "http://localhost:8089/%s/Packages" (file-name-base path-binpkgs)))
+                   (file-error
+                    (unless (string= (caddr out-err) "Connection refused")
+                      (signal (car out-err) (cdr out-err)))))))
+            (unless package-server-running
+              (let ((pkg-process (execute-src-block "package-server-cli")))
+                (while (eq (process-status pkg-process) 'run)
+                  (sleep-for 0.1)))
+              (let ((xs-process (screen-x "org-session" "screen")))
+                (while (eq (process-status xs-process) 'run)
+                  (sleep-for 0.1))))
+            (let ((process (execute-src-block "workflow-cli")))
+              ;; prevent emacs exit from killing the subprocess before it has finished
+              ;; send to the screen session
+              (while (eq (process-status process) 'run)
+                (sleep-for 0.1)))))
         (when build-image ; FIXME sometimes leaving from this can still produce Wrong type argument: keymapp, nil
           (fix-ocbe-source)
           (if cli-images
