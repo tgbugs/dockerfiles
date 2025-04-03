@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 1b65382a4c2ccb5a6b8f314bf800727d3f6d35e19e2df9896e7458ad00e463fc; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 4e9b8c769fc61cd6549de35e481395f804ec6a78d79e2025baba6f0717dbe857; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -279,6 +279,8 @@ curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
 
 <<&package-server-funs>>
 
+<<&fn-sbcl-static-patch>>
+
 function pull () {
 # FIXME abstract _src_stage3 and _img_stage3 for gnu vs musl
 local _src_stage3 _img_stage3
@@ -440,8 +442,9 @@ echo musl start bootstrap
 # so that we don't have to wait for quickpkg?
 container-check
 <<&musl-build-updated>> || return $?; echo mbu;
-  <<&musl-build-updated-user>> || return $?; echo mbuu;
   <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
+  <<&musl-run-sbcl-generate-patches-etc>> || return $?; echo msgp;
+  <<&musl-build-updated-user>> || return $?; echo mbuu;
 
   # build the generalized builder so we can dispense with the stacked image nonsense
   <<&musl-build-package-builder-musl>> || return $?; echo mbpbm;
@@ -2137,17 +2140,7 @@ docker build \
 --build-arg PROFILE_AXIS=static \
 --file docker-profile/axes.Dockerfile .
 #+end_src
-*** file
-XXX implementation moved to [[&file-package-builder-static]].
-TODO remove this section probably
-#+name: &profile-static-adds
-#+begin_src dockerfile
-#ARG sbp=docker-profile/static/
-ARG hr=<<&helper-repos()>>/
 
-# ADD ${sbp}sbcl.env etc/portage/env/dev-lisp/sbcl  # gets klobbered when we make the profile so have to do it differently
-ADD ${hr}sbcl/patches/dev-lisp etc/portage/patches/dev-lisp
-#+end_src
 *** profiles
 ***** make.defaults
 We only set =static-libs= not =static= because =static= statically
@@ -8344,33 +8337,112 @@ dev-lisp/sbcl
 *** patches
 [[file:~/git/NOFORK/sbcl/README.static-executable]]
 make the patches since they are too much to tangle
-FIXME this is currently an entirely manual step
-FIXME this needs to be moved to run inside a builder phase
 #+name: &fn-sbcl-static-patch
 #+begin_src bash :noweb yes
+function sbcl-clone-fetch () {
+local hrp rp
+hrp="./<<&helper-repos()>>"
+rp="${hrp}/sbcl"
+
+if [[ ! -d "${hrp}" ]]; then
+mkdir "${hrp}"
+fi
+
+if [[ ! -d "${rp}" ]]; then
+pushd "${hrp}"
+  git clone https://github.com/sbcl/sbcl.git
+popd
+fi
+
+pushd "${rp}"
+  git fetch
+  git remote | grep -q tgbugs
+  exists=$?
+  if [ ${exists} -ne 0 ]; then
+      git remote add tgbugs https://github.com/tgbugs/sbcl.git
+  fi
+  git fetch tgbugs
+popd
+
+}
+
+function sbcl-get-static-versions () {
+local hrp rp
+hrp="./<<&helper-repos()>>"
+rp="${hrp}/sbcl"
+
+pushd "${rp}" 2>&1 > /dev/null
+git branch -r --list 'tgbugs/static-executable-v2-*' | awk -F- '{ print $NF }'
+popd 2>&1 > /dev/null
+
+}
+
+function sbcl-get-portage-versions () {
+#docker container inspect local-portage-snap > /dev/null || \
+#docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
+
+#--volumes-from local-portage-snap \
+#--rm gentoo/stage3:amd64-musl-hardened \
+
+# unfortunately the changes we make in the profile
+# mean that a different version would be emerged
+# so we have to run this inside run-musl
+
+docker run \
+--volumes-from local-repos-snap \
+--rm tgbugs/musl:updated \
+ls /var/db/repos/gentoo/dev-lisp/sbcl \
+| grep sbcl | sed 's/\.ebuild//' | awk -F- '{ print $2 }'
+}
+
+function sbcl-get-would-install () {
+# used to make sure we have generated the patch
+# awk '{$1=$1}1' trims trailing whitespace
+#docker container inspect local-portage-snap > /dev/null || \
+#docker create -v /var/db/repos/gentoo --name local-portage-snap gentoo/portage:latest /bin/true
+
+#--volumes-from local-portage-snap \
+#--rm gentoo/stage3:amd64-musl-hardened \
+
+# unfortunately the changes we make in the profile
+# mean that a different version would be emerged
+# so we have to run this inside run-musl
+
+docker run \
+--volumes-from local-repos-snap \
+--rm tgbugs/musl:updated \
+emerge -pq --nodeps sbcl 2>/dev/null \
+| grep ebuild | awk '{$1=$1}1' | awk -F- '{ print $NF }'
+}
+
+function sbcl-to-generate () {
+comm -12 <(sbcl-get-static-versions) <(sbcl-get-portage-versions)
+}
+
+function sbcl-ensure-latest () {
+would_install=$(comm -12 <(sbcl-get-static-versions) <(sbcl-get-would-install))
+[ -n "${would_install}" ] || return 1
+}
+
 function sbcl-static-patch () {
-local version tag spath tpath patch ipath sighpath
+local version tag hrp rp spath tpath patch ipath sighpath
 version=${1}
 tag=sbcl-${version}
 patch=static-${version}.patch
+hrp="./<<&helper-repos()>>"
+rp="${hrp}/sbcl"
 spath=./<<&helper-repos()>>/sbcl/patches
 tpath=./docker-profile/static/
 ipath=patches/dev-lisp/sbcl-${version}/
 sighpath=./<<&helper-repos()>>/sbcl/patches/dev-lisp/sbcl-${version}/${patch}
 if [[ ! -f "${sighpath}" ]]; then
-  mkdir <<&helper-repos()>>
-  pushd <<&helper-repos()>>
-    git clone https://github.com/sbcl/sbcl.git
-    pushd sbcl
-      git fetch
-      git remote add tgbugs https://github.com/tgbugs/sbcl.git
-      git fetch tgbugs
-      mkdir -p ${ipath}
-      # gentoo eapply_user happens after gentoo patches are applied so we have to compensate here :/
-      git diff ${tag}..remotes/tgbugs/static-executable-v2-${version} ':(exclude)README*' | \
-        sed 's,maybetime sh,maybetime sh -x,' > \
-        ${ipath}/${patch}
-    popd
+  sbcl-clone-fetch
+  pushd "${rp}"
+    mkdir -p ${ipath}
+    # gentoo eapply_user happens after gentoo patches are applied so we have to compensate here :/
+    git diff ${tag}..remotes/tgbugs/static-executable-v2-${version} ':(exclude)README*' | \
+      sed 's,maybetime sh,maybetime sh -x,' > \
+      ${ipath}/${patch}
   popd
 fi
 # XXX old, we renamed this so that they will work
@@ -8378,18 +8450,30 @@ fi
 # mkdir -p ${tpath}
 # cp -a ${spath} ${tpath}
 }
+
+function sbcl-generate-patches () {
+for version in $(sbcl-to-generate); do
+  #echo generating for sbcl ${version};
+  sbcl-static-patch ${version};
+done
+}
+#+end_src
+
+#+name: &musl-run-sbcl-generate-patches-etc
+#+begin_src bash
+sbcl-ensure-latest && \
+sbcl-generate-patches && \
+./source.org non-tangled
 #+end_src
 
 # FIXME TODO consider using noweb eval like we do with
 # [[&dev-repo-setup]] the main issue is that we probably
 # don't want to have to maintain the full list of versions
-# in this file
+# in this file, also this currently runs outside docker
+#+name: &sbcl-generate-patches
 #+begin_src bash :noweb no-export
 <<&fn-sbcl-static-patch>>
-sbcl-static-patch 2.3.5
-sbcl-static-patch 2.4.3
-sbcl-static-patch 2.4.9
-sbcl-static-patch 2.4.10
+sbcl-generate-patches
 #+end_src
 
 Then run =./source.org tangle= and the patches will be copied over correctly in =do-non-tangled-files=.
@@ -10817,7 +10901,15 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
 (defun do-non-tangled-files ()
   "process any non-tangled files generated in other ways
 currently only sbcl static uses this but other things might need it in the future"
+  ;; FIXME during bootstrap this doesn't work because we have to already
+  ;; have done docker operations to get the state we need to generate
+  ;; the patches ... so the logical thing would be to enable this here for
+  ;; manual workflows and to be able to run just this section at the right
+  ;; point in +run-main i think+ run-musl
   ;; TODO run [[&fn-sbcl-static-patch]] and friends as well
+  ;; WARNING sbcl-generate-patches is currently dependent on tgbugs/musl:updated
+  ;; we could make it dependent only on gentoo/stage3:amd64-musl-hardened
+  ;; local-portage-snap but it would still need to run after tangle
   (let ((sbcl-static-patches-source "<<&helper-repos()>>/sbcl/patches")
         (sbcl-static-patches-target "musl/package-builder/patches"))
     (cl-loop
@@ -10897,6 +10989,7 @@ currently only sbcl static uses this but other things might need it in the futur
   (let ((setup (member "setup" argv))
         (build (member "build" argv))
         (tangle (member "tangle" argv))
+        (non-tangled (member "non-tangled" argv))
         (build-image (member "build-image" argv)) ; FIXME yes the naming is annoying
         (test (member "test" argv)))
     (let ((no-screen    (and build (member "--no-screen" argv)))
@@ -11008,6 +11101,8 @@ currently only sbcl static uses this but other things might need it in the futur
             (setq-local find-file-literally nil))
           (fix-ocbe-source)
           (org-babel-tangle)
+          (do-non-tangled-files))
+        (when non-tangled
           (do-non-tangled-files))
         (when test
           ;; sckan
