@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 1794ce17709c87e5ace68680ce838aa9b677c0e9f0872b3e42a3605c08762664; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 1b65382a4c2ccb5a6b8f314bf800727d3f6d35e19e2df9896e7458ad00e463fc; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -30,9 +30,14 @@ the following in [[/etc/docker/daemon.json]].
 {"experimental": true,
  "features": {"buildkit": true}}
 #+end_src
+
+Also make sure that you have the docker buildx plugin installed,
+e.g. on gentoo app-containers/docker-buildx.
+
 *** portage ssh keys
 Make sure that =/var/lib/portage/home/.ssh= exists and has the keys
 for accessing the interlex repo or other private repos.
+
 *** distcc hosts
 Even if you are not using distcc be sure to run
 #+begin_src bash
@@ -10721,6 +10726,7 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
                    '(path-sparcron-sparcur-config path-sparcron-secrets path-sparcron-gsaro))))))
 
 (defun run-setup ()
+  ;; docker buildx is installed
   ;; docker daemon config ; XXX this can't be done due to bad design of docker (investigate podman)
   ;; docker client config
   ;;  remote repo key
@@ -10731,16 +10737,25 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
   ;; in alpine:latest around 2023-07-11 it seems to be sufficient to just set the binpkgs paths
   ;; at least when running in windows for bootstrap we don't seem to need any further configuration
   (let ((bp path-binpkgs-root)
+        (missing-buildx
+         (with-temp-buffer
+           (let* ((return-code (apply #'call-process "docker" nil (current-buffer) nil '("buildx" "version"))))
+             (not (= 0 return-code)))))
         (missing-configs
          (cl-remove-if #'file-exists-p
                        '("~/.docker/config.json" "/etc/docker/daemon.json"))))
     (cl-loop
      for sp in '("multi" "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
      do (make-directory (expand-file-name sp bp) 'parents))
+    ;; TODO docker buildx version || oops
+    (when missing-buildx
+      (message "Missing docker buildx."))
     (when missing-configs
-      ;; even if we can't create /etc/docker/daemon.json we can warn if
-      ;; it is missing (for now)
-      (error "You have not finished setup %S. Please see the Setup section." missing-configs))))
+      ;; even if we can't create /etc/docker/daemon.json we can warn if it is missing (for now)
+      (message "Missing docker configs %S" missing-configs))
+    (when (or missing-buildx missing-configs)
+      ;; sigh ... the must collect errors pattern ...
+      (error "Setup incomplete."))))
 
 (defun fix-ocbe-source ()
   "it would seem that blanking `enable-local-eval' resets this"
