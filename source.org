@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 052ded24353aed586bfa745b8b0a52e3567f978e79d93388cdc42aa49dac11d9; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 1794ce17709c87e5ace68680ce838aa9b677c0e9f0872b3e42a3605c08762664; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -10643,7 +10643,7 @@ and then to the tangle target to the block contents
 (when cli-debug
   (toggle-debug-on-error))
 
-(defun dockerfiles-source-path-check (&optional do-error)
+(defun dockerfiles-source-path-check (&optional do-error in-test)
   (let* ((check-paths
           (list
            (cons path-distfiles 'path-distfiles)
@@ -10658,7 +10658,11 @@ and then to the tangle target to the block contents
          (dne-paths
           (cl-loop
            for (f . var) in check-paths
-           unless (and (not (null f)) (not (string= f "")) (file-exists-p f))
+           unless (or
+                   (and (not (null f))
+                        (not (string= f ""))
+                        (file-exists-p f))
+                   (and (not in-test) (string-prefix-p "path-sparcron-" (symbol-name var))))
            collect (cons var f))))
     (when dne-paths
       (funcall (if do-error #'error #'warn) "missing paths %S" dne-paths))))
@@ -10717,19 +10721,26 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
                    '(path-sparcron-sparcur-config path-sparcron-secrets path-sparcron-gsaro))))))
 
 (defun run-setup ()
-;; docker daemon config ; XXX this can't be done due to bad design of docker (investigate podman)
-;; docker client config
-;;  remote repo key
-;; binpkgs path
-;; portage ssh keys
-;; distcc hosts file
+  ;; docker daemon config ; XXX this can't be done due to bad design of docker (investigate podman)
+  ;; docker client config
+  ;;  remote repo key
+  ;; binpkgs path
+  ;; portage ssh keys
+  ;; distcc hosts file
 
   ;; in alpine:latest around 2023-07-11 it seems to be sufficient to just set the binpkgs paths
   ;; at least when running in windows for bootstrap we don't seem to need any further configuration
-  (let ((bp path-binpkgs-root))
+  (let ((bp path-binpkgs-root)
+        (missing-configs
+         (cl-remove-if #'file-exists-p
+                       '("~/.docker/config.json" "/etc/docker/daemon.json"))))
     (cl-loop
      for sp in '("multi" "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
-     do (make-directory (expand-file-name sp bp) 'parents))))
+     do (make-directory (expand-file-name sp bp) 'parents))
+    (when missing-configs
+      ;; even if we can't create /etc/docker/daemon.json we can warn if
+      ;; it is missing (for now)
+      (error "You have not finished setup %S. Please see the Setup section." missing-configs))))
 
 (defun fix-ocbe-source ()
   "it would seem that blanking `enable-local-eval' resets this"
@@ -10875,7 +10886,7 @@ currently only sbcl static uses this but other things might need it in the futur
       (let ((path-sparcron-sparcur-config (or cli-ssc path-sparcron-sparcur-config ""))
             (path-sparcron-secrets (or cli-ss path-sparcron-secrets ""))
             (path-sparcron-gsaro (or cli-sg path-sparcron-gsaro "")))
-        (dockerfiles-source-path-check cli-check-paths) ; FIXME TODO can we use --pretend here too?
+        (dockerfiles-source-path-check cli-check-paths test) ; FIXME TODO can we use --pretend here too?
         ;; FIXME need an extensible way to handle this probably? see prrequaestor for inspiration?
         ;; or not quite because we need a way to pass variable values from options, but that means
         ;; that the elisp does have to explicitly make the bridge unless we come up with a fully
