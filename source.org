@@ -375,7 +375,7 @@ local REPOS="${_repos}"
 
 # ensure that tgbugs/repos:latest exists, otherwise
 # gnu-container-check and container-check will fail
-docker image inspect tgbugs/repos:latest
+docker image inspect tgbugs/repos:latest > /dev/null 2>&1
 NEED_REPOS=$?
 if [ ${NEED_REPOS} -ne 0 ]; then
     REPOS=1
