@@ -371,6 +371,14 @@ local REPOS="${_repos}"
 <<&build-user>> || return $?;
 <<&build-portage-maven>> || return $?;
 
+# ensure that tgbugs/repos:latest exists, otherwise
+# gnu-container-check and container-check will fail
+docker image inspect tgbugs/repos:latest
+NEED_REPOS=$?
+if [ ${NEED_REPOS} -ne 0 ]; then
+    REPOS=1
+fi
+
 # we build both eselect repos images in common because the output is
 # usable in common ideally we will be able to get rid of a continually
 # rebuilt image and move to a rolling image for all the repos as we
