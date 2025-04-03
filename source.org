@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: df9bbb1e370aac50d4a4d6ca988a0ade892a208340022fae8f66a3250c2672b9; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 221994828e6ba80be6e5a644b53bfccd0a600f067fe7320cfc5d69fddf0ba9db; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -564,6 +564,15 @@ Run all =&test-= blocks in the file. =screen= blocks are converted to bash.
 ./source.org test
 #+end_src
 # TODO overview of images with and without tests
+
+Some tests (e.g. for tgbugs/musl:sparcron-user) need access to configs.
+You can also set default values by modifying the [[orgstrap]] block.
+#+begin_src bash
+./source.org test --check-paths \
+--path-sparcron-sparcur-config /var/lib/sparc/.config/sparcur/docker-config.yaml \
+--path-sparcron-secrets        ~/ni/dev/secrets-sparcron.yaml \
+--path-sparcron-gsaro          ~/ni/dev/sparc-curation-8*.json
+#+end_src
 
 ** Push
 To push the latest cycle of images to the default remote run the
@@ -10613,6 +10622,26 @@ and then to the tangle target to the block contents
 (defvar-local path-sparcron-gsaro nil)
 ; FIXME should we only mount the key itself to avoid config issues internally ? probably yes ? also known_hosts issues, the docker build ssh-agent doesn't really help here
 
+(defun dockerfiles-source-path-check (&optional do-error)
+  (let* ((check-paths
+          (list
+           (cons path-distfiles 'path-distfiles)
+           (cons path-binpkgs-root 'path-binpkgs-root)
+           (cons path-binpkgs 'path-binpkgs)
+           (cons path-distcc-hosts 'path-distcc-hosts)
+           (cons path-ssh 'path-ssh)
+           (cons path-sparcron-sparcur-config 'path-sparcron-sparcur-config)
+           (cons path-sparcron-secrets 'path-sparcron-secrets)
+           (cons path-sparcron-gsaro 'path-sparcron-gsaro)
+           ))
+         (dne-paths
+          (cl-loop
+           for (f . var) in check-paths
+           unless (and (not (null f)) (not (string= f "")) (file-exists-p f))
+           collect (cons var f))))
+    (when dne-paths
+      (funcall (if do-error #'error #'warn) "missing paths %S" dne-paths))))
+
 (defvar-local cli-debug (member "--debug" argv))
 
 (when cli-debug
@@ -10789,6 +10818,7 @@ currently only sbcl static uses this but other things might need it in the futur
                                     (member "--no-build" argv)
                                     (member "--no-pkg-bldr" argv))))
           (cli-images  (cdr build-image)) ; must come last will build all listed images in order they are listed
+          (cli-check-paths (member "--check-paths" argv))
           (cli-pretend (member "--pretend" argv)) ; FIXME sequencing wrt build-image and cli-images
           (cli-uif (cli-opt "--user-init-file"))
           (cli-ued (cli-opt "--user-emacs-directory"))
@@ -10802,6 +10832,7 @@ currently only sbcl static uses this but other things might need it in the futur
       (let ((path-sparcron-sparcur-config (or cli-ssc path-sparcron-sparcur-config ""))
             (path-sparcron-secrets (or cli-ss path-sparcron-secrets ""))
             (path-sparcron-gsaro (or cli-sg path-sparcron-gsaro "")))
+        (dockerfiles-source-path-check cli-check-paths) ; FIXME TODO can we use --pretend here too?
         ;; FIXME need an extensible way to handle this probably? see prrequaestor for inspiration?
         ;; or not quite because we need a way to pass variable values from options, but that means
         ;; that the elisp does have to explicitly make the bridge unless we come up with a fully
