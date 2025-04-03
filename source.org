@@ -400,6 +400,14 @@ local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
+
+# first time if the package builder doesn't exist at all we need to create it
+docker image inspect tgbugs/gnu:package-builder-snap
+NEED_RESNAP=$?
+if [ ${NEED_RESNAP} -ne 0 ]; then
+    RESNAP=1
+fi
+
 echo gnu start bootstrap
 gnu-container-check
 <<&gnu-build-package-builder>> || return $?
@@ -419,6 +427,13 @@ local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
+
+# first time if the package builder doesn't exist at all we need to create it
+docker image inspect tgbugs/musl:package-builder-snap
+NEED_RESNAP=$?
+if [ ${NEED_RESNAP} -ne 0 ]; then
+    RESNAP=1
+fi
 
 echo musl start bootstrap
 # TODO figure out how to build the binary packages at this stage without
