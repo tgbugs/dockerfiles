@@ -404,7 +404,7 @@ local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
 
 # first time if the package builder doesn't exist at all we need to create it
-docker image inspect tgbugs/gnu:package-builder-snap
+docker image inspect tgbugs/gnu:package-builder-snap > /dev/null 2>&1
 NEED_RESNAP=$?
 if [ ${NEED_RESNAP} -ne 0 ]; then
     RESNAP=1
@@ -431,7 +431,7 @@ local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
 
 # first time if the package builder doesn't exist at all we need to create it
-docker image inspect tgbugs/musl:package-builder-snap
+docker image inspect tgbugs/musl:package-builder-snap > /dev/null 2>&1
 NEED_RESNAP=$?
 if [ ${NEED_RESNAP} -ne 0 ]; then
     RESNAP=1
@@ -8371,9 +8371,9 @@ local hrp rp
 hrp="./<<&helper-repos()>>"
 rp="${hrp}/sbcl"
 
-pushd "${rp}" 2>&1 > /dev/null
+pushd "${rp}" > /dev/null 2>&1
 git branch -r --list 'tgbugs/static-executable-v2-*' | awk -F- '{ print $NF }'
-popd 2>&1 > /dev/null
+popd > /dev/null 2>&1
 
 }
 
