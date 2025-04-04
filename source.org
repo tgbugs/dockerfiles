@@ -131,6 +131,7 @@ This takes care of itself.
 .gitignore
 docker-profile/*
 repos/*
+common/*
 musl/*
 gnu/*
 other/*
