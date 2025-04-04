@@ -1660,6 +1660,9 @@ sys-devel/gdb -nls -python
 net-libs/zeromq drafts
 dev-python/pyzmq drafts
 
+# rust bootstrap from source
+dev-lang/rust mrustc-bootstrap
+
 # needed for apinat-converter
 net-libs/nodejs npm
 
