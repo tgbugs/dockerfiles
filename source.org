@@ -5261,11 +5261,70 @@ blocked by the container.
 
 #+name: world-docker
 #+begin_src conf :tangle ./musl/docker/world
+dev-vcs/git
+app-misc/screen
 app-editors/emacs
 app-containers/docker
 app-containers/docker-cli
 app-containers/docker-buildx
 #+end_src
+
+Additional dependencies that are already present on a gentoo system
+but might not be present in some other bootstrapping environments.
+Ideally, only emacs and docker would be required, or even less.
+However, we aren't quite there yet. Some processes are easier to
+move into docker containers e.g. the sbcl patches, the work just
+has to be done.
+#+begin_src conf
+app-alternatives/awk
+app-shells/bash
+dev-lang/python
+net-misc/curl
+sys-apps/coreutils
+sys-apps/grep
+sys-apps/portage
+sys-apps/sed
+#+end_src
+- app-alternatives/awk
+  - sbcl
+  - targets
+- sys-apps/coreutils
+  - comm
+    - sbcl
+  - echo
+    - top level
+    - pull
+  - cp
+    - kg-release-user
+  - rm
+    - tangle
+    - kg-release-user
+  - mkdir
+    - sbcl
+    - kg-release-user
+  - date
+    - pull
+  - cut
+    - pull
+- dev-vcs/git
+  - sbcl (clone repo TODO FIXME by mounting helper-repos in a docker image)
+  - clone this repo (not strictly necessary)
+- dev-lang/python
+  - package-server
+- net-misc/curl
+  - pull (stage3 latest)
+  - package-server (check if running)
+  - kg-release-user (sckan files)
+- sys-apps/grep
+  - pull
+  - builder-bootstrap (for FEATURES)
+  - targets
+- sys-apps/portage
+  - builder-bootstrap (for FEATURES)
+  - targets
+- sys-apps/sed
+  - pull
+  - sbcl
 
 ** testing-python
 Python testing.
