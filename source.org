@@ -506,7 +506,7 @@ fi
 echo musl static builder start
 [ -z $RESNAP ] || static-builder-resnap
 # TODO static-builder-bootstrap
-# TODO see if we need to musl-bootstrap-sbcl here too
+[ ! -z $NOBUILD ] || static-musl-bootstrap-sbcl || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || static-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
 [ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild || return $?  # no live builds right now
@@ -4466,8 +4466,6 @@ to get to a sane world state.
 FROM tgbugs/musl:xorg
 
 <<&musl-package-builder-common>>
-
-ADD use-sbcl-source /etc/portage/package.use/00-sbcl
 #+end_src
 
 *** ghc bootstrap
@@ -5037,7 +5035,6 @@ FROM tgbugs/musl:nox
 
 # overwrite the regular world file
 ADD nox.world /etc/portage/sets/docker
-ADD use-sbcl-source /etc/portage/package.use/00-sbcl
 #+end_src
 
 ** package-binhost
@@ -8326,6 +8323,7 @@ ADD static.world /etc/portage/sets/docker
 # the hack is to set docs or source in the non-static so that there is a mismatch
 ADD patches/dev-lisp /etc/portage/patches/dev-lisp
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
+ADD use-sbcl-source /etc/portage/package.use/00-sbcl
 #+end_src
 *** world
 #+name: world-static-package-builder
@@ -9206,6 +9204,14 @@ emerge -q dev-lisp/sbcl
 }
 #+end_src
 
+#+begin_src bash :tangle ./bin/musl-bootstrap-sbcl-static.sh :mkdirp yes
+emerge --usepkg --nodeps -1q -j4 dev-lisp/asdf dev-lisp/uiop
+emerge --usepkgonly dev-lisp/sbcl || {
+USE='-source' emerge --usepkgonly dev-lisp/sbcl
+emerge -q dev-lisp/sbcl  # rebuild with patch
+}
+#+end_src
+
 #+name: &cross-bootstrap-sbcl
 #+begin_src screen
 function gnu-cross-musl-sbcl () {
@@ -9265,6 +9271,10 @@ builder-run musl-bootstrap-from-cross-sbcl.sh
 # so that any updates to sbcl will be able to use system-bootstrap without issue
 # FIXME we do need to watch out for cases where we lose and ebuild for an older version
 # but I think portage may handle that automatically for us? not quite sure
+}
+
+function static-musl-bootstrap-sbcl () {
+static-builder-run musl-bootstrap-sbcl-static.sh
 }
 
 function cross-bootstrap-sbcl () {
