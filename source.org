@@ -4071,6 +4071,18 @@ targets_nogruser=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-(group|user)/')
 # FIXME this should probably go in a musl-bootstrap-ghc like we do with musl-bootstrap-sbcl ???
 # except the situation is slightly different in that ghc is built, but the ghcbootstrap use flag causes issues
 # TODO generalize for cases where the bootstrapped package needs to be present, pulled in, built, etc.
+# FIXME atm have to manually place ghc-9.2.8-1.gpkg.tar in binpkgs/multi/dev-lang/ghc
+# and then run emaint binhost --fix TODO automate this OR avoid ghc entirely
+# my copy of ob-cypher has been updated to support gv2gml which can be loaded by yEd
+# so ghc could be removed from the critical path
+# https://files.olympiangods.org/ghc-9.2.8-1.gpkg.tar
+# https://files.olympiangods.org/ghc-9.2.8-1.gpkg.tar.sha256
+# 2b1d9ce61b88dcbcc2d32da1b7da50122e9dd0afe805edbcf05fb16f0f0b74d6
+# this is an older version but is still in the tree, it may still work
+# but iirc it by itself is not sufficient to bootstrap
+# https://files.olympiangods.org/ghc-9.0.2-r4-5.gpkg.tar
+# https://files.olympiangods.org/ghc-9.0.2-r4-5.gpkg.tar.sha256
+# a277f6ba1d19716eec8a5fad031a072796d79ae0e1ebeb0952aa18af7f848627
 echo ghc targets
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -1 -q --keep-going ${targets_ghc}
