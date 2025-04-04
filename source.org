@@ -4466,6 +4466,8 @@ to get to a sane world state.
 FROM tgbugs/musl:xorg
 
 <<&musl-package-builder-common>>
+
+ADD use-sbcl-source /etc/portage/package.use/00-sbcl
 #+end_src
 
 *** ghc bootstrap
@@ -4561,6 +4563,16 @@ pre_pkg_setup() { export PATH="${PATH}:/ghc/bin"; }
 using this on musl fails because ghc-cabal is segfaulting for some reason
 https://github.com/NixOS/nixpkgs/issues/118731, the solution is to use a
 version of ghc that can target musl 1.2.3, i.e. the one from alpine
+*** sbcl hack
+This should really be handled in some sane way, however the
+issue is that we need a way to force static vs non-static
+builds of sbcl to have different effective USE flags so that
+non-static doesn't get installed on static and break everything.
+Not sure how it happened this time but it is extremely annoying.
+#+name: sbcl-use-source-hack
+#+begin_src conf :tangle ./musl/package-builder/use-sbcl-source
+dev-lisp/sbcl source
+#+end_src
 
 *** sbcl bootstrap :old:
 Since the addition of the =system-bootstrap= use flag we cross compile
@@ -5025,6 +5037,7 @@ FROM tgbugs/musl:nox
 
 # overwrite the regular world file
 ADD nox.world /etc/portage/sets/docker
+ADD use-sbcl-source /etc/portage/package.use/00-sbcl
 #+end_src
 
 ** package-binhost
@@ -8309,6 +8322,8 @@ ADD static.world /etc/portage/sets/docker
 
 # sbcl patches and env
 # FIXME beware may need to rerun the copy command in [[&fn-sbcl-static-patch]]
+# FIXME turns out that there is no way to detect these patches and dispatch
+# the hack is to set docs or source in the non-static so that there is a mismatch
 ADD patches/dev-lisp /etc/portage/patches/dev-lisp
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 #+end_src
