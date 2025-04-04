@@ -9207,7 +9207,7 @@ emerge --usepkgonly dev-lisp/sbcl || {
 # because once we cross bootstrap our pure musl process with system-bootstrap
 # will keep everything up to date, yes a new system will have to bootstrap from
 # a new version, but that is a given, XXX watch out for missing ebuild after long period of not updating though?
-PKGDIR=/usr/x86_64-pc-linux-musl/var/cache/binpkgs/ USE='-zstd -system-bootstrap' emerge -K dev-lisp/sbcl
+PKGDIR=/usr/x86_64-pc-linux-musl/var/cache/binpkgs/ USE='-zstd -system-bootstrap' emerge --usepkgonly dev-lisp/sbcl
 env-update
 source /etc/profile
 emerge -q --buildpkg=n dev-lisp/sbcl
@@ -9216,10 +9216,13 @@ emerge -q dev-lisp/sbcl
 }
 #+end_src
 
+#+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./bin/musl-bootstrap-sbcl-static.sh :mkdirp yes
 emerge --usepkg --nodeps -1q -j4 dev-lisp/asdf dev-lisp/uiop
 emerge --usepkgonly dev-lisp/sbcl || {
 USE='-source' emerge --usepkgonly dev-lisp/sbcl
+env-update
+source /etc/profile
 emerge -q dev-lisp/sbcl  # rebuild with patch
 }
 #+end_src
