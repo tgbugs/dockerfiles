@@ -97,6 +97,11 @@ done
 Needed for live ebuilds that point to private git repos.
 Eventually this should be baked into the docker in docker top level image.
 
+This section assumes that the host system is running gentoo.
+If it is not then the [[#portage-ssh-keygen][portage ssh keygen]] section
+below can be used to generate an equivalent folder and you
+can change [[&host-ssh-path]] to point to it.
+
 You will need to generate ssh keys for the host system if they do not
 already exist, and you will need to register them with the git remote.
 
@@ -121,6 +126,40 @@ ln -s /mnt/str/portage/.ssh /var/tmp/portage/
 chown -h portage:portage /var/tmp/portage/.ssh
 #+end_src
 
+*** portage ssh keygen
+:PROPERTIES:
+:CUSTOM_ID: portage-ssh-keygen
+:END:
+
+Example ssh folder [[file:./portage-ssh]]
+#+begin_src bash :results none
+if [ ! -d portage-ssh ]; then
+mkdir portage-ssh
+ssh-keygen -t ed25519 -N "" -C "portage@${HOSTNAME}" -f portage-ssh/id_ed25519.${HOSTNAME}.portage
+echo "
+Host github.com
+HostName github.com
+user git
+IdentityFile ~/.ssh/id_ed25519.${HOSTNAME}.portage
+PreferredAuthentications publickey
+" >> portage-ssh/config
+fi
+#+end_src
+
+As root transfer ownership to the portage user
+#+begin_src bash :eval never
+# 250 is the id for the portage user
+chown -R 250:250 portage-ssh
+#+end_src
+
+If you are on a gentoo system you can copy the contents to =/var/lib/portage/home/.ssh=.
+
+Next add the contents of =portage-ssh/id_ed25519.${HOSTNAME}.portage.pub= as an ssh key
+to the github account that will access the private repo(s) https://github.com/settings/keys.
+Usually this is a robot account with limited access.
+
+Finally to make sure everything works and to accept the
+github host keys, run the following as root.
 #+begin_src bash
 runuser -u portage -- ssh -T git@github.com
 #+end_src
