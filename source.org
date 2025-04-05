@@ -177,6 +177,7 @@ other/*
 sckan/*
 bin/*
 helper-repos/*
+portage-ssh/*
 #+end_src
 * Ops
 ** CLI
