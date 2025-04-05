@@ -3125,25 +3125,30 @@ echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
 TODO only build if the package has not already been built
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./bin/harfbuzz-freetype-sigh.sh :mkdirp yes
+function doqp () {
+local _qpvar
+_qpvar=$(/tmp/quickpkg-new) [ -z "${_qpvar}" ] || quickpkg ${_qpvar}
+}
+
 USE="-harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
-quickpkg $(/tmp/quickpkg-new)
+doqp
 
 # have to set -cairo here otherwise harfbuzz -truetype will fail to build
 USE="-cairo -truetype" emerge -j4 -1q --getbinpkg media-libs/harfbuzz
-quickpkg $(/tmp/quickpkg-new)
+doqp
 
 USE="harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
-quickpkg $(/tmp/quickpkg-new)
+doqp
 
 USE="cairo truetype" emerge -j4 -1q --getbinpkg media-libs/harfbuzz
-quickpkg $(/tmp/quickpkg-new)
+doqp
 
 # the static-libs variants of freetype
 USE="static-libs -harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
-quickpkg $(/tmp/quickpkg-new)
+doqp
 
 USE="static-libs harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
-quickpkg $(/tmp/quickpkg-new)
+doqp
 #+end_src
 
 - axes
@@ -3864,8 +3869,8 @@ if __name__ == '__main__':
     atp = atoms_to_package()
     if atp:
         print(*atoms_to_package())
-    else:
-        print('-h')  # keep quickpkg happy since it doesn't like no args
+    # else don't print anything because we check if output is the empty
+    # string and then avoid running quickpkg to stop the logspam
 #+end_src
 
 *** run
@@ -5038,7 +5043,7 @@ docker run \
 -v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 ${1} \
-/bin/sh -c 'quickpkg $(/tmp/quickpkg-new)'
+/bin/sh -c '_qpvar=$(/tmp/quickpkg-new) [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
 }
 #+end_src
 
