@@ -569,6 +569,7 @@ echo start static image builds
 ## sbcl
 <<&musl-build-sbcl>> || return $?; echo mbsbcl;
 <<&musl-build-sbcl-user>> || return $?; echo mbsbclu;
+<<&musl-build-sbcl-stripped>> || return $?; echo mbsbcls;
 
 if [ -z $ONLY_STATIC ]; then
 
