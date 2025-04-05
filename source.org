@@ -2226,7 +2226,12 @@ every instance of =static= that we encounter.
 #+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/static/make.defaults
 USE="${USE} static-libs"
 #+end_src
-***** package.use :ARCHIVE:
+***** package.use
+#+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/static/package.use
+# sbcl static vs non-static hack to prevent accidentally installing unpatched sbcl
+dev-lisp/sbcl source
+#+end_src
+***** package.use old :ARCHIVE:
 #+begin_src conf :tangle ./docker-profile/static/docker-profile/profiles/tgbugs/static/package.use :tangle no
 # don't build openssh with static because it conflicts with the
 # pie use flag for hardened which cannot be unset
@@ -4646,16 +4651,6 @@ pre_pkg_setup() { export PATH="${PATH}:/ghc/bin"; }
 using this on musl fails because ghc-cabal is segfaulting for some reason
 https://github.com/NixOS/nixpkgs/issues/118731, the solution is to use a
 version of ghc that can target musl 1.2.3, i.e. the one from alpine
-*** sbcl hack
-This should really be handled in some sane way, however the
-issue is that we need a way to force static vs non-static
-builds of sbcl to have different effective USE flags so that
-non-static doesn't get installed on static and break everything.
-Not sure how it happened this time but it is extremely annoying.
-#+name: sbcl-use-source-hack
-#+begin_src conf :tangle ./musl/package-builder/use-sbcl-source
-dev-lisp/sbcl source
-#+end_src
 
 *** sbcl bootstrap :old:
 Since the addition of the =system-bootstrap= use flag we cross compile
@@ -8408,7 +8403,6 @@ ADD static.world /etc/portage/sets/docker
 # the hack is to set docs or source in the non-static so that there is a mismatch
 ADD patches/dev-lisp /etc/portage/patches/dev-lisp
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
-ADD use-sbcl-source /etc/portage/package.use/00-sbcl
 #+end_src
 *** world
 #+name: world-static-package-builder
