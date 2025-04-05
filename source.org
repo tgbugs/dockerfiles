@@ -601,6 +601,27 @@ known good layer and try to run things yourself.
 
 Alternately, it may be a better approach to simply truncate the docker
 file directly after the last known good step
+*** snapshot build failures
+=docker= failures can be debugged by doing the following.
+#+begin_src bash :eval never
+docker container ls -a
+#+end_src
+
+Check for non-zero exits and run the following to snapshot them.
+#+begin_src bash :eval never
+docker commit <hash-of-container-with-non-zero-exit> <debug-image-name>
+#+end_src
+
+After that you run the following.
+#+begin_src bash :eval never
+docker run --rm -it <debug-image-name> /bin/bash
+#+end_src
+
+Add any options you need to e.g. mount the right volumes etc.
+
+Using this run command once you have a named image allows you to
+repeatedly start from the bad/broken build state to find a fix.
+
 *** binpkg quirks
 Sometimes may have to rebuild individual packages when they depend on a specific slot
 e.g. python depending on libffi:0/7 instead of libffi:0/8, you have to rebuild python
