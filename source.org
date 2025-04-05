@@ -292,7 +292,7 @@ popd
 function package-server () {
 # FIXME needs to run in another terminal, container, or daemon
 # but for now it blocks other commands which is ok
-curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
+curl --fail --head http://localhost:<<&host-binpkgs-port()>>/${_binpkgs_repo_name}/Packages || {
     _error=$?
     # curl returns a 22 if the server is up but there is some other issue e.g. 404
     # that we might hit during first run when the repo doesn't exist
@@ -300,7 +300,7 @@ curl --fail --head http://localhost:8089/${_binpkgs_repo_name}/Packages || {
         pushd ${_path_binpkgs_root}
         # XXX FIXME WARNING if ${_path_binpkgs_root} is removed or moved or changed
         # then this server probably needs to be restarted
-        python -m http.server 8089 --bind 127.0.0.1
+        python -m http.server <<&host-binpkgs-port()>> --bind 127.0.0.1
         popd
         return 1  # indicate that package server was not and now is not running
     fi
@@ -797,6 +797,9 @@ appears to be for implementation convenience.
 #+name: &host-binpkgs-repo-name
 : multi
 
+#+name: &host-binpkgs-port
+: 8089
+
 #+name: &host-distfiles-path
 : /mnt/str/portage/distfiles
 
@@ -1045,7 +1048,7 @@ location = /var/db/docker-profile
 #+begin_src conf :tangle ./docker-profile/base/binrepos-multi.conf
 [tgbugs-multi]
 priority = 100
-sync-uri = http://local.binhost:8089/multi
+sync-uri = http://local.binhost:<<&host-binpkgs-port()>>/multi
 #+end_src
 **** package.accept_keywords
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
@@ -11219,7 +11222,7 @@ currently only sbcl static uses this but other things might need it in the futur
           (require 'url-http)
           (let ((package-server-running
                  (condition-case out-err
-                     (url-http-file-exists-p (format "http://localhost:8089/%s/Packages" (file-name-base path-binpkgs)))
+                     (url-http-file-exists-p (format "http://localhost:<<&host-binpkgs-port()>>/%s/Packages" (file-name-base path-binpkgs)))
                    (file-error
                     (unless (string= (caddr out-err) "Connection refused")
                       (signal (car out-err) (cdr out-err)))))))
