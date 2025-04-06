@@ -5438,13 +5438,21 @@ Python testing.
 # gentoo no longer has 3.{6,7} in the main tree, going to be a pain test back there
 # dev-lang/python:3.6
 # dev-lang/python:3.7
-# dev-lang/python:3.8
+
+# dev-lang/python:3.13t
+# dev-lang/python:3.14t
+# dev-lang/python:3.14
 #+name: world-python
 #+begin_src conf :tangle ./musl/testing-python/world
+dev-lang/python:3.8
 dev-lang/python:3.9
 dev-lang/python:3.10
 dev-lang/python:3.11
-dev-python/pypy3
+dev-lang/python:3.12
+dev-lang/python:3.13
+dev-lang/pypy:2.7
+dev-lang/pypy:3.10
+dev-lang/pypy:3.11
 dev-python/pip
 dev-python/pipenv
 #+end_src
