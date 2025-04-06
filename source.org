@@ -3078,8 +3078,8 @@ so updates to the early builder become more or less free
 docker run \
 --volumes-from local-repos-snap \
 -v "${_path_binpkgs}":/var/cache/binpkgs \
--v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
--v "${PWD}"/bin/harfbuzz-freetype-sigh.sh:/etc/entrypoint.sh \
+-v "${_path_dockerfiles}"/bin/quickpkg-new:/tmp/quickpkg-new \
+-v "${_path_dockerfiles}"/bin/harfbuzz-freetype-sigh.sh:/etc/entrypoint.sh \
 --entrypoint /etc/entrypoint.sh \
 -it tgbugs/musl:updated
 #+end_src
@@ -3089,7 +3089,7 @@ TODO mount =/tmp/= and =/var/tmp/= to ramdisk to avoid blasting the ssd more tha
 docker run \
 --volumes-from local-repos-snap \
 -v "${_path_binpkgs}":/var/cache/binpkgs \
--v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
+-v "${_path_dockerfiles}"/bin/quickpkg-new:/tmp/quickpkg-new \
 -it tgbugs/musl:package-builder-musl
 #+end_src
 # --volumes-from cross-sbcl \
@@ -3918,29 +3918,32 @@ I suggest adding all the =_path_= variables below (and the repo name)
 to your shell rc file if you use any of the docker run commands during
 development so that you can do so in a new shell. These values are
 usually stable per system.
-# FIXME watch out with the use of a=${a:-b} the value of a will persist
+# watch out with the use of a=${a:-b} the value of a will persist
 # in the environment when you change the default value
+# mitigated in part by prefixing all input variables with _in
+# that doesn't quite get all the way to the solution we want
+# but it prevents bad variables lingering
 #+name: &builder-vars
 #+begin_src bash :noweb yes
-_path_dockerfiles=${_path_dockerfiles:-${PWD}}
-_path_binpkgs_root=${_path_root_binpkgs:-<<&host-binpkgs-root-path()>>}
-_binpkgs_repo_name=${_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
-_path_binpkgs=${_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
-_path_distfiles=${_path_distfiles:-<<&host-distfiles-path()>>}
-_path_distcc_hosts=${_path_distcc_hosts:-<<&host-distcc-hosts-path()>>}
-_path_ssh=${_path_ssh:-<<&host-ssh-path()>>}
+_path_dockerfiles=${_in_path_dockerfiles:-${PWD}}
+_path_binpkgs_root=${_in_path_root_binpkgs:-<<&host-binpkgs-root-path()>>}
+_binpkgs_repo_name=${_in_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
+_path_binpkgs=${_in_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
+_path_distfiles=${_in_path_distfiles:-<<&host-distfiles-path()>>}
+_path_distcc_hosts=${_in_path_distcc_hosts:-<<&host-distcc-hosts-path()>>}
+_path_ssh=${_in_path_ssh:-<<&host-ssh-path()>>}
 
-_tm_pb=${_tm_pb:-tgbugs/musl:package-builder}
-_tm_s_pb=${_tm_s_pb:-tgbugs/musl:static-package-builder}
-_tm_n_pb=${_tm_n_pb:-tgbugs/musl:package-builder-nox}
+_tm_pb=${_in_tm_pb:-tgbugs/musl:package-builder}
+_tm_s_pb=${_in_tm_s_pb:-tgbugs/musl:static-package-builder}
+_tm_n_pb=${_in_tm_n_pb:-tgbugs/musl:package-builder-nox}
 
-_tm_pbs=${_tm_pbs:-${_tm_pb}-snap}
-_tm_s_pbs=${_tm_s_pbs:-${_tm_s_pb}-snap}
-_tm_n_pbs=${_tm_n_pbs:-${_tm_n_pb}-snap}
+_tm_pbs=${_in_tm_pbs:-${_tm_pb}-snap}
+_tm_s_pbs=${_in_tm_s_pbs:-${_tm_s_pb}-snap}
+_tm_n_pbs=${_in_tm_n_pbs:-${_tm_n_pb}-snap}
 
-_tg_pb=${_tg_pb:-tgbugs/gnu:package-builder}
+_tg_pb=${_in_tg_pb:-tgbugs/gnu:package-builder}
 
-_tg_pbs=${_tg_pbs:-${_tg_pb}-snap}
+_tg_pbs=${_in_tg_pbs:-${_tg_pb}-snap}
 
 #+end_src
 
@@ -4010,8 +4013,8 @@ gnu-container-check
 -v ${_path_distcc_hosts}:/etc/distcc/hosts \
 -v ${_path_binpkgs_root}/cross/gnu/x86_64-pc-linux-musl:/usr/x86_64-pc-linux-musl/var/cache/binpkgs \
 -v ${_path_binpkgs_root}/cross/gnu/x86_64-gentoo-linux-musl:/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs \
--v ${PWD}/bin:/usr/local/bin \
--v ${PWD}/musl/package-builder/accept_keywords:/etc/portage/package.accept_keywords/tweaks \
+-v ${_path_dockerfiles}/bin:/usr/local/bin \
+-v ${_path_dockerfiles}/musl/package-builder/accept_keywords:/etc/portage/package.accept_keywords/tweaks \
 --env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
 --env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
 #+end_src
@@ -4341,8 +4344,8 @@ function builder-license () {
 container-check
 docker run \
 <<&builder-args>>
--v ${PWD}/musl/package-builder/sets/license:/etc/portage/sets/license \
--v ${PWD}/musl/package-builder/package.license:/etc/portage/package.license \
+-v ${_path_dockerfiles}/musl/package-builder/sets/license:/etc/portage/sets/license \
+-v ${_path_dockerfiles}/musl/package-builder/package.license:/etc/portage/package.license \
 ${_builder} \
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @license
 
@@ -4353,8 +4356,8 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}
 container-check
 docker run \
 <<&builder-args>>
--v ${PWD}/musl/package-builder/sets/license:/etc/portage/sets/license \
--v ${PWD}/musl/package-builder/package.license:/etc/portage/package.license \
+-v ${_path_dockerfiles}/musl/package-builder/sets/license:/etc/portage/sets/license \
+-v ${_path_dockerfiles}/musl/package-builder/package.license:/etc/portage/package.license \
 ${_builder} \
 emerge --color=y -j4 -q --keep-going --buildpkgonly -uDN @license
 
@@ -4832,8 +4835,8 @@ function builder-live () {
 
 docker run \
 <<&builder-args>>
--v ${PWD}/musl/package-builder/00-live:/etc/portage/package.accept_keywords/00-live \
--v ${PWD}/musl/package-builder/sets/live:/etc/portage/sets/live \
+-v ${_path_dockerfiles}/musl/package-builder/00-live:/etc/portage/package.accept_keywords/00-live \
+-v ${_path_dockerfiles}/musl/package-builder/sets/live:/etc/portage/sets/live \
 ${_builder} \
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @live
 # NOTE if members of @live are also dependencies they will be pulled in, this is ok
@@ -5044,7 +5047,7 @@ container-check  # FIXME what if we want to snap when we only have local-portage
 docker run \
 --volumes-from local-repos-snap \
 -v "${_path_binpkgs}":/var/cache/binpkgs \
--v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
+-v "${_path_dockerfiles}"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 ${1} \
 /bin/sh -c '_qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
@@ -5136,8 +5139,8 @@ ADD nox.world /etc/portage/sets/docker
 docker run \
 --detach \
 --add-host=host.docker.internal:host-gateway \
--v ${PWD}/musl/distcc/distccd.confd:/etc/conf.d/distccd \
--v ${PWD}/musl/distcc/entrypoints:/etc/entrypoints \
+-v ${_path_dockerfiles}/musl/distcc/distccd.confd:/etc/conf.d/distccd \
+-v ${_path_dockerfiles}/musl/distcc/entrypoints:/etc/entrypoints \
 --entrypoint /etc/entrypoints/distcc-start \
 -p 3632:3632 \
 --rm \
@@ -6640,7 +6643,7 @@ docker run \
 docker run \
 --detach \
 --volumes-from sckan-data \
--v ${PWD}/musl/kg-release-user/entrypoints/blazegraph.sh:/etc/entrypoints/blazegraph.sh \
+-v ${_path_dockerfiles}/musl/kg-release-user/entrypoints/blazegraph.sh:/etc/entrypoints/blazegraph.sh \
 --entrypoint /etc/entrypoints/blazegraph.sh \
 -p 9999:9999 \
 -it tgbugs/musl:kg-release-user
@@ -6656,7 +6659,7 @@ docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:kg-release-user) tail -f /
 <<&create-sckan-data-if-not-exists>>
 docker run \
 --volumes-from sckan-data \
--v ${PWD}/musl/kg-release-user/entrypoints/services.sh:/etc/entrypoints/services.sh \
+-v ${_path_dockerfiles}/musl/kg-release-user/entrypoints/services.sh:/etc/entrypoints/services.sh \
 --entrypoint /etc/entrypoints/services.sh \
 -p 9999:9999 \
 -p 9000:9000 \
@@ -6670,7 +6673,7 @@ docker run \
 --volumes-from sckan-data \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
--v ${PWD}/musl/kg-release-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
+-v ${_path_dockerfiles}/musl/kg-release-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
 tgbugs/musl:kg-release-user
@@ -7052,7 +7055,7 @@ docker run \
 -v /tmp/.X11-unix:/tmp/.X11-unix \
 -e DISPLAY=$DISPLAY \
 -e SCIGRAPH_API=http://localhost:9000/scigraph \
--v ${PWD}/musl/kg-dev-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
+-v ${_path_dockerfiles}/musl/kg-dev-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
 tgbugs/musl:kg-dev-user
@@ -8189,7 +8192,7 @@ docker run \
 -v ${_path_sparcron_secrets}:/var/lib/sparc/.config/orthauth/secrets.yaml \
 -v ${_path_sparcron_gsaro}:/var/lib/sparc/.config/orthauth/$(basename ${_path_sparcron_gsaro}) \
 \
--v ${PWD}/musl/sparcron-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
+-v ${_path_dockerfiles}/musl/sparcron-user/entrypoints/test.sh:/etc/entrypoints/test.sh \
 --entrypoint /etc/entrypoints/test.sh \
 --rm \
 tgbugs/musl:sparcron-user
@@ -9329,9 +9332,9 @@ gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  #
 # https://github.com/gentoo/releng/blob/master/releases/specs/amd64/musl-hardened/stage1-23.spec
 # so probably should be sourcing that from the target profile or something?
 docker run \
--v ${PWD}/gnu/package-builder/sbcl-cross.env:/tmp/sbcl-cross.env \
--v ${PWD}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
--v ${PWD}/gnu/package-builder/cross-make.defaults:/tmp/cross-make.defaults \
+-v ${_path_dockerfiles}/gnu/package-builder/sbcl-cross.env:/tmp/sbcl-cross.env \
+-v ${_path_dockerfiles}/gnu/package-builder/99-sbcl:/tmp/99-sbcl \
+-v ${_path_dockerfiles}/gnu/package-builder/cross-make.defaults:/tmp/cross-make.defaults \
 ${_tg_pbs} \
 sh -c \
 "
