@@ -3128,7 +3128,7 @@ TODO only build if the package has not already been built
 #+begin_src bash :tangle ./bin/harfbuzz-freetype-sigh.sh :mkdirp yes
 function doqp () {
 local _qpvar
-_qpvar=$(/tmp/quickpkg-new) [ -z "${_qpvar}" ] || quickpkg ${_qpvar}
+_qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}
 }
 
 USE="-harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
@@ -5044,7 +5044,7 @@ docker run \
 -v "${PWD}"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 ${1} \
-/bin/sh -c '_qpvar=$(/tmp/quickpkg-new) [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
+/bin/sh -c '_qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
 }
 #+end_src
 
