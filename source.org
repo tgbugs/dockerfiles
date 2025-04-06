@@ -71,9 +71,10 @@ auths section as well (and fill it in with your credentials).
 Prepare package host folders. The server will be started automatically
 below if it is not already up.
 #+begin_src screen
-mkdir -p ~/files/binpkgs/multi
-mkdir -p ~/files/binpkgs/cross/gnu/x86_64-pc-linux-musl
-mkdir -p ~/files/binpkgs/cross/gnu/x86_64-gentoo-linux-musl
+# this step is now done as part of ./source.org setup
+mkdir -p <<&host-binpkgs-root-path()>>/<<&host-binpkgs-repo-name()>>
+mkdir -p <<&host-binpkgs-root-path()>>/cross/gnu/x86_64-pc-linux-musl
+mkdir -p <<&host-binpkgs-root-path()>>/cross/gnu/x86_64-gentoo-linux-musl
 #+end_src
 *** prepare all binpkg repos
 We have to prepare all the binpkg repos so that during a first build
@@ -84,7 +85,7 @@ fail with strange errors in strange ways.
 for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
     docker pull docker.io/gentoo/stage3:${stage3}
     docker run \
-    -v ~/files/binpkgs/multi:/var/cache/binpkgs \
+    -v <<&host-binpkgs-root-path()>>/<<&host-binpkgs-repo-name()>>:/var/cache/binpkgs \
     -e FEATURES=binpkg-multi-instance \
     -e QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022" \
     --rm \
@@ -300,7 +301,7 @@ curl --fail --head http://localhost:<<&host-binpkgs-port()>>/${_binpkgs_repo_nam
     # curl returns a 22 if the server is up but there is some other issue e.g. 404
     # that we might hit during first run when the repo doesn't exist
     if [ ${_error} -ne 22 ]; then
-        pushd ${_path_binpkgs_root}
+        pushd ${_path_binpkgs_root} || return $?
         # XXX FIXME WARNING if ${_path_binpkgs_root} is removed or moved or changed
         # then this server probably needs to be restarted
         python -m http.server <<&host-binpkgs-port()>> --bind 127.0.0.1
