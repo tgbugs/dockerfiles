@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 4e9b8c769fc61cd6549de35e481395f804ec6a78d79e2025baba6f0717dbe857; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: b51ed5870fb1d1fec1d14aa6ddae3b46bf3f25561789bd0713e27865b359a4e5; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -81,7 +81,9 @@ We have to prepare all the binpkg repos so that during a first build
 they have some basic metadata, otherwise trying to emerge binpkgs will
 fail with strange errors in strange ways.
 #+name: &run-quickpkg-first-time
-#+begin_src screen
+#+begin_src bash :noweb yes :results none
+# bash-safe-block
+#alias docker=podman
 for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
     docker pull docker.io/gentoo/stage3:${stage3}
     docker run \
@@ -319,6 +321,8 @@ curl --fail --head http://localhost:<<&host-binpkgs-port()>>/${_binpkgs_repo_nam
 #+begin_src screen
 # we web these in at the top since some of the vars are used in functions
 # outside the builders (e.g. package-server)
+
+#alias docker=podman
 
 <<&builder-vars>>
 
@@ -3132,6 +3136,7 @@ TODO only build if the package has not already been built
 #+begin_src bash :tangle ./bin/harfbuzz-freetype-sigh.sh :mkdirp yes
 function doqp () {
 local _qpvar
+emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if using podman did you container init?"; return 1; };
 _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}
 }
 
@@ -5051,7 +5056,7 @@ docker run \
 -v "${_path_dockerfiles}"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 ${1} \
-/bin/sh -c '_qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
+/bin/sh -c 'set -o pipefail; { emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if using podman did you container init?"; exit 1; } } || _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
 }
 #+end_src
 
@@ -10935,7 +10940,8 @@ and then to the tangle target to the block contents
 
 (defvar-local path-distfiles (expand-file-name "<<&host-distfiles-path()>>"))
 (defvar-local path-binpkgs-root (expand-file-name "<<&host-binpkgs-root-path()>>")) ; FIXME multi
-(defvar-local path-binpkgs (concat path-binpkgs-root "/" "<<&host-binpkgs-repo-name()>>"))
+(defvar-local host-binpkgs-repo-name "<<&host-binpkgs-repo-name()>>")
+(defvar-local path-binpkgs (concat path-binpkgs-root "/" host-binpkgs-repo-name))
 (defvar-local path-distcc-hosts (expand-file-name "<<&host-distcc-hosts-path()>>"))
 (defvar-local path-ssh (expand-file-name "<<&host-ssh-path()>>"))
 
@@ -11046,8 +11052,12 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
          (cl-remove-if #'file-exists-p
                        '("~/.docker/config.json" "/etc/docker/daemon.json"))))
     (cl-loop
-     for sp in '("multi" "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
+     for sp in (list host-binpkgs-repo-name "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
      do (make-directory (expand-file-name sp bp) 'parents))
+    (unless (file-exists-p (expand-file-name (concat host-binpkgs-repo-name "/Packages") bp))
+      ;; FIXME this goes to network during setup which is back
+      ;; FIXME no feedback in the terminal when this is running since we run it in bash not screen
+      (execute-src-block "&run-quickpkg-first-time"))
     ;; TODO docker buildx version || oops
     (when missing-buildx
       (message "Missing docker buildx."))
@@ -11072,6 +11082,9 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
               (and (member lang '("python"))
                    ;; XXX WARNING BE SURE TO REVIEW ALL INSTANCES OF py-safe-block
                    (string-prefix-p "# py-safe-block
+" body))
+              (and (member lang '("bash"))
+                   (string-prefix-p "# bash-safe-block
 " body))
               (and (member lang '("screen"))
                    (string= (cl-subseq body 0 15) "HISTFILE=~/.org")))))))
@@ -11216,7 +11229,7 @@ currently only sbcl static uses this but other things might need it in the futur
         ;; or not quite because we need a way to pass variable values from options, but that means
         ;; that the elisp does have to explicitly make the bridge unless we come up with a fully
         ;; dynamic/generative option, see how frequently we actually need it, vs using cli-uif
-        (when (or build build-image test)
+        (when (or build build-image test setup)
           (org-babel-do-load-languages
            'org-babel-load-languages
            '((screen . t)
