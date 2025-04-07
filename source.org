@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: b51ed5870fb1d1fec1d14aa6ddae3b46bf3f25561789bd0713e27865b359a4e5; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: e128e14be16e67c2d0e499e2ee30d9129a7bb8ff7a78dbc4137e37df0df1618c; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -83,7 +83,9 @@ fail with strange errors in strange ways.
 #+name: &run-quickpkg-first-time
 #+begin_src bash :noweb yes :results none
 # bash-safe-block
-#alias docker=podman
+if [ -n "${_use_podman}" ]; then
+alias docker=podman
+fi
 for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
     docker pull docker.io/gentoo/stage3:${stage3}
     docker run \
@@ -322,7 +324,9 @@ curl --fail --head http://localhost:<<&host-binpkgs-port()>>/${_binpkgs_repo_nam
 # we web these in at the top since some of the vars are used in functions
 # outside the builders (e.g. package-server)
 
-#alias docker=podman
+if [ -n "${_use_podman}" ]; then
+alias docker=podman
+fi
 
 <<&builder-vars>>
 
@@ -371,6 +375,9 @@ if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
     if [[ ${B_DATE} < ${A_DATE} ]] || ! docker container inspect local-portage-snap > /dev/null; then
         docker rm local-portage-snap
         docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
+        if [ -n "${_use_podman}" ]; then
+            podman container init local-portage-snap
+        fi
     fi
 fi
 }
@@ -2511,6 +2518,9 @@ perspective the exact ebuilds are stored in file:/var/db/pkg/.
 **** debug
 #+begin_src bash
 docker create -v /var/db/repos --name portage-snap docker.io/gentoo/portage:latest /bin/true
+if [ -n "${_use_podman}" ]; then
+podman container init portage-snap
+fi
 docker run \
 --volumes-from portage-snap \
 --entrypoint /bin/bash \
@@ -2531,9 +2541,15 @@ builder-debug
 
 #+name: &re-local-repos-snap
 #+begin_src bash
-docker container inspect local-repos-snap > /dev/null &&
+docker container inspect local-repos-snap > /dev/null && {
 docker rm local-repos-snap;
 docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
+# https://github.com/containers/podman/issues/10262
+# FIXME TODO if podman then you must run the following for reasons I still do not entirely understand
+if [ -n "${_use_podman}" ]; then
+podman container init local-repos-snap
+fi
+}
 #+end_src
 
 *** build
@@ -3977,8 +3993,12 @@ docker commit $(docker ps -lqf ancestor=${_tg_pb}) ${_tg_pbs}
 #+name: &container-check
 #+begin_src bash
 function gnu-container-check () {
-docker container inspect local-repos-snap > /dev/null || \
+docker container inspect local-repos-snap > /dev/null || {
 docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
+if [ -n "${_use_podman}" ]; then
+podman container init local-repos-snap
+fi
+}
 }
 
 function container-check () {
@@ -7703,6 +7723,10 @@ docker create \
 docker.io/gentoo/portage:latest \
 /bin/true
 
+if [ -n "${_use_podman}" ]; then
+podman container init local-portage-snap
+fi
+
 # if you have you have to clear the container with
 # docker rm local-portage-snap
 
@@ -10335,7 +10359,11 @@ docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbu
 #+name: &create-sckan-data-if-not-exists
 #+begin_src bash
 docker container inspect sckan-data > /dev/null || \
-{ echo creating sckan-data image 1>&2; docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true;}
+{ echo creating sckan-data image 1>&2; docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true;
+if [ -n "${_use_podman}" ]; then
+podman container init sckan-data
+fi
+}
 #+end_src
 
 *** build
@@ -10937,6 +10965,7 @@ and then to the tangle target to the block contents
 (defvar-local live-rebuild nil)
 (defvar-local no-pkg-bldr  nil)
 (defvar-local only-static  nil)
+(defvar-local use-podman   nil)
 
 (defvar-local path-distfiles (expand-file-name "<<&host-distfiles-path()>>"))
 (defvar-local path-binpkgs-root (expand-file-name "<<&host-binpkgs-root-path()>>")) ; FIXME multi
@@ -11015,12 +11044,12 @@ and then to the tangle target to the block contents
 
 (defun make-screen-vars ()
   (apply #'format
-         "export _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
+         "export _use_podman=%s _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
 _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S _path_ssh=%S \\
 %s %s %s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
-                  (list refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
+                  (list use-podman refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
           (append
            (list path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
            ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
@@ -11209,6 +11238,7 @@ currently only sbcl static uses this but other things might need it in the futur
           (no-pkg-bldr  (and build (or
                                     (member "--no-build" argv)
                                     (member "--no-pkg-bldr" argv))))
+          (use-podman (member "--podman" argv))
           (cli-images  (cdr build-image)) ; must come last will build all listed images in order they are listed
           (cli-check-paths (member "--check-paths" argv))
           (cli-pretend (member "--pretend" argv)) ; FIXME sequencing wrt build-image and cli-images
