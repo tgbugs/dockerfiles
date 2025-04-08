@@ -81,8 +81,9 @@ We have to prepare all the binpkg repos so that during a first build
 they have some basic metadata, otherwise trying to emerge binpkgs will
 fail with strange errors in strange ways.
 #+name: &run-quickpkg-first-time
-#+begin_src bash :noweb yes :results none
+#+begin_src bash :noweb yes :results none :var _use_podman=(if use-podman "1" "")
 # bash-safe-block
+shopt -s expand_aliases
 if [ -n "${_use_podman}" ]; then
 alias docker=podman
 fi
@@ -324,6 +325,7 @@ curl --fail --head http://localhost:<<&host-binpkgs-port()>>/${_binpkgs_repo_nam
 # we web these in at the top since some of the vars are used in functions
 # outside the builders (e.g. package-server)
 
+shopt -s expand_aliases
 if [ -n "${_use_podman}" ]; then
 alias docker=podman
 fi
@@ -375,9 +377,10 @@ if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
     if [[ ${B_DATE} < ${A_DATE} ]] || ! docker container inspect local-portage-snap > /dev/null; then
         docker rm local-portage-snap
         docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
-        if [ -n "${_use_podman}" ]; then
-            podman container init local-portage-snap
-        fi
+    fi
+    if [ -n "${_use_podman}" ]; then
+        [ -n "$(podman container ls -q --filter name=local-portage-snap --filter status=initialized)" ] || \
+        podman container init local-portage-snap
     fi
 fi
 }
@@ -2519,6 +2522,7 @@ perspective the exact ebuilds are stored in file:/var/db/pkg/.
 #+begin_src bash
 docker create -v /var/db/repos --name portage-snap docker.io/gentoo/portage:latest /bin/true
 if [ -n "${_use_podman}" ]; then
+[ -n "$(podman container ls -q --filter name=portage-snap --filter status=initialized)" ] || \
 podman container init portage-snap
 fi
 docker run \
@@ -2547,6 +2551,7 @@ docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/
 # https://github.com/containers/podman/issues/10262
 # FIXME TODO if podman then you must run the following for reasons I still do not entirely understand
 if [ -n "${_use_podman}" ]; then
+[ -n "$(podman container ls -q --filter name=local-repos-snap --filter status=initialized)" ] || \
 podman container init local-repos-snap
 fi
 }
@@ -3993,12 +3998,12 @@ docker commit $(docker ps -lqf ancestor=${_tg_pb}) ${_tg_pbs}
 #+name: &container-check
 #+begin_src bash
 function gnu-container-check () {
-docker container inspect local-repos-snap > /dev/null || {
+docker container inspect local-repos-snap > /dev/null || \
 docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true
 if [ -n "${_use_podman}" ]; then
+[ -n "$(podman container ls -q --filter name=local-repos-snap --filter status=initialized)" ] || \
 podman container init local-repos-snap
 fi
-}
 }
 
 function container-check () {
@@ -7724,6 +7729,7 @@ docker.io/gentoo/portage:latest \
 /bin/true
 
 if [ -n "${_use_podman}" ]; then
+[ -n "$(podman container ls -q --filter name=local-portage-snap --filter status=initialized)" ] || \
 podman container init local-portage-snap
 fi
 
@@ -10361,6 +10367,7 @@ docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbu
 docker container inspect sckan-data > /dev/null || \
 { echo creating sckan-data image 1>&2; docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true;
 if [ -n "${_use_podman}" ]; then
+[ -n "$(podman container ls -q --filter name=sckan-data --filter status=initialized)" ] || \
 podman container init sckan-data
 fi
 }
