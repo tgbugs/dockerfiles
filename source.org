@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: e128e14be16e67c2d0e499e2ee30d9129a7bb8ff7a78dbc4137e37df0df1618c; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 2184f8e97896472284ac224399ddf8eea65e2cee8a5ece2699d5ebb3d55725b6; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -11082,11 +11082,13 @@ _path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S 
   (let ((bp path-binpkgs-root)
         (missing-buildx
          (with-temp-buffer
-           (let* ((return-code (apply #'call-process "docker" nil (current-buffer) nil '("buildx" "version"))))
+           (let* ((return-code (apply #'call-process (if use-podman "podman" "docker") nil (current-buffer) nil '("buildx" "version"))))
              (not (= 0 return-code)))))
         (missing-configs
-         (cl-remove-if #'file-exists-p
-                       '("~/.docker/config.json" "/etc/docker/daemon.json"))))
+         (and
+          (not use-podman)
+          (cl-remove-if #'file-exists-p
+                        '("~/.docker/config.json" "/etc/docker/daemon.json")))))
     (cl-loop
      for sp in (list host-binpkgs-repo-name "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
      do (make-directory (expand-file-name sp bp) 'parents))
