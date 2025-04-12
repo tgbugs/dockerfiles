@@ -11222,19 +11222,22 @@ currently only sbcl static uses this but other things might need it in the futur
 
 (defmacro with-store-error-on-fail (&rest body)
   `(let (heh)
-    (cl-letf (((symbol-function 'org-babel-eval-error-notify)
-               (lambda (exit-code stderr)
-                 (when (> exit-code 0)
-                   (setq heh
-                         (format "Babel evaluation failed with %s%s%s"
-                                 exit-code
-                                 (if stderr "\n" "")
-                                 (if stderr stderr "")))))))
-      (let ((out ,@body))
-        (if heh
-            (signal 'error (cons out heh))
-          out)
-        ))))
+     (cl-letf
+         (((symbol-function 'org-babel-eval-error-notify)
+           (lambda (exit-code stderr)
+             (when (> exit-code 0)
+               (setq
+                heh
+                (format
+                 "Babel evaluation failed with %s%s%s"
+                 exit-code
+                 (if stderr "\n" "")
+                 (if stderr stderr "")))))))
+       (let ((out ,@body))
+         (if heh
+             (signal 'error (cons out heh))
+           out)
+         ))))
 
 (defun find-tag-build-scr-block (tag &optional execute)
   (save-excursion
@@ -11268,55 +11271,30 @@ currently only sbcl static uses this but other things might need it in the futur
       (apply fun args))))
 
 (when (string= system-type "windows-nt")
-    ;; ensure that when tangling files that might be mounted into
-    ;; a unix environment that they won't have \r at bol
-    ;; as far as I can tell there is no way to set this in the
-    ;; temp buffer when running org-babel-tangle so we do it here
-    (setq-default buffer-file-coding-system 'utf-8-unix)
-    (let ((git-bash-path "C:/Program Files/Git/bin/"))
-      (unless (file-exists-p git-bash-path)
-        ;; if wsl or wsl2 is installed then the bash on path is likely
-        ;; to be the system32 bash which can drop output and commands
-        ;; and could easily damage a system if run
-        (error "git bash is not installed"))
-      (add-to-list 'exec-path git-bash-path)
-      (unless
-          (string=
-           (executable-find "bash")
-           (expand-file-name "bash.exe" git-bash-path))
-        (error "git present but git bash is missing"))))
+  ;; ensure that when tangling files that might be mounted into
+  ;; a unix environment that they won't have \r at bol
+  ;; as far as I can tell there is no way to set this in the
+  ;; temp buffer when running org-babel-tangle so we do it here
+  (setq-default buffer-file-coding-system 'utf-8-unix)
+  (let ((git-bash-path "C:/Program Files/Git/bin/"))
+    (unless (file-exists-p git-bash-path)
+      ;; if wsl or wsl2 is installed then the bash on path is likely
+      ;; to be the system32 bash which can drop output and commands
+      ;; and could easily damage a system if run
+      (error "git bash is not installed"))
+    (add-to-list 'exec-path git-bash-path)
+    (unless
+        (string=
+         (executable-find "bash")
+         (expand-file-name "bash.exe" git-bash-path))
+      (error "git present but git bash is missing"))))
 
 (defun build-no-gui ()
-  ;; FIXME unfortunately there is an issue when trying to `server-start'
-  ;; from an emacs process started in batch mode so instead we have to
-  ;; start a new graphical emacs and find file with cli options
-  ' ;_; yunowork
-  (let* ((_ (require 'server))
-         (server-name "dockerfiles-server"))
-    (server-start) ; need some way to connect to view the other buffer
-    (message "server started")
-    (execute-src-block "bash-async-package-server-cli")
-    (sleep-for 0.1)
-    (let ((process (execute-src-block "bash-async-workflow-cli")))
-      ;; FIXME TODO need to figure out how to wait for completion
-      ;; we can't use non-async because that will block the whole ui
-      (while (server-running-p server-name)
-        ;; having to wait max 10 seconds after server stop not the worst
-        (sleep-for 10))))
-  (org-babel-do-load-languages
-   'org-babel-load-languages
-   '((shell . t)))
   (execute-src-block "bash-async-package-server-cli")
   (sleep-for 0.1)
   (execute-src-block "bash-async-workflow-cli"))
 
-(when no-screen-start-gui
-  (setq comint-scroll-to-bottom-on-output t)
-  (build-no-gui)
-  (switch-to-buffer
-   (display-buffer "org-session")))
-
-(when noninteractive
+(when (or noninteractive no-screen-start-gui)
   (let ((setup (member "setup" argv))
         (build (member "build" argv))
         (tangle (member "tangle" argv))
@@ -11355,14 +11333,27 @@ currently only sbcl static uses this but other things might need it in the futur
         ;; that the elisp does have to explicitly make the bridge unless we come up with a fully
         ;; dynamic/generative option, see how frequently we actually need it, vs using cli-uif
         (when (or build build-image test setup)
-          (org-babel-do-load-languages
-           'org-babel-load-languages
-           '((screen . t)
-             (shell . t)))
-          (fmakunbound 'org-babel-prep-session:screen)
-          (defalias 'org-babel-prep-session:screen #'dockerfiles-source-org-babel-prep-session:screen))
+          (let ((no-screen (or no-screen no-screen-start-gui))
+                (toload '((shell . t))))
+            (unless no-screen
+              (setq toload (cons '(screen . t) toload)))
+            (org-babel-do-load-languages
+             'org-babel-load-languages
+             toload)
+            (unless no-screen
+              (fmakunbound 'org-babel-prep-session:screen)
+              (defalias 'org-babel-prep-session:screen #'dockerfiles-source-org-babel-prep-session:screen))))
         (when setup
           (run-setup))
+        (when no-screen-start-gui
+          ;; FIXME better handling of differential dispatch please ...
+          (when build
+            ;; have to pass build in argv so the variables will set but we don't actually want to build
+            (setq build nil)
+            (setq comint-scroll-to-bottom-on-output t)
+            (build-no-gui)
+            (switch-to-buffer
+             (display-buffer "org-session"))))
         (when build
           ;; either use bash internally here (bad) or try to use screen
           ;; currently going with screen since we have a hack for passing vars
@@ -11378,45 +11369,48 @@ currently only sbcl static uses this but other things might need it in the futur
           ;; know what we need to do at startup FIXME also there isn't
           ;; a convenient way to capture the return value if something
           ;; fails here :/
-          (require 'url-http)
-          (let ((package-server-running
-                 (condition-case out-err
-                     (url-http-file-exists-p (format "http://localhost:%s/%s/Packages" host-binpkgs-port host-binpkgs-repo-name))
-                   (file-error
-                    (unless (string= (caddr out-err) "Connection refused")
-                      (signal (car out-err) (cdr out-err)))))))
-            (if (or no-screen (string= system-type "windows-nt"))
-                (let ((emacs-command (expand-file-name invocation-name invocation-directory)))
-                  (call-process
-                   emacs-command nil 0 nil
+          (if (or no-screen (string= system-type "windows-nt"))
+              (let ((emacs-command (expand-file-name invocation-name invocation-directory)))
+                (apply
+                 #'call-process
+                 `(
+                   ,emacs-command nil 0 nil
                    "-no-init-file"
                    "-no-site-file"
                    "-eval"
-                   (let* ((orgstrap-shebang (dedupe-lines "orgstrap-shebang"))
-                          print-level print-length
-                          (reuse
-                           (with-temp-buffer
-                             (insert orgstrap-shebang)
-                             (goto-char 0)
-                             (re-search-forward "^emacs ")
-                             (re-search-forward "-eval ")
-                             (read (read (thing-at-point 'string))))))
-                     (push '(defvar no-screen-start-gui t) (nthcdr 2 reuse))
-                     (prin1-to-string reuse))
-                   (buffer-file-name)))
-              (let ()
-                (unless package-server-running
-                  (let ((pkg-process (execute-src-block "package-server-cli")))
-                    (while (eq (process-status pkg-process) 'run)
-                      (sleep-for 0.1)))
-                  (let ((xs-process (screen-x "org-session" "screen")))
-                    (while (eq (process-status xs-process) 'run)
-                      (sleep-for 0.1))))
-                (let ((process (execute-src-block "workflow-cli")))
-                  ;; prevent emacs exit from killing the subprocess before it has finished
-                  ;; send to the screen session
-                  (while (eq (process-status process) 'run)
-                    (sleep-for 0.1)))))))
+                   ,(let*
+                        ((orgstrap-shebang (dedupe-lines "orgstrap-shebang"))
+                         print-level print-length
+                         (reuse
+                          (with-temp-buffer
+                            (insert orgstrap-shebang)
+                            (goto-char 0)
+                            (re-search-forward "^emacs ")
+                            (re-search-forward "-eval ")
+                            (read (read (thing-at-point 'string))))))
+                      (push '(defvar no-screen-start-gui t) (nthcdr 2 reuse))
+                      (prin1-to-string reuse))
+                   ,(buffer-file-name)
+                   ,@argv)))
+            (let* ((_ (require 'url-http))
+                   (package-server-running
+                    (condition-case out-err
+                        (url-http-file-exists-p (format "http://localhost:%s/%s/Packages" host-binpkgs-port host-binpkgs-repo-name))
+                      (file-error
+                       (unless (string= (caddr out-err) "Connection refused")
+                         (signal (car out-err) (cdr out-err)))))))
+              (unless package-server-running
+                (let ((pkg-process (execute-src-block "package-server-cli")))
+                  (while (eq (process-status pkg-process) 'run)
+                    (sleep-for 0.1)))
+                (let ((xs-process (screen-x "org-session" "screen")))
+                  (while (eq (process-status xs-process) 'run)
+                    (sleep-for 0.1))))
+              (let ((process (execute-src-block "workflow-cli")))
+                ;; prevent emacs exit from killing the subprocess before it has finished
+                ;; send to the screen session
+                (while (eq (process-status process) 'run)
+                  (sleep-for 0.1))))))
         (when build-image ; FIXME sometimes leaving from this can still produce Wrong type argument: keymapp, nil
           (fix-ocbe-source)
           (if cli-images
@@ -11558,6 +11552,8 @@ exit 1
 ** Local Variables :ARCHIVE:
 # close powershell comment #>
 # Local Variables:
+# indent-tabs-mode: nil
+# tab-width: 4
 # org-adapt-indentation: nil
 # org-edit-src-content-indentation: 0
 # eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((a (org-version)) (n orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not n) (string< n a) (string= n a) (error "Your Org is too old! %s < %s" a n))) (defun orgstrap-norm-func--dprp-1-0 (body) (let ((p (read (concat "(progn\n" body "\n)"))) (m '(defun defun-local defmacro defvar defvar-local defconst defcustom)) print-quoted print-length print-level) (cl-labels ((f (b) (cl-loop for e in b when (listp e) do (or (and (memq (car e) m) (let ((n (nthcdr 4 e))) (and (stringp (nth 3 e)) (or (cl-subseq m 3) n) (f n) (or (setcdr (cddr e) n) t)))) (f e))) p)) (prin1-to-string (f p))))) (unless (boundp 'orgstrap-norm-func) (defvar-local orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap-org-src-coderef-regexp (_fmt &optional label) (let ((fmt org-coderef-label-format)) (format "\\([:blank:]*\\(%s\\)[:blank:]*\\)$" (replace-regexp-in-string "%s" (if label (regexp-quote label) "\\([-a-zA-Z0-9_][-a-zA-Z0-9_ ]*\\)") (regexp-quote fmt) nil t)))) (unless (fboundp #'org-src-coderef-regexp) (defalias 'org-src-coderef-regexp #'orgstrap-org-src-coderef-regexp)) (defun orgstrap--expand-body (info) (let ((coderef (nth 6 info)) (expand (if (org-babel-noweb-p (nth 2 info) :eval) (org-babel-expand-noweb-references info) (nth 1 info)))) (if (not coderef) expand (replace-regexp-in-string (org-src-coderef-regexp coderef) "" expand nil nil 1)))) (defun orgstrap--confirm-eval-portable (lang _body) (not (and (member lang '("elisp" "emacs-lisp")) (let* ((body (orgstrap--expand-body (org-babel-get-src-block-info))) (body-normalized (orgstrap-norm body)) (content-checksum (intern (secure-hash orgstrap-cypher body-normalized)))) (eq orgstrap-block-checksum content-checksum))))) (unless (fboundp #'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-portable)) (let (enable-local-eval) (vc-find-file-hook)) (let ((ocbe org-confirm-babel-evaluate) (obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (when (eq org-confirm-babel-evaluate #'orgstrap--confirm-eval) (setq-local org-confirm-babel-evaluate ocbe)) (ignore-errors (org-set-visibility-according-to-property))) (warn "No orgstrap block."))))
