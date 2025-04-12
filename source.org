@@ -5121,9 +5121,12 @@ docker run \
 -v "${_path_dockerfiles}"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 ${1} \
-/bin/sh -c 'set -o pipefail; { emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if using podman did you container init?"; exit 1; } } || _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
+//bin/sh -c 'set -o pipefail; { emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if using podman did you container init?"; exit 1; } } || _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
 }
 #+end_src
+The double slash in =//bin/sh= is to prevent git bash on windows from
+rewriting =/bin/sh= -> =C:/Program Files/Git/bin/sh.exe= and failing.
+Hacks, hacks all the way down. See https://stackoverflow.com/a/68795519.
 
 #+name: &musl-run-nox-quickpkg
 #+begin_src bash
@@ -11095,13 +11098,13 @@ and then to the tangle target to the block contents
 (defun make-screen-vars ()
   (apply #'format
          "export _use_podman=%s _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
-_in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_binpkgs=%S _in_path_distcc_hosts=%S _in_path_ssh=%S \\
+_in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_binpkgs=%S _in_path_distcc_hosts=%S _in_path_ssh=%S \\
 %s %s %s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
                   (list use-podman refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
           (append
-           (list path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
+           (list default-directory path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
            ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
            ;; the difference seems to be whether it makes sense to embed default paths in this file
            ;; because in some cases e.g. paths with identifiers in their name, defaults are not helpful
@@ -11320,7 +11323,9 @@ currently only sbcl static uses this but other things might need it in the futur
           (cli-ssc (cli-opt "--path-sparcron-sparcur-config"))
           (cli-ss  (cli-opt "--path-sparcron-secrets"))
           (cli-sg  (cli-opt "--path-sparcron-gsaro")))
-      (setq argv nil) ; FIXME should we allow the uif to see argv? probably not?
+      (unless (or no-screen (string= system-type "windows-nt"))
+        ;; need to be able to pass argv to the emacs subprocess
+        (setq argv nil)) ; FIXME should we allow the uif to see argv? probably not?
       (when cli-uif
         (load cli-uif)
         (setq user-init-file cli-uif))
@@ -11348,27 +11353,21 @@ currently only sbcl static uses this but other things might need it in the futur
         (when no-screen-start-gui
           ;; FIXME better handling of differential dispatch please ...
           (when build
-            ;; have to pass build in argv so the variables will set but we don't actually want to build
-            (setq build nil)
+            (fix-ocbe-source)
             (setq comint-scroll-to-bottom-on-output t)
             (build-no-gui)
             (switch-to-buffer
-             (display-buffer "org-session"))))
+             (display-buffer "org-session"))
+            ;; have to pass build on argv so variables will be set
+            ;; correctly but we don't actually want to run build
+            (setq build nil)))
         (when build
-          ;; either use bash internally here (bad) or try to use screen
-          ;; currently going with screen since we have a hack for passing vars
-          ;;(message "build:\n%s" (make-screen-vars))
+          ;; bash session async and screen are now both implemented
+          ;; general steps:
           ;; check that setup was run correctly, if not, fail
-          ;; start screen
+          ;; start screen or start an emacs process that is not in batch mode
           ;; start up the packages server
           ;; run build
-          ;; TODO block until build finishes or fails
-          (fix-ocbe-source)
-          ;; because of how ob-screen calls work we have to test whether
-          ;; the package server is running from elisp otherwise we don't
-          ;; know what we need to do at startup FIXME also there isn't
-          ;; a convenient way to capture the return value if something
-          ;; fails here :/
           (if (or no-screen (string= system-type "windows-nt"))
               (let ((emacs-command (expand-file-name invocation-name invocation-directory)))
                 (apply
@@ -11399,6 +11398,12 @@ currently only sbcl static uses this but other things might need it in the futur
                       (file-error
                        (unless (string= (caddr out-err) "Connection refused")
                          (signal (car out-err) (cdr out-err)))))))
+              ;; because of how ob-screen calls work we have to test whether
+              ;; the package server is running from elisp otherwise we don't
+              ;; know what we need to do at startup FIXME also there isn't
+              ;; a convenient way to capture the return value if something
+              ;; fails here :/
+              (fix-ocbe-source)
               (unless package-server-running
                 (let ((pkg-process (execute-src-block "package-server-cli")))
                   (while (eq (process-status pkg-process) 'run)
@@ -11553,7 +11558,6 @@ exit 1
 # close powershell comment #>
 # Local Variables:
 # indent-tabs-mode: nil
-# tab-width: 4
 # org-adapt-indentation: nil
 # org-edit-src-content-indentation: 0
 # eval: (progn (setq-local orgstrap-min-org-version "8.2.10") (let ((a (org-version)) (n orgstrap-min-org-version)) (or (fboundp #'orgstrap--confirm-eval) (not n) (string< n a) (string= n a) (error "Your Org is too old! %s < %s" a n))) (defun orgstrap-norm-func--dprp-1-0 (body) (let ((p (read (concat "(progn\n" body "\n)"))) (m '(defun defun-local defmacro defvar defvar-local defconst defcustom)) print-quoted print-length print-level) (cl-labels ((f (b) (cl-loop for e in b when (listp e) do (or (and (memq (car e) m) (let ((n (nthcdr 4 e))) (and (stringp (nth 3 e)) (or (cl-subseq m 3) n) (f n) (or (setcdr (cddr e) n) t)))) (f e))) p)) (prin1-to-string (f p))))) (unless (boundp 'orgstrap-norm-func) (defvar-local orgstrap-norm-func orgstrap-norm-func-name)) (defun orgstrap-norm-embd (body) (funcall orgstrap-norm-func body)) (unless (fboundp #'orgstrap-norm) (defalias 'orgstrap-norm #'orgstrap-norm-embd)) (defun orgstrap-org-src-coderef-regexp (_fmt &optional label) (let ((fmt org-coderef-label-format)) (format "\\([:blank:]*\\(%s\\)[:blank:]*\\)$" (replace-regexp-in-string "%s" (if label (regexp-quote label) "\\([-a-zA-Z0-9_][-a-zA-Z0-9_ ]*\\)") (regexp-quote fmt) nil t)))) (unless (fboundp #'org-src-coderef-regexp) (defalias 'org-src-coderef-regexp #'orgstrap-org-src-coderef-regexp)) (defun orgstrap--expand-body (info) (let ((coderef (nth 6 info)) (expand (if (org-babel-noweb-p (nth 2 info) :eval) (org-babel-expand-noweb-references info) (nth 1 info)))) (if (not coderef) expand (replace-regexp-in-string (org-src-coderef-regexp coderef) "" expand nil nil 1)))) (defun orgstrap--confirm-eval-portable (lang _body) (not (and (member lang '("elisp" "emacs-lisp")) (let* ((body (orgstrap--expand-body (org-babel-get-src-block-info))) (body-normalized (orgstrap-norm body)) (content-checksum (intern (secure-hash orgstrap-cypher body-normalized)))) (eq orgstrap-block-checksum content-checksum))))) (unless (fboundp #'orgstrap--confirm-eval) (defalias 'orgstrap--confirm-eval #'orgstrap--confirm-eval-portable)) (let (enable-local-eval) (vc-find-file-hook)) (let ((ocbe org-confirm-babel-evaluate) (obs (org-babel-find-named-block "orgstrap"))) (if obs (unwind-protect (save-excursion (setq-local orgstrap-norm-func orgstrap-norm-func-name) (setq-local org-confirm-babel-evaluate #'orgstrap--confirm-eval) (goto-char obs) (org-babel-execute-src-block)) (when (eq org-confirm-babel-evaluate #'orgstrap--confirm-eval) (setq-local org-confirm-babel-evaluate ocbe)) (ignore-errors (org-set-visibility-according-to-property))) (warn "No orgstrap block."))))
