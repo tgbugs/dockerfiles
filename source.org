@@ -81,7 +81,7 @@ We have to prepare all the binpkg repos so that during a first build
 they have some basic metadata, otherwise trying to emerge binpkgs will
 fail with strange errors in strange ways.
 #+name: &run-quickpkg-first-time
-#+begin_src bash :noweb yes :results none :var _use_podman=(if use-podman "1" "")
+#+begin_src bash :noweb yes :results none :var _use_podman=(if use-podman "1" "") :var _in_path_binpkgs=(or path-binpkgs)
 # bash-safe-block
 shopt -s expand_aliases
 if [ -n "${_use_podman}" ]; then
@@ -90,7 +90,7 @@ fi
 for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
     docker pull docker.io/gentoo/stage3:${stage3}
     docker run \
-    -v <<&host-binpkgs-root-path()>>/<<&host-binpkgs-repo-name()>>:/var/cache/binpkgs \
+    -v ${_in_path_binpkgs}:/var/cache/binpkgs \
     -e FEATURES=binpkg-multi-instance \
     -e QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022" \
     --rm \
@@ -245,6 +245,7 @@ unset __is3_m1 __is3_0 __is3_1 __src_from_img
 HISTFILE=~/.org_session_history
 <<&screen-set-vars>>
 <<&workflow-vars>>
+<<&builder-vars>>
 <<&package-server-funs>>
 package-server
 #+end_src
@@ -11094,7 +11095,7 @@ and then to the tangle target to the block contents
 (defun make-screen-vars ()
   (apply #'format
          "export _use_podman=%s _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
-_path_distfiles=%S _path_binpkgs_root=%S _path_binpkgs=%S _path_distcc_hosts=%S _path_ssh=%S \\
+_in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_binpkgs=%S _in_path_distcc_hosts=%S _in_path_ssh=%S \\
 %s %s %s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
