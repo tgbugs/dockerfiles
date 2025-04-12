@@ -211,7 +211,6 @@ _live_rebuild=  # rebuild 9999 ebuilds e.g. from git
 _nopkgbldr=     # do not run package building steps
 _only_static=   # only build static images
 
-<<&workflow-vars>>
 <<&workflow-common>>
 #+end_src
 
@@ -254,7 +253,6 @@ package-server
 #+begin_src screen
 HISTFILE=~/.org_session_history
 <<&screen-set-vars>>
-<<&workflow-vars>>
 <<&workflow-common>>
 #+end_src
 
@@ -292,9 +290,9 @@ run-main
 #+name: &workflow-main
 #+begin_src screen
 function run-main () {
-package-server || return $?
 pull musl || echo "ERROR pull musl failed with ${?}"
 pull gnu || echo "ERROR pull gnu failed with ${?}"
+package-server-running || { CODE=$?; echo "ERROR package-server is not running"; return ${CODE}; }
 pushd ~/git/dockerfiles  # FIXME hardcoded path
 tangle && {
   # FIXME popd sigh ... unwind-protect when
@@ -309,24 +307,50 @@ popd
 }
 #+end_src
 
+There are many ways to run the package server, the easiest one is if
+the host system has python. If not, given the tools at hand and the
+data we pull anyway, the best alternative is the musl image python.
 #+name: &package-server-funs
 #+begin_src screen
-function package-server () {
-# FIXME needs to run in another terminal, container, or daemon
-# but for now it blocks other commands which is ok
-curl --fail --head http://localhost:<<&host-binpkgs-port()>>/${_binpkgs_repo_name}/Packages || {
-    _error=$?
-    # curl returns a 22 if the server is up but there is some other issue e.g. 404
-    # that we might hit during first run when the repo doesn't exist
-    if [ ${_error} -ne 22 ]; then
-        pushd ${_path_binpkgs_root} || return $?
-        # XXX FIXME WARNING if ${_path_binpkgs_root} is removed or moved or changed
-        # then this server probably needs to be restarted
-        python -m http.server <<&host-binpkgs-port()>> --bind 127.0.0.1
-        popd
-        return 1  # indicate that package server was not and now is not running
-    fi
+function package-server-running () {
+local host_python have_host_python check_command
+host_python=$(command -v python)
+have_host_python=$?
+check_command="import sys, socket as k; s = k.socket(k.AF_INET, k.SOCK_STREAM); r = s.connect_ex(('localhost', <<&host-binpkgs-port()>>)); s.close(); sys.exit(r)"
+if [ ${have_host_python} -eq 0 ]; then
+   echo using host python for package-server-running 1>&2
+   ${host_python} -c "${check_command}" || return $?
+else
+    echo using ${_musl_img_stage3} python for package-server 1>&2
+    docker run --network host --rm ${_musl_img_stage3} python -c "${check_command}" || return $?
+fi
 }
+
+function package-server () {
+local host_python have_host_python
+host_python=$(command -v python)
+have_host_python=$?
+if [ ! -d "${_path_binpkgs}" ]; then
+    echo package-server setup incomplete missing ${_path_binpkgs} 1>&2
+    echo please run ./source.org setup 1>&2
+    return 1
+fi
+if [ ! -f "${_path_binpkgs}/Packages" ]; then
+    echo package-server setup incomplete missing ${_path_binpkgs}/Packages 1>&2
+    echo please run ./source.org setup 1>&2
+    return 1
+fi
+if [ ${have_host_python} -eq 0 ]; then
+   echo using host python for package-server 1>&2
+   ${host_python} -m http.server -d ${_path_binpkgs_root} --bind 127.0.0.1 <<&host-binpkgs-port()>>
+else
+    echo using ${_musl_img_stage3} python for package-server-running 1>&2
+    docker run \
+           -v ${_path_binpkgs_root}:/tmp/binpkgs \
+           -p <<&host-binpkgs-port()>>:8000 \
+           --rm -t ${_musl_img_stage3} \
+           python -m http.server -d /tmp/binpkgs 8000
+fi
 }
 #+end_src
 
@@ -342,6 +366,8 @@ shopt -s expand_aliases
 if [ -n "${_use_podman}" ]; then
 alias docker=podman
 fi
+
+<<&workflow-vars>>
 
 <<&builder-vars>>
 
