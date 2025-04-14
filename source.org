@@ -1129,10 +1129,18 @@ COPY --from=builder /build /
 location = /var/db/docker-profile
 #+end_src
 **** binrepos.conf
+=tgbugs-multi-sigh= needed to work around linux and macos/windows-nt
+networking differences without forcing the docker sources to be
+different between build platforms (which would utterly defeat the
+point of trying to use docker for reproducibility and robustness).
 #+begin_src conf :tangle ./docker-profile/base/binrepos-multi.conf
 [tgbugs-multi]
 priority = 100
 sync-uri = http://local.binhost:<<&host-binpkgs-port()>>/multi
+
+[tgbugs-multi-sigh]
+priority = 99
+sync-uri = http://host.docker.internal:<<&host-binpkgs-port()>>/multi
 #+end_src
 **** package.accept_keywords
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
@@ -8643,7 +8651,7 @@ dev-lisp/sbcl
 [[file:~/git/NOFORK/sbcl/README.static-executable]]
 make the patches since they are too much to tangle
 #+name: &fn-sbcl-static-patch
-#+begin_src bash :noweb yes
+#+begin_src bash :noweb yes :tangle ./bin/sbcl-funs.sh
 function sbcl-clone-fetch () {
 local hrp rp
 hrp="./<<&helper-repos()>>"
@@ -8683,6 +8691,10 @@ popd > /dev/null 2>&1
 }
 
 function sbcl-get-portage-versions () {
+ls /var/db/repos/gentoo/dev-lisp/sbcl | grep sbcl | sed 's/\.ebuild//' | awk -F- '{ print $2 }'
+}
+
+function sbcl-get-portage-versions-external () {
 #docker container inspect local-portage-snap > /dev/null || \
 #docker create -v /var/db/repos/gentoo --name local-portage-snap docker.io/gentoo/portage:latest /bin/true
 
@@ -8696,11 +8708,14 @@ function sbcl-get-portage-versions () {
 docker run \
 --volumes-from local-repos-snap \
 --rm tgbugs/musl:updated \
-ls /var/db/repos/gentoo/dev-lisp/sbcl \
-| grep sbcl | sed 's/\.ebuild//' | awk -F- '{ print $2 }'
+sh -c "ls /var/db/repos/gentoo/dev-lisp/sbcl | grep sbcl | sed 's/\.ebuild//' | awk -F- '{ print $2 }'"
 }
 
 function sbcl-get-would-install () {
+emerge -pq --nodeps sbcl 2>/dev/null | grep ebuild | awk '{$1=$1}1' | awk -F- '{ print $NF }'
+}
+
+function sbcl-get-would-install-external () {
 # used to make sure we have generated the patch
 # awk '{$1=$1}1' trims trailing whitespace
 #docker container inspect local-portage-snap > /dev/null || \
@@ -8716,8 +8731,7 @@ function sbcl-get-would-install () {
 docker run \
 --volumes-from local-repos-snap \
 --rm tgbugs/musl:updated \
-emerge -pq --nodeps sbcl 2>/dev/null \
-| grep ebuild | awk '{$1=$1}1' | awk -F- '{ print $NF }'
+sh -c "emerge -pq --nodeps sbcl 2>/dev/null | grep ebuild | awk '{$1=$1}1' | awk -F- '{ print $NF }'"
 }
 
 function sbcl-to-generate () {
@@ -8765,6 +8779,16 @@ done
 #+end_src
 
 #+name: &musl-run-sbcl-generate-patches-etc
+#+begin_src bash
+docker run \
+--volumes-from local-repos-snap \
+-v ${_path_dockerfiles}:/dockerfiles \
+--rm tgbugs/musl:updated \
+bash -c "pushd /dockerfiles; source bin/sbcl-funs.sh; sbcl-clone-fetch && sbcl-ensure-latest && sbcl-generate-patches; CODE=$?; echo TODO chown on linux?; exit ${CODE}" &&
+./source.org non-tangled
+#+end_src
+
+#+name: &musl-run-sbcl-generate-patches-etc-old
 #+begin_src bash
 sbcl-clone-fetch && \
 sbcl-ensure-latest && \
@@ -11100,7 +11124,8 @@ and then to the tangle target to the block contents
            (cons path-sparcron-sparcur-config 'path-sparcron-sparcur-config)
            (cons path-sparcron-secrets 'path-sparcron-secrets)
            (cons path-sparcron-gsaro 'path-sparcron-gsaro)
-           ))
+           ;; we check patch source paths because the target paths are deleted and recreated during tangle
+           (cons (expand-file-name "<<&helper-repos()>>/sbcl/patches/dev-lisp" default-directory) 'path-sbcl-patch-source)))
          (dne-paths
           (cl-loop
            for (f . var) in check-paths
