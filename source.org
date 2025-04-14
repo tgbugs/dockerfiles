@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: ce055b851650a39d532c1a9d75bcc504195559bfe911fb451cc16e39627abd08; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 11dd2d684dbf364d288f54e51a794286889ffa817c1085c1e593d14e64e3c08b; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -849,9 +849,8 @@ For the updated process see the [[retag-example][Push retag example block]] abov
 Default variable values that will eventually have cli overrides.
 # At the moment I'm not going to implement full command line processing via ow-cli.
 #+name: &host-dockerfiles-path
-#+begin_src elisp
-; elisp-safe-block
-default-directory
+#+begin_src elisp :var value=(or path-dockerfiles)
+value
 #+end_src
 
 #+name: &default-host-binpkgs-root-path
@@ -11072,6 +11071,7 @@ and then to the tangle target to the block contents
 (defvar-local host-binpkgs-port "<<&host-binpkgs-port()>>")
 (defvar-local host-binpkgs-repo-name "<<&host-binpkgs-repo-name()>>")
 
+(defvar-local path-dockerfiles default-directory)
 (defvar-local path-distfiles (expand-file-name "<<&default-host-distfiles-path()>>"))
 (defvar-local path-binpkgs-root (expand-file-name "<<&default-host-binpkgs-root-path()>>"))
 (defvar-local path-binpkgs (expand-file-name host-binpkgs-repo-name path-binpkgs-root))
@@ -11372,6 +11372,12 @@ currently only sbcl static uses this but other things might need it in the futur
           (cli-pretend (member "--pretend" argv)) ; FIXME sequencing wrt build-image and cli-images
           (cli-uif (cli-opt "--user-init-file"))
           (cli-ued (cli-opt "--user-emacs-directory"))
+          (cli-path-dockerfiles  (cli-opt "--path-dockerfiles"))
+          (cli-path-distfiles    (cli-opt "--path-distfiles"))
+          (cli-path-binpkgs-root (cli-opt "--path-binpkgs-root"))
+          (cli-path-binpkgs      (cli-opt "--path-binpkgs"))
+          (cli-path-distcc-hosts (cli-opt "--path-distcc-hosts"))
+          (cli-path-ssh          (cli-opt "--path-ssh"))
           (cli-ssc (cli-opt "--path-sparcron-sparcur-config"))
           (cli-ss  (cli-opt "--path-sparcron-secrets"))
           (cli-sg  (cli-opt "--path-sparcron-gsaro")))
@@ -11381,7 +11387,13 @@ currently only sbcl static uses this but other things might need it in the futur
       (when cli-uif
         (load cli-uif)
         (setq user-init-file cli-uif))
-      (let ((path-sparcron-sparcur-config (or cli-ssc path-sparcron-sparcur-config ""))
+      (let ((path-dockerfiles (or cli-path-dockerfiles path-dockerfiles ""))
+            (path-distfiles (or cli-path-distfiles path-distfiles ""))
+            (path-binpkgs-root (or cli-path-binpkgs-root path-binpkgs-root ""))
+            (path-binpkgs (or cli-path-binpkgs path-binpkgs ""))
+            (path-distcc-hosts (or cli-path-distcc-hosts path-distcc-hosts ""))
+            (path-ssh (or cli-path-ssh path-ssh ""))
+            (path-sparcron-sparcur-config (or cli-ssc path-sparcron-sparcur-config ""))
             (path-sparcron-secrets (or cli-ss path-sparcron-secrets ""))
             (path-sparcron-gsaro (or cli-sg path-sparcron-gsaro "")))
         (dockerfiles-source-path-check cli-check-paths test) ; FIXME TODO can we use --pretend here too?
