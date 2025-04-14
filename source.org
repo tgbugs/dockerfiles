@@ -3993,7 +3993,7 @@ usually stable per system.
 #+name: &builder-vars
 #+begin_src bash :noweb yes
 _path_dockerfiles=${_in_path_dockerfiles:-${PWD}}
-_path_binpkgs_root=${_in_path_root_binpkgs:-<<&host-binpkgs-root-path()>>}
+_path_binpkgs_root=${_in_path_binpkgs_root:-<<&host-binpkgs-root-path()>>}
 _binpkgs_repo_name=${_in_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
 _path_binpkgs=${_in_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
 _path_distfiles=${_in_path_distfiles:-<<&host-distfiles-path()>>}
@@ -4236,7 +4236,7 @@ targets_nogruser=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-(group|user)/')
 # except the situation is slightly different in that ghc is built, but the ghcbootstrap use flag causes issues
 # TODO generalize for cases where the bootstrapped package needs to be present, pulled in, built, etc.
 # FIXME atm have to manually place ghc-9.2.8-1.gpkg.tar in binpkgs/multi/dev-lang/ghc
-# and then run emaint binhost --fix TODO automate this OR avoid ghc entirely
+# and then run builder-run emaint binhost --fix TODO automate this OR avoid ghc entirely
 # my copy of ob-cypher has been updated to support gv2gml which can be loaded by yEd
 # so ghc could be removed from the critical path
 # https://files.olympiangods.org/ghc-9.2.8-1.gpkg.tar
@@ -4324,8 +4324,10 @@ docker run \
 <<&builder-args>>
 ${_tm_pbs} \
 "${@}"
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+return ${CODE}
 }
 
 function gnu-builder-run () {
@@ -4335,8 +4337,10 @@ docker run \
 <<&builder-args-gnu>>
 ${_tg_pbs} \
 "${@}"
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
+return ${CODE}
 }
 
 function static-builder-run () {
@@ -4346,8 +4350,10 @@ docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
 "${@}"
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+return ${CODE}
 }
 
 function nox-builder-run () {
@@ -4357,8 +4363,10 @@ docker run \
 <<&builder-args>>
 ${_tm_n_pbs} \
 "${@}"
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_n_pbs}) ${_tm_n_pbs}
+return ${CODE}
 }
 
 function builder-smart-live-rebuild () {
@@ -4367,8 +4375,10 @@ docker run \
 <<&builder-args>>
 ${_tm_pbs} \
 smart-live-rebuild -- --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+return ${CODE}
 }
 
 function static-builder-smart-live-rebuild () {
@@ -4378,8 +4388,10 @@ docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
 smart-live-rebuild -- --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+return ${CODE}
 }
 
 function builder-arb () {
@@ -4390,8 +4402,10 @@ docker run \
 ${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 "${@}"
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+return ${CODE}
 }
 # XXX FIXME code dupe
 function static-builder-arb () {
@@ -4402,8 +4416,10 @@ docker run \
 ${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 "${@}"
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+return ${CODE}
 }
 
 function builder-license () {
@@ -4431,8 +4447,10 @@ docker run \
 -v ${_path_dockerfiles}/musl/package-builder/package.license:/etc/portage/package.license \
 ${_builder} \
 emerge --color=y -j4 -q --keep-going --buildpkgonly -uDN @license
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
+return ${CODE}
 }
 #+end_src
 
@@ -4485,8 +4503,10 @@ docker run \
 ${_tm_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+return ${CODE}
 }
 # FIXME code dupe
 function static-builder-arb-priv () {
@@ -4498,8 +4518,10 @@ docker run \
 ${_tm_s_pbs} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
+CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
+return ${CODE}
 }
 #+end_src
 # dev-lisp/sbcl cross compile
@@ -5121,12 +5143,14 @@ docker run \
 -v "${_path_dockerfiles}"/bin/quickpkg-new:/tmp/quickpkg-new \
 --rm \
 ${1} \
-//bin/sh -c 'set -o pipefail; { emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if using podman did you container init?"; exit 1; } } || _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
+sh -c 'set -o pipefail; { emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if using podman did you container init?"; exit 1; } } || _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}'
 }
 #+end_src
-The double slash in =//bin/sh= is to prevent git bash on windows from
-rewriting =/bin/sh= -> =C:/Program Files/Git/bin/sh.exe= and failing.
-Hacks, hacks all the way down. See https://stackoverflow.com/a/68795519.
+Use =sh= without prefix to match other calls and
+avoid issues with git bash on windows rewriting
+=/bin/sh= -> =C:/Program Files/Git/bin/sh.exe=
+and failing. Hacks, hacks all the way down. See
+https://stackoverflow.com/a/68795519.
 
 #+name: &musl-run-nox-quickpkg
 #+begin_src bash
@@ -9400,7 +9424,8 @@ emerge -q dev-lisp/sbcl  # rebuild with patch
 #+begin_src screen
 function gnu-cross-musl-sbcl () {
 # FIXME super hacked way to determine whether we already bootstrapped
-{ [ -z "$(ls -A ${_path_binpkgs_root}/cross/gnu/x86_64-pc-linux-musl/dev-lisp/sbcl)" ] && gnu-cross-musl-sbcl-build; } || return 0
+gnu-builder-run sh -c 'set -o pipefail; eval $(x86_64-pc-linux-musl-emerge --info | grep PKGDIR=); cat ${PKGDIR}/Packages | grep -v multicall | grep "^USE:.\+system-bootstrap"' || gnu-cross-musl-sbcl-build
+return $?
 }
 
 function gnu-cross-musl-sbcl-build () {
@@ -9444,7 +9469,8 @@ gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-pc-l
 
 # FIXME somehow only x86_64-pc-linux-musl-emerge is installed? did we miss a cross build?
 # since we have sbcl installed on the builder we can use system-bootstrap to reduce useflag noise
-gnu-builder-run sh -c 'USE=system-bootstrap x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl'
+gnu-builder-run sh -c 'source /etc/profile; export USE=system-bootstrap; x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl; unset USE;'
+
 # reminder can't use LD_LIBRARY_PATH=/usr/x86_64-pc-linux-musl/usr/lib because it breaks the builder (gnu) binaries
 }
 
