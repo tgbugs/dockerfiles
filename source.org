@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: c5017365b9ada934b784a21950f93b0c993ce1d34dbc6e76276c2b92a677cfc8; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: ce055b851650a39d532c1a9d75bcc504195559bfe911fb451cc16e39627abd08; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -858,9 +858,8 @@ default-directory
 : ~/files/binpkgs
 
 #+name: &host-binpkgs-root-path
-#+begin_src elisp :noweb yes
-; elisp-safe-block
-(expand-file-name "<<&default-host-binpkgs-root-path()>>")
+#+begin_src elisp :noweb yes :var value=(or path-binpkgs-root)
+value
 #+end_src
 
 NOTE: we will not be making the repo name configurable, it only
@@ -875,27 +874,24 @@ appears to be for implementation convenience.
 : /mnt/str/portage/distfiles
 
 #+name: &host-distfiles-path
-#+begin_src elisp :noweb yes
-; elisp-safe-block
-(expand-file-name "<<&default-host-distfiles-path()>>")
+#+begin_src elisp :noweb yes :var value=(or path-distfiles)
+value
 #+end_src
 
 #+name: &default-host-distcc-hosts-path
 : /etc/distcc/hosts.docker
 
 #+name: &host-distcc-hosts-path
-#+begin_src elisp :noweb yes
-; elisp-safe-block
-(expand-file-name "<<&default-host-distcc-hosts-path()>>")
+#+begin_src elisp :noweb yes :var value=(or path-distcc-hosts)
+value
 #+end_src
 
 #+name: &default-host-ssh-path
 : /var/lib/portage/home/.ssh
 
 #+name: &host-ssh-path
-#+begin_src elisp :noweb yes
-; elisp-safe-block
-(expand-file-name "<<&default-host-ssh-path()>>")
+#+begin_src elisp :noweb yes :var value=(or path-ssh)
+value
 #+end_src
 
 #+name: &helper-repos
@@ -11076,11 +11072,11 @@ and then to the tangle target to the block contents
 (defvar-local host-binpkgs-port "<<&host-binpkgs-port()>>")
 (defvar-local host-binpkgs-repo-name "<<&host-binpkgs-repo-name()>>")
 
-(defvar-local path-distfiles (expand-file-name "<<&host-distfiles-path()>>"))
-(defvar-local path-binpkgs-root (expand-file-name "<<&host-binpkgs-root-path()>>")) ; FIXME multi
-(defvar-local path-binpkgs (concat path-binpkgs-root "/" host-binpkgs-repo-name))
-(defvar-local path-distcc-hosts (expand-file-name "<<&host-distcc-hosts-path()>>"))
-(defvar-local path-ssh (expand-file-name "<<&host-ssh-path()>>"))
+(defvar-local path-distfiles (expand-file-name "<<&default-host-distfiles-path()>>"))
+(defvar-local path-binpkgs-root (expand-file-name "<<&default-host-binpkgs-root-path()>>"))
+(defvar-local path-binpkgs (expand-file-name host-binpkgs-repo-name path-binpkgs-root))
+(defvar-local path-distcc-hosts (expand-file-name "<<&default-host-distcc-hosts-path()>>"))
+(defvar-local path-ssh (expand-file-name "<<&default-host-ssh-path()>>"))
 
 (defvar-local path-sparcron-sparcur-config nil)
 (defvar-local path-sparcron-secrets nil)
