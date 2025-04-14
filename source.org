@@ -848,8 +848,20 @@ For the updated process see the [[retag-example][Push retag example block]] abov
 * Default variables
 Default variable values that will eventually have cli overrides.
 # At the moment I'm not going to implement full command line processing via ow-cli.
-#+name: &host-binpkgs-root-path
+#+name: &host-dockerfiles-path
+#+begin_src elisp
+; elisp-safe-block
+default-directory
+#+end_src
+
+#+name: &default-host-binpkgs-root-path
 : ~/files/binpkgs
+
+#+name: &host-binpkgs-root-path
+#+begin_src elisp :noweb yes
+; elisp-safe-block
+(expand-file-name "<<&default-host-binpkgs-root-path()>>")
+#+end_src
 
 NOTE: we will not be making the repo name configurable, it only
 appears to be for implementation convenience.
@@ -859,14 +871,32 @@ appears to be for implementation convenience.
 #+name: &host-binpkgs-port
 : 8089
 
-#+name: &host-distfiles-path
+#+name: &default-host-distfiles-path
 : /mnt/str/portage/distfiles
 
-#+name: &host-distcc-hosts-path
+#+name: &host-distfiles-path
+#+begin_src elisp :noweb yes
+; elisp-safe-block
+(expand-file-name "<<&default-host-distfiles-path()>>")
+#+end_src
+
+#+name: &default-host-distcc-hosts-path
 : /etc/distcc/hosts.docker
 
-#+name: &host-ssh-path
+#+name: &host-distcc-hosts-path
+#+begin_src elisp :noweb yes
+; elisp-safe-block
+(expand-file-name "<<&default-host-distcc-hosts-path()>>")
+#+end_src
+
+#+name: &default-host-ssh-path
 : /var/lib/portage/home/.ssh
+
+#+name: &host-ssh-path
+#+begin_src elisp :noweb yes
+; elisp-safe-block
+(expand-file-name "<<&default-host-ssh-path()>>")
+#+end_src
 
 #+name: &helper-repos
 : helper-repos
@@ -3992,7 +4022,7 @@ usually stable per system.
 # but it prevents bad variables lingering
 #+name: &builder-vars
 #+begin_src bash :noweb yes
-_path_dockerfiles=${_in_path_dockerfiles:-${PWD}}
+_path_dockerfiles=${_in_path_dockerfiles:-<<&host-dockerfiles-path()>>}
 _path_binpkgs_root=${_in_path_binpkgs_root:-<<&host-binpkgs-root-path()>>}
 _binpkgs_repo_name=${_in_binpkgs_repo_name:-<<&host-binpkgs-repo-name()>>}
 _path_binpkgs=${_in_path_binpkgs:-${_path_binpkgs_root}/${_binpkgs_repo_name}}
