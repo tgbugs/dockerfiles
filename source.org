@@ -4396,7 +4396,7 @@ container-check
 docker run \
 <<&builder-args>>
 ${_tm_pbs} \
-smart-live-rebuild -- --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n
+sh -c 'rebuilds=$(live-changed); [ -n "${rebuilds}" ] && { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; }'
 CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
@@ -4409,7 +4409,7 @@ container-check
 docker run \
 <<&builder-args>>
 ${_tm_s_pbs} \
-smart-live-rebuild -- --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n
+sh -c 'rebuilds=$(live-changed); [ -n "${rebuilds}" ] && { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; }'
 CODE=$?
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
@@ -4670,7 +4670,7 @@ ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
 # FIXME need a better way to update the world file/docker set i.e. mount at runtime
 ADD world /etc/portage/sets/docker
 ADD sets/license /etc/portage/sets/license
-# ADD set-live /etc/portage/sets/live
+ADD sets/live /etc/portage/sets/live
 # ADD accept_keywords.temp /etc/portage/package.accept_keywords/temp  # XXX mount in docker run not here
 
 RUN \
@@ -4926,8 +4926,8 @@ x11-libs/gtk+
 
 #+name: world-package-builder-common
 #+begin_src conf
-app-portage/smart-live-rebuild
 #+end_src
+# app-portage/smart-live-rebuild
 
 #+name: world-package-builder-common-x
 #+begin_src conf
@@ -4951,7 +4951,15 @@ media-fonts/dejavu
 **** live
 TODO use release-next to determine which have actually changed since their last release
 and/or their last build, because smart-live-rebuild won't cut it
+
 #+begin_src conf :tangle ./musl/package-builder/sets/live
+dev-java/scigraph-bin
+dev-java/robot-bin
+dev-python/sparcur
+dev-python/interlex
+#+end_src
+
+#+begin_src conf :tangle ./musl/package-builder/sets/live-hrm
 =dev-python/augpathlib-9999
 =dev-python/clifn-9999
 =dev-python/htmlfn-9999
@@ -5017,19 +5025,23 @@ emerge --color=y --nodeps -j4 -q --keep-going @live  # TODO use live-changed
 
 from _emerge.actions import load_emerge_config
 ec = load_emerge_config()
-lives = ec.target_config.sets['live'].getAtoms()
+lives = ec.target_config.sets['live'].getAtoms()  # TODO /etc/portage/sets/live
+# FIXME better to do it from packages in general or from @docker
+# and infer ... smart-live-rebuild doesn't help us here because it only
+# works on packages that are already installed fortunately the package builder is the only
+# on that needs to know which ebuilds are actually live
 
-from gentoopm import get_package_manager
-pm = get_package_manager()
-filt = 'dev-python/ttlser'
-pkgs = [pkg for pkg in pm.installed.filter(filt)]
-pkgs[0].environ
+#from gentoopm import get_package_manager
+#pm = get_package_manager()
+#filt = 'dev-python/ttlser'
+#pkgs = [pkg for pkg in pm.installed.filter(filt)]  # FIXME except we don't want installed we want in binpkgs
+#if pkgs:
+#    pkgs[0].environ
 
 import bz2
 from gentoopm import bash
 import portage
 from portage.gpkg import gpkg
-import augpathlib as aug
 import tempfile
 
 bp = bash.get_any_bashparser()
@@ -5048,6 +5060,7 @@ def load_byte_string(bp, byte_string):
          bp.load_file(f)
 
 cp_data = {}
+ebuilds = {}
 maybe_rebuild = []
 not_live = set()
 for live in sorted(lives, reverse=True):
@@ -5109,8 +5122,9 @@ for live in sorted(lives, reverse=True):
             egit_repo_uri = bp['EGIT_REPO_URI']
 
             S = bp['S']
+            ebuilds[atom.cp] = key_ebuild, ebuild, egit_dir, egit_version
             cp_data[atom.cp] = (
-                #egit_dir,
+                egit_dir,
                 egit_version,
                 #egit_min_clone_type,
                 egit_repo_uri,
@@ -5157,6 +5171,51 @@ for natom, version, name in sorted(not_live, reverse=True):  # FIXME TODO make s
 # a deep clone is required for all of these
 # it probably makes sense to keep those repos somewhere else (i.e. not in distfiles) to keep things simple and separate from portage
 
+import sys
+import shutil
+import pathlib
+import subprocess
+
+ebuild_path = pathlib.Path('/tmp/rebuilds')
+try:
+    ebuild_path.mkdir(exist_ok=True)
+    _em = ebuild_path / 'metadata'
+    _em.mkdir(exist_ok=True)
+    _lo = '''masters = gentoo
+    thin_manifests = true
+    '''
+    with open((_em / 'layout.conf'), 'wt') as f:
+        f.write(_lo)
+
+    simple_unpack = b'\nfunction src_unpack () { git-r3_src_unpack; }\nfunction pkg_setup () { :; }\n'
+
+    for cp, (efn, ebuild, egit_dir, egit_version) in ebuilds.items():
+        cpp = ebuild_path / cp
+        cpp.mkdir(parents=True, exist_ok=True)
+        nep = cpp / efn
+        with open(nep, 'wb') as f:
+            f.write(ebuild + simple_unpack)
+
+        # use portage to sync the git-r3 repository, avoiding ssh key issues
+        # the look at FETCH_HEAD to get the latest commit (tracks overrides)
+        argv = 'ebuild', nep.as_posix(), 'digest', 'unpack', 'clean'
+        p = subprocess.Popen(argv, stderr=sys.stderr, stdout=sys.stderr)
+        out = p.communicate()
+        with open(pathlib.Path(egit_dir) / 'FETCH_HEAD', 'rt') as f:
+            new_commit = f.read().strip().split()[0]
+
+        if new_commit != egit_version:
+            rebuild.append(cp)
+
+finally:
+    shutil.rmtree(ebuild_path)
+
+print(' '.join(rebuild))
+#+end_src
+
+old approach that we no longer need since we use ebuild to fetch via git-r3
+#+begin_src python
+import augpathlib as aug
 
 class PackagePath(aug.PackagePath):
 
@@ -5169,7 +5228,7 @@ class PackagePath(aug.PackagePath):
 
 rpp = aug.RepoPath('/tmp/git-repos')
 rpp.mkdir(exist_ok=True)
-for cp, (egit_version, egit_repo_uri, S) in cp_data.items():
+for cp, (egit_dir, egit_version, egit_repo_uri, S) in cp_data.items():
     clp = rpp.clone_path(egit_repo_uri)
     if clp.exists():
         rp = clp
@@ -7590,6 +7649,7 @@ docker build \
 *** file
 #+begin_src dockerfile :tangle ./musl/tgbugs-dev/Dockerfile :mkdirp yes
 FROM tgbugs/musl:kg-dev
+<<&build-world-common>>
 #+end_src
 
 *** TODO world
@@ -9353,6 +9413,11 @@ FROM tgbugs/gnu:eselect-repo
 **** license
 #+name: set-license-package-builder-gnu
 #+begin_src conf :tangle ./gnu/package-builder/sets/license
+#+end_src
+
+**** live
+#+name: set-live-package-builder-gnu
+#+begin_src conf :tangle ./gnu/package-builder/sets/live
 #+end_src
 
 *** cross
