@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 11dd2d684dbf364d288f54e51a794286889ffa817c1085c1e593d14e64e3c08b; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 3e3be6347dc4066bf61cee6a627f2ef76fe7f8f6998bd98af5a934dad84c3482; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -184,6 +184,7 @@ sckan/*
 bin/*
 helper-repos/*
 portage-ssh/*
+retfile/*
 #+end_src
 * Ops
 ** CLI
@@ -374,7 +375,9 @@ fi
 
 <<&package-server-funs>>
 
-<<&fn-sbcl-static-patch>>
+<<&ghc-funs>>
+
+<<&sbcl-funs>>
 
 function pull () {
 # FIXME abstract _src_stage3 and _img_stage3 for gnu vs musl
@@ -542,6 +545,7 @@ echo musl start bootstrap
 container-check
 <<&musl-build-updated>> || return $?; echo mbu;
   <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
+  <<&musl-run-ghc-fetch-etc>> || return $?; echo mgfe;
   <<&musl-run-sbcl-generate-patches-etc>> || return $?; echo msgp;
   <<&musl-build-updated-user>> || return $?; echo mbuu;
 
@@ -4265,21 +4269,6 @@ targets_group=$(echo ${targets} | awk -v RS='\\s' '/^=acct-group/')
 targets_nogruser=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-(group|user)/')
 
 [ "${targets_ghc}" ] && {
-# FIXME this should probably go in a musl-bootstrap-ghc like we do with musl-bootstrap-sbcl ???
-# except the situation is slightly different in that ghc is built, but the ghcbootstrap use flag causes issues
-# TODO generalize for cases where the bootstrapped package needs to be present, pulled in, built, etc.
-# FIXME atm have to manually place ghc-9.2.8-1.gpkg.tar in binpkgs/multi/dev-lang/ghc
-# and then run builder-run emaint binhost --fix TODO automate this OR avoid ghc entirely
-# my copy of ob-cypher has been updated to support gv2gml which can be loaded by yEd
-# so ghc could be removed from the critical path
-# https://files.olympiangods.org/ghc-9.2.8-1.gpkg.tar
-# https://files.olympiangods.org/ghc-9.2.8-1.gpkg.tar.sha256
-# 2b1d9ce61b88dcbcc2d32da1b7da50122e9dd0afe805edbcf05fb16f0f0b74d6
-# this is an older version but is still in the tree, it may still work
-# but iirc it by itself is not sufficient to bootstrap
-# https://files.olympiangods.org/ghc-9.0.2-r4-5.gpkg.tar
-# https://files.olympiangods.org/ghc-9.0.2-r4-5.gpkg.tar.sha256
-# a277f6ba1d19716eec8a5fad031a072796d79ae0e1ebeb0952aa18af7f848627
 echo ghc targets
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -1 -q --keep-going ${targets_ghc}
@@ -4699,7 +4688,41 @@ FROM tgbugs/musl:xorg
 <<&musl-package-builder-common>>
 #+end_src
 
-*** ghc bootstrap
+*** ghc
+**** fetch
+Bootstrapping ghc is too hard for regular use right now.
+The workaround on new systems is to fetch existing binpkgs.
+
+#+name: &musl-run-ghc-fetch-etc
+#+begin_src bash
+ghc-fetch-flow-host
+#+end_src
+
+#+name: &ghc-funs
+#+begin_src bash :tangle ./bin/ghc-funs.sh
+function ghc-fetch-flow-host () {
+./source.org fetch-ghc || return $?
+docker run \
+--volumes-from local-repos-snap \
+-v ${_path_dockerfiles}:/dockerfiles \
+-v ${_path_binpkgs}:/var/cache/binpkgs \
+--rm \
+tgbugs/musl:updated \
+bash -c "source /dockerfiles/bin/ghc-funs.sh; ghc-fetch-flow-container;"
+}
+
+function ghc-fetch-flow-container () {
+# FIXME TODO fail if not in container
+local f fn fixhost
+[ -d /var/cache/binpkgs/dev-lang/ghc ] || mkdir -p /var/cache/binpkgs/dev-lang/ghc
+for f in $(ls /dockerfiles/retfile/cache/*/*-ghc*); do
+fn=$(basename "${f}")
+[ -f "/var/cache/binpkgs/dev-lang/ghc/${fn:65}" ] || { cp "${f}" /var/cache/binpkgs/dev-lang/ghc/"${fn:65}"; fixhost=1; };
+done
+[ -z "${fixhost}" ] || emaint binhost --fix
+}
+#+end_src
+**** bootstrap
 FIXME issue with needing to install the prior version to bootstrap the next
 ideally we would be able to test for that
 FIXME when ghc gets updated we have to reinstall all haskell packages and rebuild them
@@ -8546,7 +8569,7 @@ docker build \
 --file musl/package-builder/static.Dockerfile musl/package-builder
 #+end_src
 *** file
-FIXME sbcl patches require a manual step [[&fn-sbcl-static-patch]].
+FIXME sbcl patches require a manual step [[&sbcl-funs]].
 #+name: &file-package-builder-static
 #+begin_src dockerfile :tangle ./musl/package-builder/static.Dockerfile
 FROM tgbugs/musl:static-xorg
@@ -8557,7 +8580,7 @@ FROM tgbugs/musl:static-xorg
 ADD static.world /etc/portage/sets/docker
 
 # sbcl patches and env
-# FIXME beware may need to rerun the copy command in [[&fn-sbcl-static-patch]]
+# FIXME beware may need to rerun the copy command in [[&sbcl-funs]]
 # FIXME turns out that there is no way to detect these patches and dispatch
 # the hack is to set docs or source in the non-static so that there is a mismatch
 ADD patches/dev-lisp /etc/portage/patches/dev-lisp
@@ -8650,7 +8673,7 @@ dev-lisp/sbcl
 *** patches
 [[file:~/git/NOFORK/sbcl/README.static-executable]]
 make the patches since they are too much to tangle
-#+name: &fn-sbcl-static-patch
+#+name: &sbcl-funs
 #+begin_src bash :noweb yes :tangle ./bin/sbcl-funs.sh
 function sbcl-clone-fetch () {
 local hrp rp
@@ -8802,7 +8825,7 @@ sbcl-generate-patches && \
 # in this file, also this currently runs outside docker
 #+name: &sbcl-generate-patches
 #+begin_src bash :noweb no-export
-<<&fn-sbcl-static-patch>>
+<<&sbcl-funs>>
 sbcl-generate-patches
 #+end_src
 
@@ -11191,6 +11214,49 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
                        ""))
                    '(path-sparcron-sparcur-config path-sparcron-secrets path-sparcron-gsaro))))))
 
+(defvar retfile-cache-directory (expand-file-name "retfile/cache/" default-directory))
+(defun retfile (cypher checksum path-or-url &rest alternates)
+  "Retrieve a remote file and ensure its checksum matches." ; adapted from `reval-minimal'
+  (let* (done (o url-handler-mode) (csn (symbol-name checksum))
+              (cache-path (concat retfile-cache-directory (substring csn 0 2) "/" csn
+                                  "-" (file-name-nondirectory path-or-url))))
+    (url-handler-mode)
+    (unwind-protect
+        (cl-loop for path-or-url in (cons cache-path (cons path-or-url alternates))
+                 do (when (file-exists-p path-or-url)
+                      (let* ((buffer (find-file-noselect path-or-url :nowarn :rawfile)) ; FIXME yes ffns is bad
+                             (buffer-checksum (intern (secure-hash cypher buffer))))
+                        (if (eq buffer-checksum checksum)
+                            (progn
+                              (unless (string= path-or-url cache-path)
+                                (let ((parent-path (file-name-directory cache-path))
+                                      make-backup-files)
+                                  (unless (file-directory-p parent-path)
+                                    (make-directory parent-path t))
+                                  (with-current-buffer buffer
+                                    (write-file cache-path))))
+                              (setq done t)
+                              (kill-buffer buffer))
+                          (kill-buffer buffer) ; kill so cannot accidentally evaled
+                          (error "reval: checksum mismatch! %s" path-or-url))))
+                 until done)
+      (unless o
+        (url-handler-mode 0)))
+    cache-path))
+
+(defun fetch-ghc ()
+  ;; hack to fetch ghc pacakges since bootstrap is not possible on musl
+  (let ((src-928
+         (retfile
+          'sha256 '2b1d9ce61b88dcbcc2d32da1b7da50122e9dd0afe805edbcf05fb16f0f0b74d6
+          "https://files.olympiangods.org/ghc-9.2.8-1.gpkg.tar"))
+        (src-902
+         (retfile
+          'sha256 'a277f6ba1d19716eec8a5fad031a072796d79ae0e1ebeb0952aa18af7f848627
+          "https://files.olympiangods.org/ghc-9.0.2-r4-5.gpkg.tar"))
+        (ghc-path (expand-file-name "dev-lang/ghc" path-binpkgs))))
+  nil)
+
 (defun run-setup ()
   ;; docker buildx is installed
   ;; docker daemon config ; XXX this can't be done due to bad design of docker (investigate podman)
@@ -11274,7 +11340,7 @@ currently only sbcl static uses this but other things might need it in the futur
   ;; the patches ... so the logical thing would be to enable this here for
   ;; manual workflows and to be able to run just this section at the right
   ;; point in +run-main i think+ run-musl
-  ;; TODO run [[&fn-sbcl-static-patch]] and friends as well
+  ;; TODO run [[&sbcl-funs]] and friends as well
   ;; WARNING sbcl-generate-patches is currently dependent on tgbugs/musl:updated
   ;; we could make it dependent only on gentoo/stage3:amd64-musl-hardened
   ;; local-portage-snap but it would still need to run after tangle
@@ -11380,6 +11446,7 @@ currently only sbcl static uses this but other things might need it in the futur
         (tangle (member "tangle" argv))
         (non-tangled (member "non-tangled" argv))
         (build-image (member "build-image" argv)) ; FIXME yes the naming is annoying
+        (fetch-ghc (member "fetch-ghc" argv))
         (test (member "test" argv)))
     (let ((no-screen    (and build (member "--no-screen" argv)))
           (refresh      (and build (member "--refresh" argv)))
@@ -11439,6 +11506,8 @@ currently only sbcl static uses this but other things might need it in the futur
               (defalias 'org-babel-prep-session:screen #'dockerfiles-source-org-babel-prep-session:screen))))
         (when setup
           (run-setup))
+        (when fetch-ghc
+          (fetch-ghc))
         (when no-screen-start-gui
           ;; FIXME better handling of differential dispatch please ...
           (when build
