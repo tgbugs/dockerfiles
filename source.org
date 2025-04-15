@@ -248,7 +248,7 @@ HISTFILE=~/.org_session_history
 <<&workflow-vars>>
 <<&builder-vars>>
 <<&package-server-funs>>
-package-server
+package-server-running || package-server
 #+end_src
 
 #+name: workflow-cli
