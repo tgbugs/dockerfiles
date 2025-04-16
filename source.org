@@ -3199,7 +3199,7 @@ docker run \
 *** build
 #+name: &musl-build-package-builder-musl
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:package-builder-musl \
 --file musl/package-builder/musl.Dockerfile musl/package-builder
 #+end_src
@@ -4645,7 +4645,7 @@ TODO gnu builder cross
 # cp -r patches/ musl/package-builder/
 #+name: &musl-build-package-builder
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:package-builder \
 --file musl/package-builder/Dockerfile musl/package-builder
 #+end_src
@@ -4676,6 +4676,15 @@ ADD sets/live /etc/portage/sets/live
 RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
 && echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
+
+# FIXME ideally this should build from a set ... maybe @builder ?
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+   emerge -j4 -q -uDN app-portage/gentoopm \
+   --getbinpkg \
+   --exclude sys-process/procps \
+|| echo $? > /emerge-fail \
+<<&archive-or-rm>>
+
 #+end_src
 
 We don't add distcc until we get to the builder here to avoid issues
@@ -5330,7 +5339,7 @@ app-xemacs/xemacs-packages-all
 *** build
 #+name: &musl-build-package-builder-nox
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:package-builder-nox \
 --file musl/package-builder/nox.Dockerfile musl/package-builder
 #+end_src
@@ -8624,7 +8633,7 @@ docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 *** build
 #+name: &musl-build-static-package-builder
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:static-package-builder \
 --file musl/package-builder/static.Dockerfile musl/package-builder
 #+end_src
@@ -9374,7 +9383,7 @@ quickpkg-image tgbugs/gnu:package-builder
 *** build
 #+name: &gnu-build-package-builder
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/gnu:package-builder \
 --file gnu/package-builder/Dockerfile gnu/package-builder
 #+end_src
