@@ -91,7 +91,6 @@ for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
     docker pull docker.io/gentoo/stage3:${stage3}
     docker run \
     -v ${_in_path_binpkgs}:/var/cache/binpkgs \
-    -e FEATURES=binpkg-multi-instance \
     -e QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022" \
     --rm \
     docker.io/gentoo/stage3:${stage3} \
@@ -797,7 +796,6 @@ function docker-quickpkg () {
 # FIXME TODO pass the image to package
 docker run \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
--e FEATURES=binpkg-multi-instance \
 -e QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022" \
 --rm \
 tgbugs/musl:static-xorg \
@@ -1665,8 +1663,6 @@ INSTALL_MASK="${INSTALL_MASK}
 BINPKG_FORMAT="gpkg"
 BINPKG_COMPRESS="zstd"
 BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
-
-FEATURES="${FEATURES} binpkg-multi-instance"
 
 # this overrides any parent profile that sets EMERGE_DEFAULT_OPTS
 # according to the wiki --jobs MUST be set here and explains why
@@ -9484,12 +9480,14 @@ Yeah ... the usual issue with cross compiling zlib/zstd support.
 <<&config-cross-sbcl-package.use>>
 #+end_src
 
+We no longer need to set additional =FEATURES= for cross-make because
+portage now defaults to =binpkg-multi-instance= and crossdev includes
+=buildpkg= in =FEATURES= by default.
 #+begin_src conf :tangle ./gnu/package-builder/cross-make.defaults
 BINPKG_FORMAT="gpkg"
 BINPKG_COMPRESS="zstd"
 BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
-FEATURES="${FEATURES} binpkg-multi-instance"
-EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"  # FIXME portageq shows bru opt twice ??
+EMERGE_DEFAULT_OPTS="--jobs 4 --binpkg-respect-use=y"
 #+end_src
 
 work around lack of cross compile support in =src_compile= during system-bootstrap
