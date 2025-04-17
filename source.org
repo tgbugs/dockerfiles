@@ -4135,11 +4135,6 @@ gnu-container-check
 function builder-bootstrap () {
 local _builder CODE
 _builder=${_tm_pbs}
-container-check
-
-docker run \
-<<&builder-args>>
-${_builder} \
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
@@ -4920,7 +4915,6 @@ x11-libs/gtk+
 #+name: world-package-builder-common
 #+begin_src conf
 #+end_src
-# app-portage/smart-live-rebuild
 
 #+name: world-package-builder-common-x
 #+begin_src conf
