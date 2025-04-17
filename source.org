@@ -3015,12 +3015,12 @@ emerge --info 2>&1 | { grep Invalid\ atom && exit 1; exit 0; }
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 [ $(emerge --info | grep -o 'PYTHON_TARGETS="[^"]\+"') = \
   $(bzgrep -o 'PYTHON_TARGETS="[^"]\+"' /var/db/pkg/dev-python/wheel-*/environment.bz2) ] \
-|| emerge -uDN -q -j4 --getbinpkg @world \
+|| emerge -uDN -q --getbinpkg @world \
 <<&archive-or-rm>>
 
 # FIXME shouldn't we be using binhosts for this step as well?
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q \
+emerge -q \
    --getbinpkg \
    dev-vcs/git \
    app-eselect/eselect-repository \
@@ -3071,7 +3071,7 @@ FROM tgbugs/musl:eselect-repo
 #+name: &updated-common
 #+begin_src dockerfile
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN @system @world \
+emerge -q -uDN @system @world \
    --getbinpkg \
    --keep-going \
    --exclude sys-process/procps \
@@ -3238,24 +3238,24 @@ emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if u
 _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}
 }
 
-USE="-harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
+USE="-harfbuzz" emerge -1q --usepkg media-libs/freetype
 doqp
 
 # have to set -cairo here otherwise harfbuzz -truetype will fail to build
-USE="-cairo -truetype" emerge -j4 -1q --usepkg media-libs/harfbuzz
+USE="-cairo -truetype" emerge -1q --usepkg media-libs/harfbuzz
 doqp
 
-USE="harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
+USE="harfbuzz" emerge -1q --usepkg media-libs/freetype
 doqp
 
-USE="cairo truetype" emerge -j4 -1q --usepkg media-libs/harfbuzz
+USE="cairo truetype" emerge -1q --usepkg media-libs/harfbuzz
 doqp
 
 # the static-libs variants of freetype
-USE="static-libs -harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
+USE="static-libs -harfbuzz" emerge -1q --usepkg media-libs/freetype
 doqp
 
-USE="static-libs harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
+USE="static-libs harfbuzz" emerge -1q --usepkg media-libs/freetype
 doqp
 #+end_src
 
@@ -3301,8 +3301,8 @@ for variant in "${statics[@]}"; do  # have to quote the array unpacking so that 
     # FIXME --buildpkgonly means that --onlydeps --onlydeps-with-rdeps=n probably needs to be run first?
     # ok, this more or less seems to work, it does unpack the binary before checking to see that it came from a binary
     # so it is not 100% efficient, but seems ok?
-    emerge -uDNq -j4 --keep-going --onlydeps --onlydeps-with-rdeps=n ${@} # || return $?
-    emerge -uDNq -j4 --keep-going --buildpkgonly ${@} # || return $?
+    emerge -uDNq --keep-going --onlydeps --onlydeps-with-rdeps=n ${@} # || return $?
+    emerge -uDNq --keep-going --buildpkgonly ${@} # || return $?
   done
 done
 eselect profile set ${profile_base}
@@ -3382,7 +3382,7 @@ ln -s pypy3_x /etc/portage/patches/dev-python/pypy3_10 \
 
 # FIXME /emerge-fail and &archive-or-rm have a very bad interaction
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN @system @world eselect-python \
+emerge -q -uDN @system @world eselect-python \
    --getbinpkg \
    --keep-going \
    --exclude sys-process/procps \
@@ -3702,17 +3702,18 @@ eselect profile set $PROFILE \
 # that can be use by any profile that modifies useflags on these and thus needs a rebuild
 # e.g. openjdk-nox pulls these all in, and only by sheer luck have they already been built
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -1q \
+emerge -1q \
    --getbinpkgonly \
    media-libs/freetype \
    media-libs/harfbuzz \
 # have to set -cairo here otherwise harfbuzz -truetype will fail to build
-|| USE="-cairo -harfbuzz -truetype" emerge -j4 -1q \
+|| USE="-cairo -harfbuzz -truetype" emerge -1q \
    --getbinpkg \
    media-libs/freetype \
    media-libs/harfbuzz \
+# FIXME need to quickpkg the minimal harfbuzz here, re: note above
 # remind me again why were we using -j1 here? old gcc issues?
-&& emerge -j4 -q -uDN @world \
+&& emerge -q -uDN @world \
    --getbinpkg \
    --exclude sys-process/procps \
    --keep-going \
@@ -3802,7 +3803,7 @@ RUN \
 sed -i '/racket/d' /etc/portage/package.accept_keywords/profile
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN @world \
+emerge -q -uDN @world \
    --getbinpkg \
    --exclude sys-process/procps \
    --keep-going \
@@ -3847,22 +3848,22 @@ ARG START_IMAGE=tgbugs/musl:xorg
 FROM ${START_IMAGE}
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -1q \
+emerge -1q \
    --getbinpkgonly \
    dev-java/openjdk \
 # remove openjdk-bin mask for just this bootstrap if openjdk is not present
 || { sed -i "/openjdk-bin/d" /etc/portage/package.mask/profile \
-;  emerge -j4 -q -uDN dev-java/openjdk-bin \
+;  emerge -q -uDN dev-java/openjdk-bin \
    --getbinpkg \
    --keep-going;} \
-&& emerge -j4 -q -uDN openjdk \
+&& emerge -q -uDN openjdk \
    --getbinpkg \
    --keep-going \
 || echo $? > /emerge-fail \
 <<&archive-or-rm>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -1q \
+emerge -1q \
    --getbinpkg \
    --nodeps \
    virtual/jdk virtual/jre \
@@ -4139,7 +4140,7 @@ local _builder CODE CHOST
 _builder=${_tm_pbs}
 CHOST=$(docker run --volumes-from local-repos-snap --rm ${_builder} portageq envvar CHOST)
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 
 for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl}; do
@@ -4157,7 +4158,7 @@ function static-builder-bootstrap () {
 local _builder CODE
 _builder=${_tm_s_pbs}
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 }
 
@@ -4166,7 +4167,7 @@ function nox-builder-bootstrap () {
 local _builder CODE
 _builder=${_tm_n_pbs}
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 }
 
@@ -4179,7 +4180,7 @@ gnu-container-check
 docker run \
 <<&builder-args-gnu>>
 ${_builder} \
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 
 for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl}; do
@@ -4286,12 +4287,12 @@ targets_nogruser=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-(group|user)/')
 [ "${targets_ghc}" ] && {
 echo ghc targets
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -1 -q --keep-going ${targets_ghc}
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -1 -q --keep-going ${targets_ghc}
 <<&docker-run-suffix>>
 
 
 <<&docker-run-prefix>>
-emerge --color=y -j4 -q --keep-going ${targets_ghc}
+emerge --color=y -q --keep-going ${targets_ghc}
 <<&docker-run-suffix>>
 
 }
@@ -4301,7 +4302,7 @@ echo only acct-group targets  # XXX avoid --nodeps order issues
 # FIXME this is currently broken if a dependency and a dependent are in the same list
 # because of the behavior described in https://bugs.gentoo.org/902207
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_group}
+emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${targets_group}
 <<&docker-run-suffix>>
 
 }
@@ -4309,7 +4310,7 @@ emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_gro
 [ "${targets_user}" ] && {
 echo only acct-user targets  # XXX avoid --nodeps order issues
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_user}
+emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${targets_user}
 <<&docker-run-suffix>>
 
 }
@@ -4320,12 +4321,12 @@ echo only targets_nogruser bdeps
 # e.g. due to slot depends changes
 # FIXME for some reason this fails to pull in the user packages needed by e.g. redict thus the manual merge above
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -j4 -q --keep-going -uDN ${targets_nogruser}
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -q --keep-going -uDN ${targets_nogruser}
 <<&docker-run-suffix>>
 
 echo only targets not acct-group
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --nodeps -j4 -1 -q --keep-going -u ${targets_nogruser}
+emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${targets_nogruser}
 <<&docker-run-suffix>>
 
 }
@@ -4394,7 +4395,7 @@ function builder-smart-live-rebuild () {
 local _builder CODE
 _builder=${_tm_pbs}
 <<&docker-run-prefix>>
-sh -c 'rebuilds=$(live-changed); if [ -n "${rebuilds}" ]; then { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; } fi'
+sh -c 'rebuilds=$(live-changed); if [ -n "${rebuilds}" ]; then { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -q --keep-going ${rebuilds} && emerge --color=y -q --keep-going --usepkg=n --nodeps ${rebuilds}; } fi'
 <<&docker-run-suffix>>
 }
 
@@ -4403,7 +4404,7 @@ function static-builder-smart-live-rebuild () {
 local _builder CODE
 _builder=${_tm_s_pbs}
 <<&docker-run-prefix>>
-sh -c 'rebuilds=$(live-changed); if [ -n "${rebuilds}" ]; then { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; } fi'
+sh -c 'rebuilds=$(live-changed); if [ -n "${rebuilds}" ]; then { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -q --keep-going ${rebuilds} && emerge --color=y -q --keep-going --usepkg=n --nodeps ${rebuilds}; } fi'
 <<&docker-run-suffix>>
 }
 
@@ -4412,7 +4413,7 @@ function builder-arb () {
 local _builder CODE
 _builder=${_tm_pbs}
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg=n \
 "${@}"
 <<&docker-run-suffix>>
 }
@@ -4422,7 +4423,7 @@ function static-builder-arb () {
 local _builder CODE
 _builder=${_tm_s_pbs}
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg=n \
 "${@}"
 <<&docker-run-suffix>>
 }
@@ -4440,7 +4441,7 @@ docker run \
 -v ${_path_dockerfiles}/musl/package-builder/sets/license:/etc/portage/sets/license \
 -v ${_path_dockerfiles}/musl/package-builder/package.license:/etc/portage/package.license \
 ${_builder} \
-emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @license
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -q --keep-going -uDN @license
 <<&docker-run-suffix>>
 
 container-check
@@ -4449,7 +4450,7 @@ docker run \
 -v ${_path_dockerfiles}/musl/package-builder/sets/license:/etc/portage/sets/license \
 -v ${_path_dockerfiles}/musl/package-builder/package.license:/etc/portage/package.license \
 ${_builder} \
-emerge --color=y -j4 -q --keep-going --buildpkgonly -uDN @license
+emerge --color=y -q --keep-going --buildpkgonly -uDN @license
 <<&docker-run-suffix>>
 }
 #+end_src
@@ -4478,7 +4479,7 @@ docker run \
 --env USE='-*' \
 --env ACCEPT_KEYWORDS='**' \
 ${_tm_pbs} \
-aarch64-unknown-linux-gnu-emerge --color=y --with-bdeps=y -j4 -q --keep-going \
+aarch64-unknown-linux-gnu-emerge --color=y --with-bdeps=y -q --keep-going \
 --usepkg=n --nodeps --buildpkgonly \
 ${@}
 
@@ -4503,7 +4504,7 @@ docker run \
 --security-opt seccomp=unconfined \
 <<&builder-args>>
 ${_builder} \
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg=n \
 ${@}
 <<&docker-run-suffix>>
 }
@@ -4517,7 +4518,7 @@ docker run \
 --security-opt seccomp=unconfined \
 <<&builder-args>>
 ${_builder} \
-emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
+emerge --color=y --with-bdeps=y -q --keep-going --usepkg=n \
 ${@}
 <<&docker-run-suffix>>
 }
@@ -4610,8 +4611,8 @@ tgbugs/musl:package-builder-snap
 # too many issues, just merge and get on with it
 # the lack of separation between build time dependencies and runtime is quite annoying
 # that or the dependency trees are even worse than I thought
-# emerge --color=y -j4 -q --keep-going --onlydeps
-# emerge --color=y -j4 -q --keep-going --buildpkgonly
+# emerge --color=y -q --keep-going --onlydeps
+# emerge --color=y -q --keep-going --buildpkgonly
 #+end_src
 
 TODO gnu builder cross
@@ -4876,7 +4877,7 @@ crossdev --stage4 --stable --target x86_64-pc-linux-gnu --ov-gcc /var/db/repos/g
 
 At this point we can attempt to emerge sbcl, but =src_config= will fail.
 #+begin_src bash
-x86_64-pc-linux-gnu-emerge -q -j4 sbcl
+x86_64-pc-linux-gnu-emerge -q sbcl
 #+end_src
 
 As a result, I reworked the profile so that it can support whatever
@@ -4989,14 +4990,14 @@ docker run \
 -v ${_path_dockerfiles}/musl/package-builder/00-live:/etc/portage/package.accept_keywords/00-live \
 -v ${_path_dockerfiles}/musl/package-builder/sets/live:/etc/portage/sets/live \
 ${_builder} \
-emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @live
+emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -q --keep-going -uDN @live
 # NOTE if members of @live are also dependencies they will be pulled in, this is ok
 # because they will be built only the first time and be binpkgs thereafter
 
 docker run \
 <<&builder-args>>
 ${_builder} \
-emerge --color=y --nodeps -j4 -q --keep-going @live  # TODO use live-changed
+emerge --color=y --nodeps -q --keep-going @live  # TODO use live-changed
 
 }
 #+end_src
@@ -5279,7 +5280,7 @@ docker run \
 -v ${_path_distfiles}:/var/cache/distfiles \
 --rm \
 tgbugs/musl:package-builder-nox \
-emerge --color=y -j4 -q --keep-going @docker
+emerge --color=y -q --keep-going @docker
 #+end_src
 
 *** sets
@@ -5378,7 +5379,7 @@ docker commit $(docker ps -lqf ancestor=${_tm_pb}) tgbugs/musl:distcc-snap
 docker run \
 <<&builder-args>>
 tgbugs/musl:distcc-snap \
-emerge  --color=y --with-bdeps=y -j4 -q --keep-going --usepkg \
+emerge  --color=y --with-bdeps=y -q --keep-going --usepkg \
 sys-devel/distcc \
 sys-devel/crossdev
 
@@ -5849,11 +5850,11 @@ mkdir -p /usr/local/portage/dev-java/icedtea-bin \
 && curl -L -O "https://raw.githubusercontent.com/tgbugs/musl/${TMCH}/dev-java/icedtea-bin/Manifest"
 
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q nss \
+emerge -q nss \
 <<&archive-or-rm>>
 
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-emerge -j4 -q dev-java/icedtea-bin::local --onlydeps \
+emerge -q dev-java/icedtea-bin::local --onlydeps \
 <<&archive-or-rm>>
 
 ARG SIGH="icedtea-bin-3.18.0-x86_64-musl.tar.gz \
@@ -5868,7 +5869,7 @@ RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,tar
 pushd /var/cache/distfiles \
 && for SI in ${SIGH}; do curl -L -o "${SI}" "${BASE}${SI/-musl/}"; done \
 && popd \
-&& emerge -j4 -q dev-java/icedtea-bin::local \
+&& emerge -q dev-java/icedtea-bin::local \
 <<&archive-or-rm>>
 #+end_src
 
@@ -7236,7 +7237,7 @@ test-image tgbugs/musl:kg-dev-user
 #+header: :shebang "#!/usr/bin/env sh\nset -e"
 #+begin_src bash :tangle ./bin/test/tgbugs/musl/kg-dev-user/test :mkdirp yes :noweb yes
 # <<&bash-at-abs-path>>
-#emerge --color=y -j4 -q -1q --usepkgonly pytest
+#emerge --color=y -q -1q --usepkgonly pytest
 su - user -c "sh /dockerfiles/bin/test/tgbugs/musl/kg-dev-user/test.sh"
 #+end_src
 
@@ -8216,7 +8217,7 @@ FROM tgbugs/musl:binpkg-only
 RUN echo 1  # if you need to remerge without the world bump the number (ref:sparcron-echo)
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN dev-python/sparcur \
+emerge -q -uDN dev-python/sparcur \
 <<&archive-or-rm>>
 #+end_src
 
@@ -8605,7 +8606,7 @@ docker run \
 -v ${_path_binpkgs}:/var/cache/binpkgs \
 -v ${_path_distfiles}:/var/cache/distfiles \
 tgbugs/musl:static-package-builder-snap \
-emerge --color=y -j4 -q --keep-going -uDN @docker
+emerge --color=y -q --keep-going -uDN @docker
 
 docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 #+end_src
@@ -9540,7 +9541,7 @@ src_compile() {
 Script to use to cross-built sbcl to build a native built musl sbcl.
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./bin/musl-bootstrap-from-cross-sbcl.sh :mkdirp yes
-emerge --usepkg --nodeps -1q -j4 dev-lisp/asdf dev-lisp/uiop
+emerge --usepkg --nodeps -1q dev-lisp/asdf dev-lisp/uiop
 emerge --usepkgonly dev-lisp/sbcl || {
 # we don't need to be able to merge old versions that are not in tree
 # because once we cross bootstrap our pure musl process with system-bootstrap
@@ -9557,7 +9558,7 @@ emerge -q dev-lisp/sbcl
 
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./bin/musl-bootstrap-sbcl-static.sh :mkdirp yes
-emerge --usepkg --nodeps -1q -j4 dev-lisp/asdf dev-lisp/uiop
+emerge --usepkg --nodeps -1q dev-lisp/asdf dev-lisp/uiop
 emerge --usepkgonly dev-lisp/sbcl || {
 USE='-source' emerge --usepkgonly dev-lisp/sbcl
 env-update
@@ -9576,13 +9577,13 @@ return $?
 
 function gnu-cross-musl-sbcl-build () {
 # build the starting glibc linked sbcl
-gnu-builder-run emerge -q -j4 dev-lisp/sbcl
+gnu-builder-run emerge -q dev-lisp/sbcl
 # FIXME env-update and source /etc/profile are needed to ensure that SBCL_HOME is set correctly in the environment after install
 # otherwise sbcl will look for sbcl.core in the current directory (making it look like the package is broken)
 gnu-builder-run env-update
 # gnu-builder-run source /etc/profile
 
-gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going sys-libs/musl  # FIXME not sure if needed
+gnu-builder-run x86_64-pc-linux-musl-emerge -q --keep-going sys-libs/musl || return $?  # FIXME not sure if needed
 
 # configure the gnu cross to musl environment
 # must use x86_64-pc-linux-musl NOT x86_64-gentoo-linux-musl because the gentoo musl images are x86_64-pc-linux-musl
@@ -9610,12 +9611,12 @@ docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs})
 gnu-builder-run sh -c '[ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1'
 # the symlink trick we do for ld doesn't work for libzstd so have to
 # USE='-zlib -zstd' must be set here (or rather in the crossdev package.use) to avoid tools-for-build/grovel-headers issues with missing libs
-#gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl"
-#gnu-builder-run x86_64-pc-linux-musl-emerge -q -j4 --keep-going --usepkg dev-lisp/sbcl
+#gnu-builder-run sh -c "USE='-zlib -zstd' x86_64-pc-linux-musl-emerge -q --keep-going dev-lisp/sbcl"
+#gnu-builder-run x86_64-pc-linux-musl-emerge -q --keep-going --usepkg dev-lisp/sbcl
 
 # FIXME somehow only x86_64-pc-linux-musl-emerge is installed? did we miss a cross build?
 # since we have sbcl installed on the builder we can use system-bootstrap to reduce useflag noise
-gnu-builder-run sh -c 'source /etc/profile; export USE=system-bootstrap; x86_64-pc-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl; unset USE;'
+gnu-builder-run sh -c 'source /etc/profile; export USE=system-bootstrap; x86_64-pc-linux-musl-emerge -q --keep-going dev-lisp/sbcl; unset USE;'
 
 # reminder can't use LD_LIBRARY_PATH=/usr/x86_64-pc-linux-musl/usr/lib because it breaks the builder (gnu) binaries
 }
@@ -9669,14 +9670,14 @@ to link different bits of ghc together.
 Setting =ROOT=/usr/x86_64-gentoo-linux-musl= also doesn't fix the issue.
 
 #+begin_src bash :tangle ./bin/gnu-cross-musl-ghc.sh
-USE=-doc emerge --usepkg -q -j4 dev-lang/ghc
+USE=-doc emerge --usepkg -q dev-lang/ghc
 x86_64-gentoo-linux-musl-emerge --usepkg --nodeps -q1 sys-libs/ncurses
 USE='ghcbootstrap -doc -gmp' x86_64-gentoo-linux-musl-emerge --usepkg --nodeps -q dev-lang/ghc
 #+end_src
 
 if you can somehow get the cross compile to work then you could run the following
 #+begin_src bash :tangle ./bin/musl-bootstrap-from-cross-ghc.sh
-emerge --onlydeps -1q -j4 --usepkg dev-lang/ghc
+emerge --onlydeps -1q --usepkg dev-lang/ghc
 emerge --usepkgonly dev-lang/ghc || {
 PKGDIR=/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs/ USE='ghcbootstrap -doc -gmp' emerge -K dev-lang/ghc
 emerge dev-lang/ghc
@@ -9722,9 +9723,9 @@ sam says submit a bug because it seems uncommon
 #+begin_src bash
 emerge sys-devel/crossdev
 crossdev --stage4 --stable --portage --usepkg --target x86_64-gentoo-linux-musl
-x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
+x86_64-gentoo-linux-musl-emerge -q --keep-going sys-libs/musl
 # at this point you can try to build sbcl
-x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl
+x86_64-gentoo-linux-musl-emerge -q --keep-going dev-lisp/sbcl
 
 # this hack allows the sbcl build to succeed, without it the build fails much earlier
 [ -f /lib/ld-musl-x86_64.so.1 ] || ln -s /usr/x86_64-gentoo-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1
@@ -9746,9 +9747,9 @@ docker build \
 #+begin_src dockerfile :tangle ./gnu/crossdev/Dockerfile
 FROM tgbugs/gnu:eselect-repo
 
-#emerge -j4 -q -uDN \  # yeahno
+#emerge -q -uDN \  # yeahno
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q \
+emerge -q \
    --getbinpkg \
    --keep-going \
    sys-devel/crossdev \
@@ -9798,14 +9799,14 @@ docker build \
 FROM tgbugs/gnu:crossdev
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q \
+emerge -q \
    --getbinpkg \
    --keep-going \
    dev-lang/ghc \
 <<&archive-or-rm>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-x86_64-pc-linux-musl-emerge -j4 -q \
+x86_64-pc-linux-musl-emerge -q \
    --getbinpkg \
    --keep-going \
    sys-libs/musl \
@@ -9813,7 +9814,7 @@ x86_64-pc-linux-musl-emerge -j4 -q \
 <<&archive-or-rm>>
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-USE=ghcbootstrap x86_64-pc-linux-musl-emerge -j4 -q \
+USE=ghcbootstrap x86_64-pc-linux-musl-emerge -q \
    dev-lang/ghc \
 <<&archive-or-rm>>
 #+end_src
@@ -10093,7 +10094,7 @@ FROM tgbugs/gnu:crossdev
 
 # sbcl crossdev build looks in the wrong place for asdf and uiop
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q \
+emerge -q \
    --getbinpkg \
    --keep-going \
    dev-lisp/asdf \
@@ -10107,7 +10108,7 @@ ADD alt-ld.patch /usr/x86_64-pc-linux-musl/etc/portage/patches/dev-lisp/sbcl/alt
 ADD 99-sbcl /usr/x86_64-pc-linux-musl/etc/portage/package.use/99-sbcl
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-x86_64-pc-linux-musl-emerge -j4 -q \
+x86_64-pc-linux-musl-emerge -q \
    --getbinpkg \
    --keep-going \
    sys-libs/musl \
@@ -10119,7 +10120,7 @@ RUN \
 ln -s /usr/x86_64-pc-linux-musl/usr/lib/libc.so /lib/ld-musl-x86_64.so.1
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-x86_64-pc-linux-musl-emerge -j4 -q \
+x86_64-pc-linux-musl-emerge -q \
    dev-lisp/asdf \
    dev-lisp/uiop \
    dev-lisp/sbcl \
@@ -10742,16 +10743,16 @@ ADD world /etc/portage/sets/docker
 
 # -ebuild locks is so much faster building acct-* ebuilds first is MUCH faster
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(emerge -p @docker | grep -o 'acct-.\+$' | sed 's/^/=/') \
-;  emerge -j4 -q --backtrack=99 -uDN @docker \
+FEATURES=ebuild-locks emerge -1 -q -uDN $(emerge -p @docker | grep -o 'acct-.\+$' | sed 's/^/=/') \
+;  emerge -q --backtrack=99 -uDN @docker \
 <<&archive-or-rm>>
 
 # XXX unfortunately there is not an easy way to include or exclude code conditionally
 # in a docker file, this adds noise but at least the behavior is consistent
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 if (emerge -p @license); then  \
-FEATURES=ebuild-locks emerge -1 -j4 -q -uDN $(emerge -p @license | grep -o 'acct-.\+$' | sed 's/^/=/') \
-;  emerge -j4 -q --backtrack=99 -uDN @license \
+FEATURES=ebuild-locks emerge -1 -q -uDN $(emerge -p @license | grep -o 'acct-.\+$' | sed 's/^/=/') \
+;  emerge -q --backtrack=99 -uDN @license \
 <<&archive-or-rm>>; \
 else true; fi
 #+end_src
@@ -10774,7 +10775,7 @@ packages you forgot but don't want to rebuild the whole world.
 #+name: &build-helper-temp
 #+begin_src dockerfile
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -j4 -q -uDN \
+emerge -q -uDN \
 #+end_src
 
 * package to images for tweaks
