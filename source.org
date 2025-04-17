@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 431fc20115dea5288847f9d334c33bf8e2dec6fbd290b4d296f343a3f86c71a5; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: ca88aa7f3d97b58f02f9b144f68ec8831529dc92d10011f5e5f39df1a888cf9b; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -11292,20 +11292,20 @@ and then to the tangle target to the block contents
   (apply #'format
          "export _use_podman=%s _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
 _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_binpkgs=%S _in_path_distcc_hosts=%S _in_path_ssh=%S \\
-%s %s %s;"
+%s %s %s%s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
                   (list use-podman refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
-          (append
-           (list default-directory path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
-           ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
-           ;; the difference seems to be whether it makes sense to embed default paths in this file
-           ;; because in some cases e.g. paths with identifiers in their name, defaults are not helpful
-           (mapcar (lambda (s)
-                     (if (symbol-value s)
-                         (format "_%s=%S" (string-replace "-" "_" (symbol-name s)) (symbol-value s))
-                       ""))
-                   '(path-sparcron-sparcur-config path-sparcron-secrets path-sparcron-gsaro))))))
+          (list default-directory path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
+          ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
+          ;; the difference seems to be whether it makes sense to embed default paths in this file
+          ;; because in some cases e.g. paths with identifiers in their name, defaults are not helpful
+          (mapcar (lambda (s)
+                    (if (symbol-value s)
+                        (format "_%s=%S" (string-replace "-" "_" (symbol-name s)) (symbol-value s))
+                      ""))
+                  '(path-sparcron-sparcur-config path-sparcron-secrets path-sparcron-gsaro))
+          (list (if (string= system-type "windows-nt") " MSYS_NO_PATHCONV=1" "")))))
 
 (defvar retfile-cache-directory (expand-file-name "retfile/cache/" default-directory))
 (defun retfile (cypher checksum path-or-url &rest alternates)
@@ -11395,7 +11395,6 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
    (lambda (lang body)
      (not (or (and (member lang '("elisp" "emacs-lisp"))
                    (or (string= body "value")
-                       (string= body "(make-screen-vars)")
                        ;; XXX WARNING BE SURE TO REVIEW ALL INSTANCES OF elisp-safe-block
                        (string-prefix-p "; elisp-safe-block
 " body)))
@@ -11774,8 +11773,8 @@ value
 
 Helper blocks to pass variables to screen from cli.
 #+name: &screen-pass-vars
-#+begin_src elisp
-(make-screen-vars)
+#+begin_src elisp :var value=(make-screen-vars)
+value
 #+end_src
 
 Note that all screen blocks have an implicit eval.
