@@ -1114,13 +1114,37 @@ ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/pipe
 ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/google-auth-oauthlib
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
 ADD ${bp}pandoc-lua-engine.env                   etc/portage/env/dev-haskell/pandoc-lua-engine
+ADD ${bp}ghc-rtsopts.env                         etc/portage/env/ghc-rtsopts
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
 # general pataches
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
 ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
 RUN ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.3
+
+# ghc memory issue workaround
+RUN \
+echo GHCRTS=-M$(( $(cat /proc/meminfo | grep MemTotal | awk '{ print $2 }') / ( <<&emerge-jobs()>> * 1024 )))M > etc/portage/env/ghc-rts-m
+RUN \
+sh -c '\
+<<&populate-dev-haskell-env>>
+'
 #+end_src
+
+#+name: &populate-dev-haskell-env
+#+begin_src bash :eval never
+set -e -o pipefail; \
+cd etc/portage/env; \
+cpvs=$(cat ../package.accept_keywords/profile.haskell); \
+for cpv in ${cpvs}; do \
+if [ -f ${cpv} ]; then \
+    cat ghc-rtsopts >> ${cpv}; \
+else \
+    ln -s ../ghc-rtsopts ${cpv}; \
+fi \
+done; \
+#+end_src
+
 # has been fixed in a better way by upstream
 # ADD ${bp}patchelf-musl-no-dt-mips-xhash.patch    etc/portage/patches/dev-util/patchelf/patchelf-musl-no-dt-mips-xhash.patch
 # bad patch that enables things to build that will cause fatal runtime errors
@@ -1455,6 +1479,21 @@ dev-scheme/racket::tgbugs-overlay cs bc cgc
 #+begin_src conf :tangle ./docker-profile/base/no-distcc.env
 FEATURES="-distcc"
 #+end_src
+
+***** ghc-rtsopts
+Even though this takes more files it keeps the system specific part small.
+FIXME TODO keep this in sync with ghc-package.eclass automatically
+#+begin_src ebuild :tangle ./docker-profile/base/ghc-rtsopts.env
+ghc-make-args() {
+    local ghc_make_args=();
+    if ghc-supports-smp && ghc-supports-parallel-make; then
+        echo "-j$(makeopts_jobs) -rtsopts=all +RTS -A256M -qb0 -RTS";
+        ghc_make_args=();
+    fi;
+    echo "${ghc_make_args[@]}";
+}
+#+end_src
+
 ***** no site-packages/docs
 =dev-python/{pipenv,google-auth-oauthlib}=
 hack to remove packages installing =site-packages/docs= nonsense
@@ -1516,7 +1555,9 @@ dev-util/colm no-distcc
 dev-util/lapack no-distcc
 dev-python/numpy no-distcc
 dev-scheme/racket no-distcc  # somehow cc to compile zuo is broken and produces a segfault
+dev-haskell/* ghc-rts-m
 #+end_src
+
 **** patches
 ***** sys-apps/portage
 #+begin_src diff :tangle ./docker-profile/base/portage-onlydeps-license.patch
