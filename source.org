@@ -4134,13 +4134,13 @@ gnu-container-check
 #+begin_src bash :noweb yes
 function builder-bootstrap () {
 local _builder CODE CHOST
-CHOST=$(portageq envvar CHOST)
 _builder=${_tm_pbs}
+CHOST=$(docker run --volumes-from local-repos-snap --rm ${_builder} portageq envvar CHOST)
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 
-for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl}; do
 if [ ${target} != ${CHOST} ]; then
 <<&docker-run-prefix>>
 crossdev --stage4 --stable --portage --usepkg --target ${target}
@@ -4171,8 +4171,8 @@ emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
 # FIXME SIGH copy paste
 function gnu-builder-bootstrap () {
 local _builder CODE CHOST
-CHOST=$(portageq envvar CHOST)
 _builder=${_tg_pbs}
+CHOST=$(docker run --volumes-from local-repos-snap --rm ${_builder} portageq envvar CHOST)
 gnu-container-check
 docker run \
 <<&builder-args-gnu>>
