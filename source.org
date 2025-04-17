@@ -591,15 +591,13 @@ if [ -z $ONLY_STATIC ]; then
 
 # TODO build any new packages
 echo musl builder start
-[ -z $RESNAP ] || builder-resnap
+[ -z $RESNAP ] || builder-resnap || return $?
 # FIXME autodetect the --no-build case
 [ ! -z $NOBUILD ] || builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || musl-bootstrap-sbcl || return $?
-# FIXME this needs to run with --getbinpkg
 [ ! -z $NOBUILD ] || \
 <<&musl-run-build-need-priv>>
 [ ! -z $NOBUILD ] || builder-world || return $?
-# TODO smart-live-rebuild
 [ -z $LIVE_REBUILD ] || builder-smart-live-rebuild || return $?
 # TODO
 # builder-license || return $?
@@ -607,8 +605,8 @@ echo musl builder start
 fi
 
 echo musl static builder start
-[ -z $RESNAP ] || static-builder-resnap
-# TODO static-builder-bootstrap
+[ -z $RESNAP ] || static-builder-resnap || return $?
+[ ! -z $NOBUILD ] || static-builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || static-musl-bootstrap-sbcl || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || static-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
@@ -616,8 +614,8 @@ echo musl static builder start
 
 
 echo musl nox builder start
-[ -z $RESNAP ] || nox-builder-resnap
-# TODO nox-builder-bootstrap
+[ -z $RESNAP ] || nox-builder-resnap || return $?
+[ -z $NOBUILD ] || nox-builder-bootstrap || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || nox-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
 # [ -z $LIVE_REBUILD ] || nox-builder-smart-live-rebuild || return $?  # no live builds right now
@@ -3199,7 +3197,7 @@ docker run \
 *** build
 #+name: &musl-build-package-builder-musl
 #+begin_src screen
-<<&docker-build>>
+docker build \
 --tag tgbugs/musl:package-builder-musl \
 --file musl/package-builder/musl.Dockerfile musl/package-builder
 #+end_src
@@ -3238,24 +3236,24 @@ emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if u
 _qpvar=$(/tmp/quickpkg-new); [ -z "${_qpvar}" ] || quickpkg ${_qpvar}
 }
 
-USE="-harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+USE="-harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
 doqp
 
 # have to set -cairo here otherwise harfbuzz -truetype will fail to build
-USE="-cairo -truetype" emerge -j4 -1q --getbinpkg media-libs/harfbuzz
+USE="-cairo -truetype" emerge -j4 -1q --usepkg media-libs/harfbuzz
 doqp
 
-USE="harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+USE="harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
 doqp
 
-USE="cairo truetype" emerge -j4 -1q --getbinpkg media-libs/harfbuzz
+USE="cairo truetype" emerge -j4 -1q --usepkg media-libs/harfbuzz
 doqp
 
 # the static-libs variants of freetype
-USE="static-libs -harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+USE="static-libs -harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
 doqp
 
-USE="static-libs harfbuzz" emerge -j4 -1q --getbinpkg media-libs/freetype
+USE="static-libs harfbuzz" emerge -j4 -1q --usepkg media-libs/freetype
 doqp
 #+end_src
 
@@ -4135,48 +4133,62 @@ gnu-container-check
 #+name: &builder-bootstrap
 #+begin_src bash :noweb yes
 function builder-bootstrap () {
+local _builder CODE
+_builder=${_tm_pbs}
 container-check
 
 docker run \
 <<&builder-args>>
-${_tm_pbs} \
-emerge  --color=y --with-bdeps=y -j4 -q --keep-going --getbinpkg \
-sys-devel/distcc \
-sys-devel/crossdev
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+${_builder} \
+<<&docker-run-prefix>>
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+<<&docker-run-suffix>>
 
 for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
-docker run \
-<<&builder-args>>
-${_tm_pbs} \
-crossdev --stage4 --stable --portage --getbinpkg --target ${target}
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
+<<&docker-run-prefix>>
+crossdev --stage4 --stable --portage --usepkg --target ${target}
+<<&docker-run-suffix>>
 done
 
 }
 
 # FIXME SIGH copy paste
+function static-builder-bootstrap () {
+local _builder CODE
+_builder=${_tm_s_pbs}
+<<&docker-run-prefix>>
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+<<&docker-run-suffix>>
+}
+
+# FIXME SIGH copy paste
+function nox-builder-bootstrap () {
+local _builder CODE
+_builder=${_tm_n_pbs}
+<<&docker-run-prefix>>
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+<<&docker-run-suffix>>
+}
+
+# FIXME SIGH copy paste
 function gnu-builder-bootstrap () {
+local _builder CODE
+_builder=${_tg_pbs} \
 gnu-container-check
 
 docker run \
 <<&builder-args-gnu>>
-${_tg_pbs} \
-emerge  --color=y --with-bdeps=y -j4 -q --keep-going --getbinpkg \
-sys-devel/distcc \
-sys-devel/crossdev
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
+${_builder} \
+emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
+<<&docker-run-suffix>>
 
 for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+gnu-container-check
 docker run \
 <<&builder-args-gnu>>
-${_tg_pbs} \
-crossdev --stage4 --stable --portage --getbinpkg --target ${target}
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
+${_builder} \
+crossdev --stage4 --stable --portage --usepkg --target ${target}
+<<&docker-run-suffix>>
 done
 
 }
@@ -4214,9 +4226,9 @@ ${_builder} \
 
 #+name: &docker-run-suffix
 #+begin_src bash :noweb yes
-OUT=$?
+CODE=$?
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
-[ ${OUT} -eq 0 ] || return ${OUT}
+[ ${CODE} -eq 0 ] || return ${CODE}
 #+end_src
 
 #+name: &builder-axes
@@ -4239,11 +4251,12 @@ echo builder ${_builder}
 #+end_src
 
 # TODO crossdev aarch64-unknown-linux-gnu-emerge
+FIXME sometimes this fails to update a package with slotted deps or something
 #+name: &builder-world
 #+begin_src bash :noweb yes
 function builder-world () {
 <<&builder-axes>>
-local OUT
+local CODE
 
 echo get targets
 # get targets
@@ -4258,8 +4271,8 @@ sh -c 'set -o pipefail; emerge --color=n --with-bdeps=y -q -uDN -p @docker | { g
 # FIXME it seems that sometimes this will fail on packages that need to be rebuilt and then
 # the binpkg only will fail due to incorrect slot deps or something until we reemerge ???
 
-OUT=$?
-[ ${OUT} -eq 0 ] || return ${OUT}
+CODE=$?
+[ ${CODE} -eq 0 ] || return ${CODE}
 
 [ "${targets}" ] || return 0  # we're done here
 
@@ -4341,112 +4354,81 @@ function gnu-builder-world () {
 #+begin_src bash :noweb yes
 function builder-run () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
-container-check
-docker run \
-<<&builder-args>>
-${_tm_pbs} \
+local _builder CODE
+_builder=${_tm_pbs}
+<<&docker-run-prefix>>
 "${@}"
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 
 function gnu-builder-run () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
-container-check
-docker run \
-<<&builder-args-gnu>>
-${_tg_pbs} \
+local _builder CODE
+_builder=${_tg_pbs}
+<<&docker-run-prefix>>
 "${@}"
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tg_pbs}) ${_tg_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 
 function static-builder-run () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
-container-check
-docker run \
-<<&builder-args>>
-${_tm_s_pbs} \
+local _builder CODE
+_builder=${_tm_s_pbs}
+<<&docker-run-prefix>>
 "${@}"
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 
 function nox-builder-run () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
-container-check
-docker run \
-<<&builder-args>>
-${_tm_n_pbs} \
+local _builder CODE
+_builder=${_tm_n_pbs}
+<<&docker-run-prefix>>
 "${@}"
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_n_pbs}) ${_tm_n_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 
 function builder-smart-live-rebuild () {
-container-check
-docker run \
-<<&builder-args>>
-${_tm_pbs} \
-sh -c 'rebuilds=$(live-changed); [ -n "${rebuilds}" ] && { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; }'
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
-return ${CODE}
+local _builder CODE
+_builder=${_tm_pbs}
+<<&docker-run-prefix>>
+sh -c 'rebuilds=$(live-changed); if [ -n "${rebuilds}" ]; then { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; } fi'
+<<&docker-run-suffix>>
 }
 
 function static-builder-smart-live-rebuild () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
-container-check
-docker run \
-<<&builder-args>>
-${_tm_s_pbs} \
-sh -c 'rebuilds=$(live-changed); [ -n "${rebuilds}" ] && { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; }'
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
-return ${CODE}
+local _builder CODE
+_builder=${_tm_s_pbs}
+<<&docker-run-prefix>>
+sh -c 'rebuilds=$(live-changed); if [ -n "${rebuilds}" ]; then { emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -j4 -q --keep-going ${rebuilds} && emerge --color=y -j4 -q --keep-going --usepkg=n --nodeps ${rebuilds}; } fi'
+<<&docker-run-suffix>>
 }
 
 function builder-arb () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
-container-check
-docker run \
-<<&builder-args>>
-${_tm_pbs} \
+local _builder CODE
+_builder=${_tm_pbs}
+<<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 "${@}"
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 # XXX FIXME code dupe
 function static-builder-arb () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
-container-check
-docker run \
-<<&builder-args>>
-${_tm_s_pbs} \
+local _builder CODE
+_builder=${_tm_s_pbs}
+<<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 "${@}"
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 
 function builder-license () {
 <<&builder-axes>>
 
+local CODE
 # FIXME don't actually need to mount sets/license since it is in the builder image now since sets are safe, but might be useful
 # what we really need is to mount the accepted license file
 # XXX don't forget to rebuild portage manually to get the patch applied so we don't have to mount the accpeted license file at this stage XXX sigh, not actually fixed yet so we do have to mount at this step
@@ -4457,10 +4439,7 @@ docker run \
 -v ${_path_dockerfiles}/musl/package-builder/package.license:/etc/portage/package.license \
 ${_builder} \
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -j4 -q --keep-going -uDN @license
-
-OUT=$?
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
-[ ${OUT} -eq 0 ] || return ${OUT}
+<<&docker-run-suffix>>
 
 container-check
 docker run \
@@ -4469,10 +4448,7 @@ docker run \
 -v ${_path_dockerfiles}/musl/package-builder/package.license:/etc/portage/package.license \
 ${_builder} \
 emerge --color=y -j4 -q --keep-going --buildpkgonly -uDN @license
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_builder}) ${_builder}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 #+end_src
 
@@ -4517,33 +4493,31 @@ https://github.com/moby/moby/issues/1916.
 #+name: &builder-arb-priv
 #+begin_src bash :noweb yes
 function builder-arb-priv () {
+local _builder CODE
+_builder=${_tm_pbs}
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
 --security-opt seccomp=unconfined \
 <<&builder-args>>
-${_tm_pbs} \
+${_builder} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_pbs}) ${_tm_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 # FIXME code dupe
 function static-builder-arb-priv () {
+local _builder CODE
+_builder=${_tm_s_pbs}
 container-check
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 docker run \
 --security-opt seccomp=unconfined \
 <<&builder-args>>
-${_tm_s_pbs} \
+${_builder} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg=n \
 ${@}
-CODE=$?
-
-docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=${_tm_s_pbs}) ${_tm_s_pbs}
-return ${CODE}
+<<&docker-run-suffix>>
 }
 #+end_src
 # dev-lisp/sbcl cross compile
@@ -4552,7 +4526,7 @@ return ${CODE}
 # due to using go-md2man and thus being unsafe to build in a sandboxed docker container
 #+name: &musl-run-build-need-priv
 #+begin_src bash
-builder-arb-priv -1 -uN --getbinpkg \
+builder-arb-priv -1 -uN --usepkg \
 dev-lang/go \
 dev-go/go-md2man \
 app-containers/runc \
@@ -4645,7 +4619,7 @@ TODO gnu builder cross
 # cp -r patches/ musl/package-builder/
 #+name: &musl-build-package-builder
 #+begin_src screen
-<<&docker-build>>
+docker build \
 --tag tgbugs/musl:package-builder \
 --file musl/package-builder/Dockerfile musl/package-builder
 #+end_src
@@ -4669,6 +4643,7 @@ ADD crossdev.conf /etc/portage/repos.conf/crossdev.conf
 # ADD sbcl.env /etc/portage/env/dev-lisp/sbcl
 # FIXME need a better way to update the world file/docker set i.e. mount at runtime
 ADD world /etc/portage/sets/docker
+ADD sets/builder /etc/portage/sets/builder
 ADD sets/license /etc/portage/sets/license
 ADD sets/live /etc/portage/sets/live
 # ADD accept_keywords.temp /etc/portage/package.accept_keywords/temp  # XXX mount in docker run not here
@@ -4677,15 +4652,10 @@ RUN \
 echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
 && echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
 
-# FIXME ideally this should build from a set ... maybe @builder ?
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-   emerge -j4 -q -uDN app-portage/gentoopm \
-   --getbinpkg \
-   --exclude sys-process/procps \
-|| echo $? > /emerge-fail \
-<<&archive-or-rm>>
-
 #+end_src
+REMINDER if you need something installed in a builder add it to the
+=@builder= set for that builder e.g. [[set-builder-musl]].  Doing it
+there avoids 1st/nth issues with trapped packages needing quickpkg.
 
 We don't add distcc until we get to the builder here to avoid issues
 during bootstrap. Usually we don't have too many packages to rebuild
@@ -4912,6 +4882,19 @@ libc we want and do the cross build from gnu to musl since there are
 distributed sbcl-binaries for gnu but not for musl. The way that
 multiple libcs are implemented in gentoo right now seems to add
 significant maintenance overhead due to ebuild duplication.
+*** sets
+**** builder
+#+name: set-builder-common
+#+begin_src conf
+app-portage/gentoopm
+#+end_src
+
+#+name: set-builder-musl
+#+begin_src conf :tangle ./musl/package-builder/sets/builder
+<<set-builder-common>>
+sys-devel/distcc
+sys-devel/crossdev
+#+end_src
 
 *** world
 #+name: world-package-builder
@@ -4924,6 +4907,7 @@ significant maintenance overhead due to ebuild duplication.
 <<world-package-builder-nox>>
 <<world-kg-release>>
 <<world-kg-dev>>
+<<world-tgbugs-dev>>
 <<world-docker>>
 <<world-interlex>>
 <<world-sparcron>>
@@ -5296,6 +5280,14 @@ docker run \
 tgbugs/musl:package-builder-nox \
 emerge --color=y -j4 -q --keep-going @docker
 #+end_src
+
+*** sets
+**** builder
+#+name: set-builder-musl-nox
+#+begin_src conf :tangle ./musl/package-builder/sets/nox.builder
+<<set-builder-common>>
+#+end_src
+
 *** world
 If there is a new package that one of your images needs add it here.
 Yes, there are going to be issues with keywording that are likely going
@@ -5339,7 +5331,7 @@ app-xemacs/xemacs-packages-all
 *** build
 #+name: &musl-build-package-builder-nox
 #+begin_src screen
-<<&docker-build>>
+docker build \
 --tag tgbugs/musl:package-builder-nox \
 --file musl/package-builder/nox.Dockerfile musl/package-builder
 #+end_src
@@ -5352,6 +5344,7 @@ FROM tgbugs/musl:nox
 
 # overwrite the regular world file
 ADD nox.world /etc/portage/sets/docker
+ADD sets/nox.builder /etc/portage/sets/builder
 #+end_src
 
 ** package-binhost
@@ -5384,7 +5377,7 @@ docker commit $(docker ps -lqf ancestor=${_tm_pb}) tgbugs/musl:distcc-snap
 docker run \
 <<&builder-args>>
 tgbugs/musl:distcc-snap \
-emerge  --color=y --with-bdeps=y -j4 -q --keep-going --getbinpkg \
+emerge  --color=y --with-bdeps=y -j4 -q --keep-going --usepkg \
 sys-devel/distcc \
 sys-devel/crossdev
 
@@ -5394,7 +5387,7 @@ for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl
 docker run \
 <<&builder-args>>
 tgbugs/musl:distcc-snap \
-crossdev --stage4 --stable --portage --getbinpkg --target ${target}
+crossdev --stage4 --stable --portage --usepkg --target ${target}
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=tgbugs/musl:distcc-snap) tgbugs/musl:distcc-snap
 done
@@ -6491,7 +6484,7 @@ docker run \
 
 rebuild for quick package changes
 #+begin_src screen
-builder-arb --getbinpkg=y --onlydeps --onlydeps-with-rdeps=n interlex
+builder-arb --usepkg=y --onlydeps --onlydeps-with-rdeps=n interlex
 builder-arb --nodeps interlex
 # increment RUN echo 0 below
 # ./source.org build-image tgbugs/musl:interlex
@@ -7650,7 +7643,7 @@ the links between =:tangle= paths and =<<noweb>>= references.
 *** build
 #+name: &musl-build-tgbugs-dev
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:tgbugs-dev \
 --file musl/tgbugs-dev/Dockerfile musl/tgbugs-dev
 #+end_src
@@ -7664,6 +7657,7 @@ FROM tgbugs/musl:kg-dev
 *** TODO world
 #+name: world-tgbugs-dev
 #+begin_src conf :tangle ./musl/tgbugs-dev/world
+<<world-kg-dev>>
 dev-python/pytest
 #+end_src
 
@@ -8390,7 +8384,7 @@ pypy3 -m sparcur.sparcron.rerun
 
 On the build machine.
 #+begin_src bash :noweb yes
-builder-arb --getbinpkg=y --onlydeps --onlydeps-with-rdeps=n sparcur
+builder-arb --usepkg=y --onlydeps --onlydeps-with-rdeps=n sparcur
 builder-arb --nodeps sparcur
 
 ./source.org build-image tgbugs/musl:sparcron  # FIXME need a way to enable blocking for sequential operation
@@ -8633,7 +8627,7 @@ docker commit $(docker ps -lq) tgbugs/musl:static-package-builder-snap
 *** build
 #+name: &musl-build-static-package-builder
 #+begin_src screen
-<<&docker-build>>
+docker build \
 --tag tgbugs/musl:static-package-builder \
 --file musl/package-builder/static.Dockerfile musl/package-builder
 #+end_src
@@ -8647,6 +8641,7 @@ FROM tgbugs/musl:static-xorg
 
 # overwrite the regular world file
 ADD static.world /etc/portage/sets/docker
+ADD sets/static.builder /etc/portage/sets/builder
 
 # sbcl patches and env
 # FIXME beware may need to rerun the copy command in [[&sbcl-funs]]
@@ -8655,6 +8650,13 @@ ADD static.world /etc/portage/sets/docker
 ADD patches/dev-lisp /etc/portage/patches/dev-lisp
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
 #+end_src
+*** sets
+**** builder
+#+name: set-builder-musl-static
+#+begin_src conf :tangle ./musl/package-builder/sets/static.builder
+<<set-builder-common>>
+#+end_src
+
 *** world
 #+name: world-static-package-builder
 #+begin_src conf :tangle ./musl/package-builder/static.world
@@ -9383,7 +9385,7 @@ quickpkg-image tgbugs/gnu:package-builder
 *** build
 #+name: &gnu-build-package-builder
 #+begin_src screen
-<<&docker-build>>
+docker build \
 --tag tgbugs/gnu:package-builder \
 --file gnu/package-builder/Dockerfile gnu/package-builder
 #+end_src
@@ -9414,7 +9416,15 @@ FROM tgbugs/gnu:eselect-repo
 
 #+begin_src conf :tangle ./gnu/package-builder/sbcl.env
 #+end_src
+*** sets
+**** builder
+#+name: set-builder-gnu
+#+begin_src conf :tangle ./gnu/package-builder/sets/builder
+<<set-builder-musl>>
+#+end_src
+
 *** world
+#+name: world-package-builder-gnu
 #+begin_src conf :tangle ./gnu/package-builder/world
 <<world-sbcl-base>>
 #+end_src
@@ -9721,7 +9731,7 @@ sam says submit a bug because it seems uncommon
 
 #+begin_src bash
 emerge sys-devel/crossdev
-crossdev --stage4 --stable --portage --getbinpkg --target x86_64-gentoo-linux-musl
+crossdev --stage4 --stable --portage --usepkg --target x86_64-gentoo-linux-musl
 x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going sys-libs/musl
 # at this point you can try to build sbcl
 x86_64-gentoo-linux-musl-emerge -q -j4 --keep-going dev-lisp/sbcl
