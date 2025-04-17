@@ -4133,16 +4133,19 @@ gnu-container-check
 #+name: &builder-bootstrap
 #+begin_src bash :noweb yes
 function builder-bootstrap () {
-local _builder CODE
+local _builder CODE CHOST
+CHOST=$(portageq envvar CHOST)
 _builder=${_tm_pbs}
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 
 for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+if [ ${target} != ${CHOST} ]; then
 <<&docker-run-prefix>>
 crossdev --stage4 --stable --portage --usepkg --target ${target}
 <<&docker-run-suffix>>
+fi
 done
 
 }
@@ -4167,23 +4170,25 @@ emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
 
 # FIXME SIGH copy paste
 function gnu-builder-bootstrap () {
-local _builder CODE
-_builder=${_tg_pbs} \
+local _builder CODE CHOST
+CHOST=$(portageq envvar CHOST)
+_builder=${_tg_pbs}
 gnu-container-check
-
 docker run \
 <<&builder-args-gnu>>
 ${_builder} \
 emerge --color=y --with-bdeps=y -j4 -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 
-for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl}; do
+if [ ${target} != ${CHOST} ]; then
 gnu-container-check
 docker run \
 <<&builder-args-gnu>>
 ${_builder} \
 crossdev --stage4 --stable --portage --usepkg --target ${target}
 <<&docker-run-suffix>>
+fi
 done
 
 }
@@ -5377,7 +5382,7 @@ sys-devel/crossdev
 
 docker commit --change='CMD ["/bin/bash"]' $(docker ps -lqf ancestor=tgbugs/musl:distcc-snap) tgbugs/musl:distcc-snap
 
-for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl,x86_64-gentoo-linux-musl}; do
+for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl}; do
 docker run \
 <<&builder-args>>
 tgbugs/musl:distcc-snap \
