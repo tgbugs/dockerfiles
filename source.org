@@ -1668,7 +1668,13 @@ BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
 
 FEATURES="${FEATURES} binpkg-multi-instance"
 
-EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-respect-use=y"  # FIXME portageq shows bru opt twice ??
+# this overrides any parent profile that sets EMERGE_DEFAULT_OPTS
+# according to the wiki --jobs MUST be set here and explains why
+# all the packages try to merge at the same time, not inheriting
+# from existing EMERGE_DEFAULT_OPTS prevents duplicate entires
+# if I had to guess I would say that setting this in a profile is
+# probably a bad idea, we'll do it for now for consistency
+EMERGE_DEFAULT_OPTS="--jobs 4 --binpkg-respect-use=y"
 
 # icu is needed due to musl collation issues
 # jemalloc can improve performance re issues with musl allocator
@@ -7042,20 +7048,7 @@ ADD entrypoint.sh /etc/entrypoint.sh
 
 <<&musl-file-user-base>>
 
-USER 0
-
-RUN \
-usermod -a -G blazegraph user \
-;  usermod -a -G scigraph user \
-;  usermod -a -G wheel user
-
-RUN \
-echo 'root:<<kg-root-password()>>' | chpasswd
-
-# make it easier to use portage inside a container
-RUN \
-echo 'EMERGE_DEFAULT_OPTS=""' >> /etc/portage/make.conf \
-&& echo 'FEATURES=""' >> /etc/portage/make.conf
+<<&dev-user-common-3>>
 
 # TODO when running this you will have to set the right mounts
 # unless you bake a new kg-dev-with-data release
