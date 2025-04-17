@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 3e3be6347dc4066bf61cee6a627f2ef76fe7f8f6998bd98af5a934dad84c3482; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 431fc20115dea5288847f9d334c33bf8e2dec6fbd290b4d296f343a3f86c71a5; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -847,12 +847,13 @@ to point to your fork of https://github.com/tgbugs/tgbugs-overlay.
 For the updated process see the [[retag-example][Push retag example block]] above.
 * Default variables
 Default variable values that will eventually have cli overrides.
-# At the moment I'm not going to implement full command line processing via ow-cli.
+** path-dockerfiles
 #+name: &host-dockerfiles-path
 #+begin_src elisp :var value=(or path-dockerfiles)
 value
 #+end_src
 
+** path-binpkgs-root
 #+name: &default-host-binpkgs-root-path
 : ~/files/binpkgs
 
@@ -861,14 +862,17 @@ value
 value
 #+end_src
 
+** host-binpkgs-repo-name
 NOTE: we will not be making the repo name configurable, it only
 appears to be for implementation convenience.
 #+name: &host-binpkgs-repo-name
 : multi
 
+** host-binpkgs-port
 #+name: &host-binpkgs-port
 : 8089
 
+** path-distfiles
 #+name: &default-host-distfiles-path
 : /mnt/str/portage/distfiles
 
@@ -877,6 +881,7 @@ appears to be for implementation convenience.
 value
 #+end_src
 
+** path-distcc-hosts
 #+name: &default-host-distcc-hosts-path
 : /etc/distcc/hosts.docker
 
@@ -885,6 +890,7 @@ value
 value
 #+end_src
 
+** path-ssh
 #+name: &default-host-ssh-path
 : /var/lib/portage/home/.ssh
 
@@ -893,6 +899,7 @@ value
 value
 #+end_src
 
+** helper-repos
 #+name: &helper-repos
 : helper-repos
 # FIXME grrrr the need to be able to set these computationally
@@ -912,6 +919,16 @@ value
 # reminder: you have to use =kill-local-variable= to clean up buffer local vars
 # if you use =makunbound= defvar-local will fail ... and even then there are issues
 # so sometimes you just have to kill and reopen the buffer (sigh)
+
+** emerge-jobs
+#+name: &default-emerge-jobs
+: 4
+
+#+name: &emerge-jobs
+#+begin_src elisp :var value=(or emerge-jobs)
+value
+#+end_src
+
 * Next
 ** TODO proper process for consistent behavior in nearly all conditions
 for the builder track it seems that sequential updates starting from
@@ -1670,7 +1687,7 @@ BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
 # from existing EMERGE_DEFAULT_OPTS prevents duplicate entires
 # if I had to guess I would say that setting this in a profile is
 # probably a bad idea, we'll do it for now for consistency
-EMERGE_DEFAULT_OPTS="--jobs 4 --binpkg-respect-use=y"
+EMERGE_DEFAULT_OPTS="--jobs <<&emerge-jobs()>> --binpkg-respect-use=y"
 
 # icu is needed due to musl collation issues
 # jemalloc can improve performance re issues with musl allocator
@@ -9488,7 +9505,7 @@ portage now defaults to =binpkg-multi-instance= and crossdev includes
 BINPKG_FORMAT="gpkg"
 BINPKG_COMPRESS="zstd"
 BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
-EMERGE_DEFAULT_OPTS="--jobs 4 --binpkg-respect-use=y"
+EMERGE_DEFAULT_OPTS="--jobs <<&emerge-jobs()>> --binpkg-respect-use=y"
 #+end_src
 
 work around lack of cross compile support in =src_compile= during system-bootstrap
@@ -11190,6 +11207,7 @@ and then to the tangle target to the block contents
 (defvar-local only-static  nil)
 (defvar-local use-podman   nil)
 
+(defvar-local emerge-jobs "<<&default-emerge-jobs()>>")
 (defvar-local host-binpkgs-port "<<&host-binpkgs-port()>>")
 (defvar-local host-binpkgs-repo-name "<<&host-binpkgs-repo-name()>>")
 
