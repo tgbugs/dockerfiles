@@ -516,11 +516,10 @@ gnu-container-check
 <<&gnu-build-package-builder>> || return $?
 <<&gnu-run-package-builder-quickpkg>> || return $?
 echo gnu builder start
-[ -z $RESNAP ] || gnu-builder-resnap
-# FIXME this is where BINPKG_FORMAT is not set correctly
-[ ! -z $NOBUILD ] || gnu-builder-bootstrap
-[ ! -z $NOBUILD ] || gnu-builder-world
-[ ! -z $NOBUILD ] || gnu-cross-musl-sbcl
+[ -z $RESNAP ] || gnu-builder-resnap || return $?
+[ ! -z $NOBUILD ] || gnu-builder-bootstrap || return $?
+[ ! -z $NOBUILD ] || gnu-builder-world || return $?
+[ ! -z $NOBUILD ] || gnu-cross-musl-sbcl || return $?
 }
 
 function run-musl () {
