@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: ca88aa7f3d97b58f02f9b144f68ec8831529dc92d10011f5e5f39df1a888cf9b; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 8088a39d7b2697afc28c515d9475f4a38e57af6878c8889bafcbd4ff127e2c08; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
