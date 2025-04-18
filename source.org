@@ -4107,6 +4107,8 @@ _tg_pb=${_in_tg_pb:-tgbugs/gnu:package-builder}
 
 _tg_pbs=${_in_tg_pbs:-${_tg_pb}-snap}
 
+_host_features="$({ command -v portageq > /dev/null && { portageq envvar FEATURES | grep -o distcc; }; } || true)"
+_host_makeopts="$({ command -v portageq > /dev/null && portageq envvar MAKEOPTS; } || { command -v nproc > /dev/null && echo "-j$(nproc)"; } || echo ${NUMBER_OF_PROCESSORS};)"
 #+end_src
 
 #+name: &builder-resnap
@@ -4181,8 +4183,8 @@ gnu-container-check
 -v ${_path_binpkgs_root}/cross/gnu/x86_64-gentoo-linux-musl:/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs \
 -v ${_path_dockerfiles}/bin:/usr/local/bin \
 -v ${_path_dockerfiles}/musl/package-builder/accept_keywords:/etc/portage/package.accept_keywords/tweaks \
---env FEATURES="$(portageq envvar FEATURES | grep -o distcc)" \
---env MAKEOPTS="$(portageq envvar MAKEOPTS)" \
+--env FEATURES="${_host_features}" \
+--env MAKEOPTS="${_host_makeopts}" \
 #+end_src
 
 # --network host \
