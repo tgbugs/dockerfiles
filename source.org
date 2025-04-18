@@ -22,6 +22,39 @@ exit
 #+end_src
 
 * Setup
+:PROPERTIES:
+:CUSTOM_ID: setup
+:END:
+** Host
+*** Emacs
+This file needs Emacs installed on the host system.
+
+At some point we will get bootstrap worked out so that only docker or
+podman is needed, but we aren't there yet.
+
+On windows-nt you will need to symlink this file to source.ps1 if you
+want to invoke it from powershell.
+
+*** Bash
+This file needs bash installed on the host system.
+
+Most linux distros and macos already have some version of bash,
+however on windows you will need to install git so that git bash is
+present on the host system. An error is thrown if it is missing or
+if the wsl2 bash is detected.
+
+*** Docker
+This file needs docker or podman installed on the host system.
+
+There are certain subtle differences between docker running on each of
+the major operating systems so some additional configuration may be
+required.
+
+We account for the variants that we known about, but have definitely
+missed a few, and they can be confusing and hard to debug. Turns out
+docker is for building containers not for creating robust and portable
+workflows.
+
 ** Server
 *** docker config
 Docker files in this repo use buildkit features. To enable it include
@@ -233,12 +266,17 @@ retfile/*
 #+end_src
 * Ops
 ** CLI
+Be sure to complete the [[#setup][Setup section]] first, e.g. run
+=./setup.org setup= and =./setup.org --check-paths=.
+
 The standard way to use this file to build is to run the following block
-WARNING: never run this command from inside the =org-session= screen, input
-will be severely broken
-#+begin_src bash
+#+begin_src bash :eval never
 ./source.org build --refresh --repos --resnap --live-rebuild
 #+end_src
+
+NOTICE: avoid running this command from inside the =org-session=
+screen, input will be severely broken
+
 ** Build
 If you are bootstrapping this file from scratch you will need to build
 dependent images in order.
