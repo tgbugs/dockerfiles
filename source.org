@@ -7,6 +7,7 @@
 #+property: header-args:conf :mkdirp yes :noweb yes
 #+property: header-args:dockerfile :noweb yes :mkdirp yes :comments link
 #+property: header-args:screen :session org-session :cmd bash :noweb no-export :terminal (or)
+#+options: broken-links:mark
 
 #+name: orgstrap-shebang
 #+begin_src bash :eval never :results none :exports none
@@ -151,21 +152,66 @@ PreferredAuthentications publickey
 fi
 #+end_src
 
-As root transfer ownership to the portage user
-#+begin_src bash :eval never
-# 250 is the id for the portage user
-chown -R 250:250 portage-ssh
+If you are on a gentoo system you can copy the contents to =/var/lib/portage/home/.ssh=.
+A suggested alternative on non-gentoo systems is =~/files/portage/home/.ssh=.
+
+Move the generated keys to a persistent location where they won't
+accidentally be deleted e.g. by a call to git clean.
+#+begin_src bash :eval never :noweb yes
+mv ./portage-ssh/* <<&host-ssh-path()>>/
 #+end_src
 
-If you are on a gentoo system you can copy the contents to =/var/lib/portage/home/.ssh=.
+Add the contents of =portage-ssh/id_ed25519.${HOSTNAME}.portage.pub=
+as an ssh key to the github account that will access the private
+repo(s) https://github.com/settings/keys.  Usually this is a robot
+account with limited access.
 
-Next add the contents of =portage-ssh/id_ed25519.${HOSTNAME}.portage.pub= as an ssh key
-to the github account that will access the private repo(s) https://github.com/settings/keys.
-Usually this is a robot account with limited access.
+#+begin_src bash :noweb yes :results drawer
+cat <<&host-ssh-path()>>/id_ed25519.${HOSTNAME}.portage.pub
+#+end_src
 
-Finally to make sure everything works and to accept the
-github host keys, run the following as root.
+Run the following in an interactive terminal to confirm the hostkeys
+and ssh mount is working.  The login to github does not need to be
+successful at this step.
+#+begin_src bash :noweb yes
+<<&screen-pass-vars()>>
+<<&builder-vars>>
+
+# connect to github, check and accept the host keys
+docker run \
+<<&builder-args>>
+--rm -it \
+tgbugs/musl:updated \
+runuser -u portage -- ssh -T git@github.com
+
+# make sure known_hosts was persisted to the host system
+cat ${_path_ssh}/known_hosts | grep github
+#+end_src
+
+Correct permissions on the ssh folder contents in a running container
+and ensure they are persisted correctly on the host.
 #+begin_src bash
+<<&screen-pass-vars()>>
+<<&builder-vars>>
+
+docker run \
+<<&builder-args>>
+--rm \
+tgbugs/musl:updated \
+sh -c 'chown -R 250:250 /var/lib/portage/home/.ssh; chmod 0600 /var/lib/portage/home/.ssh/*;'
+#+end_src
+
+Confirm everything works.
+#+begin_src bash :noweb yes :results drawer
+<<&screen-pass-vars()>>
+<<&builder-vars>>
+
+# connect to github and confirm ssh key
+2>&1 \
+docker run \
+<<&builder-args>>
+--rm \
+tgbugs/musl:updated \
 runuser -u portage -- ssh -T git@github.com
 #+end_src
 
@@ -504,19 +550,15 @@ local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
 
-# first time if the package builder doesn't exist at all we need to create it
-docker image inspect tgbugs/gnu:package-builder-snap > /dev/null 2>&1
-NEED_RESNAP=$?
-if [ ${NEED_RESNAP} -ne 0 ]; then
-    RESNAP=1
-fi
-
 echo gnu start bootstrap
 gnu-container-check
 <<&gnu-build-package-builder>> || return $?
 <<&gnu-run-package-builder-quickpkg>> || return $?
+
 echo gnu builder start
-[ -z $RESNAP ] || gnu-builder-resnap || return $?
+docker image inspect ${_tg_pbs} > /dev/null 2>&1
+NEED_RESNAP=$?
+[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || gnu-builder-resnap || return $?
 [ ! -z $NOBUILD ] || gnu-builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || gnu-builder-world || return $?
 [ ! -z $NOBUILD ] || gnu-cross-musl-sbcl || return $?
@@ -529,13 +571,6 @@ local RESNAP="${_resnap}"
 local LIVE_REBUILD="${_live_rebuild}"
 local NOBUILD="${_nopkgbldr}"
 local ONLY_STATIC="${_only_static}"
-
-# first time if the package builder doesn't exist at all we need to create it
-docker image inspect tgbugs/musl:package-builder-snap > /dev/null 2>&1
-NEED_RESNAP=$?
-if [ ${NEED_RESNAP} -ne 0 ]; then
-    RESNAP=1
-fi
 
 echo musl start bootstrap
 # TODO figure out how to build the binary packages at this stage without
@@ -589,7 +624,9 @@ if [ -z $ONLY_STATIC ]; then
 
 # TODO build any new packages
 echo musl builder start
-[ -z $RESNAP ] || builder-resnap || return $?
+docker image inspect ${_tm_pbs} > /dev/null 2>&1
+NEED_RESNAP=$?
+[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || builder-resnap || return $?
 # FIXME autodetect the --no-build case
 [ ! -z $NOBUILD ] || builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || musl-bootstrap-sbcl || return $?
@@ -603,7 +640,9 @@ echo musl builder start
 fi
 
 echo musl static builder start
-[ -z $RESNAP ] || static-builder-resnap || return $?
+docker image inspect ${_tm_s_pbs} > /dev/null 2>&1
+NEED_RESNAP=$?
+[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || static-builder-resnap || return $?
 [ ! -z $NOBUILD ] || static-builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || static-musl-bootstrap-sbcl || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
@@ -612,7 +651,9 @@ echo musl static builder start
 
 
 echo musl nox builder start
-[ -z $RESNAP ] || nox-builder-resnap || return $?
+docker image inspect ${_tm_n_pbs} > /dev/null 2>&1
+NEED_RESNAP=$?
+[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || nox-builder-resnap || return $?
 [ -z $NOBUILD ] || nox-builder-bootstrap || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || nox-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
@@ -845,6 +886,9 @@ to point to your fork of https://github.com/tgbugs/tgbugs-overlay.
 
 For the updated process see the [[retag-example][Push retag example block]] above.
 * Default variables
+:PROPERTIES:
+:header-args:elisp: :eval yes
+:END:
 Default variable values that will eventually have cli overrides.
 ** path-dockerfiles
 #+name: &host-dockerfiles-path
@@ -11253,7 +11297,7 @@ and then to the tangle target to the block contents
 (defvar-local host-binpkgs-port "<<&host-binpkgs-port()>>")
 (defvar-local host-binpkgs-repo-name "<<&host-binpkgs-repo-name()>>")
 
-(defvar-local path-dockerfiles default-directory)
+(defvar-local path-dockerfiles (directory-file-name default-directory))
 (defvar-local path-distfiles (expand-file-name "<<&default-host-distfiles-path()>>"))
 (defvar-local path-binpkgs-root (expand-file-name "<<&default-host-binpkgs-root-path()>>"))
 (defvar-local path-binpkgs (expand-file-name host-binpkgs-repo-name path-binpkgs-root))
@@ -11338,7 +11382,7 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
          (append
           (mapcar (lambda (b) (if b 1 ""))
                   (list use-podman refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
-          (list default-directory path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
+          (list path-dockerfiles path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
           ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
           ;; the difference seems to be whether it makes sense to embed default paths in this file
           ;; because in some cases e.g. paths with identifiers in their name, defaults are not helpful
