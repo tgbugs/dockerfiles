@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 8088a39d7b2697afc28c515d9475f4a38e57af6878c8889bafcbd4ff127e2c08; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: dca1e1487be17d82e00a56d0428b2405619e201be87beb9d29ffe38638acaac9; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -708,7 +708,9 @@ echo start static image builds
 <<&musl-build-sbcl-user>> || return $?; echo mbsbclu;
 <<&musl-build-sbcl-stripped>> || return $?; echo mbsbcls;
 
-if [ -z $ONLY_STATIC ]; then
+if [ -n "${ONLY_STATIC}" ]; then
+return 0
+fi
 
 echo start image builds
 
@@ -757,8 +759,6 @@ echo start image builds
 ## sparcron
 <<&musl-build-sparcron>> || return $?; echo mbsp;
 <<&musl-build-sparcron-user>> || return $?; echo mbspu;
-
-fi
 
 }
 #+end_src
@@ -3269,10 +3269,10 @@ docker run -it tgbugs/musl:updated-user
 
 *** build
 #+name: &musl-build-updated-user
-#+begin_src bash
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:updated-user \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/updated-user/Dockerfile musl/updated-user
 #+end_src
 
@@ -6032,7 +6032,7 @@ docker run \
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:protege \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/protege/Dockerfile musl/protege
 #+end_src
 
@@ -6329,23 +6329,23 @@ sh -c 'git stash && protege ~/git/NIF-Ontology/ttl/npo.ttl'
 #+end_src
 *** build
 Build using the SciCrunch SciGraph API endpoint.
-#+begin_src bash
+#+begin_src screen
 # XXX note that NUID does nothing right now
 docker build \
 --tag tgbugs/musl:npo-1.0-neurondm-build \
 --build-arg NEURONS_BRANCH=npo-1.0 \
---build-arg NUID=${UID} \
+--build-arg NUID=<<&UID>> \
 --secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
 --file musl/npo-1.0-neurondm-build/Dockerfile musl/npo-1.0-neurondm-build
 #+end_src
 
 Build using an alternate SciGraph API endpoint.
-#+begin_src bash
+#+begin_src screen
 # XXX note that NUID does nothing right now
 docker build \
 --tag tgbugs/musl:npo-1.0-neurondm-build \
 --build-arg NEURONS_BRANCH=npo-1.0 \
---build-arg NUID=${UID} \
+--build-arg NUID=<<&UID>> \
 --build-arg SCIGRAPH_API=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api"))') \
 --secret id=scigraph-api-key,src=<(echo) \
 --file musl/npo-1.0-neurondm-build/Dockerfile musl/npo-1.0-neurondm-build
@@ -6384,21 +6384,21 @@ doi:10.5281/zenodo.5033493 is
 This image runs the neurondm build process.
 *** run
 *** build
-#+begin_src bash
+#+begin_src screen
 # XXX note that NUID does nothing right now
 docker build \
 --tag tgbugs/musl:neurondm-build \
---build-arg NUID=${UID} \
+--build-arg NUID=<<&UID>> \
 --secret id=scigraph-api-key,src=<(echo export SCIGRAPH_API_KEY=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api-key"))')) \
 --file musl/neurondm-build/Dockerfile musl/neurondm-build
 #+end_src
 
 Build using an alternate SciGraph API endpoint.
-#+begin_src bash
+#+begin_src screen
 # XXX note that NUID does nothing right now
 docker build \
 --tag tgbugs/musl:neurondm-build \
---build-arg NUID=${UID} \
+--build-arg NUID=<<&UID>> \
 --build-arg SCIGRAPH_API=$(python -c 'from pyontutils.config import auth; print(auth.get("scigraph-api"))') \
 --secret id=scigraph-api-key,src=<(echo) \
 --file musl/neurondm-build/Dockerfile musl/neurondm-build
@@ -7078,7 +7078,7 @@ popd
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:kg-release-user \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/kg-release-user/Dockerfile musl/kg-release-user
 #+end_src
 
@@ -7249,7 +7249,7 @@ docker run \
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:kg-dev \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/kg-dev/Dockerfile musl/kg-dev
 #+end_src
 
@@ -7418,7 +7418,7 @@ tgbugs/musl:kg-dev-user
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:kg-dev-user \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/kg-dev-user/Dockerfile musl/kg-dev-user
 #+end_src
 
@@ -8091,10 +8091,10 @@ docker run \
 
 *** build
 #+name: &musl-build-racket-user
-#+begin_src bash
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:racket-user \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/racket-user/Dockerfile musl/racket-user
 #+end_src
 
@@ -8221,10 +8221,10 @@ index f0b44b0..558765d 100644
 ** dynapad-user
 *** build
 #+name: &musl-build-dynapad-user
-#+begin_src bash
+#+begin_src screen
 docker build \
 --tag tgbugs/musl:dynapad-user \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/dynapad-user/Dockerfile musl/dynapad-user
 #+end_src
 
@@ -9061,7 +9061,7 @@ docker run \
 #+begin_src screen
 docker build \
 --tag tgbugs/musl:sbcl-user \
---build-arg UID=${UID} \
+--build-arg UID=<<&UID>> \
 --file musl/sbcl-user/Dockerfile musl/sbcl-user
 #+end_src
 
@@ -10391,10 +10391,10 @@ in the host environment you must already have
 3. +emacs+ nope, just copy and paste
 
 debug build
-#+begin_src sh
+#+begin_src screen
 docker run \
 -v /var/run/docker.sock:/var/run/docker.sock \
--e _UID=${UID} \
+-e _UID=<<&UID>> \
 --rm \
 -it \
 alpine:latest
@@ -10850,6 +10850,12 @@ COPY --from=builder /build /
 #+end_src
 
 * utils :noexport:
+Portable UID that won't break on e.g. windows-nt where =${UID}= can be out of range.
+#+name: &UID
+#+begin_src bash :eval never
+$(if [ ${UID} -lt 60000 ]; then echo ${UID}; else echo 1000; fi)
+#+end_src
+
 # FIXME --network host is ok for now, but we should probably try to
 # switch to using --ssh or something since it is needed for building
 # all binpkg-only images
@@ -11655,6 +11661,12 @@ currently only sbcl static uses this but other things might need it in the futur
   (execute-src-block "bash-async-package-server-cli")
   (sleep-for 0.1)
   (execute-src-block "bash-async-workflow-cli"))
+
+(defun toggle-comint-scroll-to-bottom-on-output (&optional uarg)
+  (interactive "P")
+  (setq
+   comint-scroll-to-bottom-on-output
+   (not comint-scroll-to-bottom-on-output)))
 
 (when (or noninteractive no-screen-start-gui)
   (let ((setup (member "setup" argv))
