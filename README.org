@@ -3,8 +3,27 @@
 A collection of docker files that are useful for reproducing a variety
 of environments.
 
-* Dev
-*Do not edit docker files in this repository directly!*
+* Quickstart
+Install Emacs.
+Install Docker.
+Run the following and read and fix any error messages.
 
-If you need to make a pull request please edit the literate source
-file in [[./source.org][source.org]].
+#+begin_src bash
+./source.org setup
+./source.org --check-paths
+./source.org build
+#+end_src
+
+For more details see the documentation in [[./source.org][source.org]].
+
+* Dev
+*There are no docker files in this repository!?!?*
+
+Correct! All docker files live in the literate source file [[./source.org][source.org]].
+
+You can generate them by running src_bash{./source.org tangle}, but
+*do not edit docker files in this repository directly!* If you do any
+changes will be overwritten when you run src_bash{./source.org build}
+or any other command that has a tangle step.
+
+If you need to make changes please edit [[./source.org][source.org]] and tangle/run.

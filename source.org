@@ -21,6 +21,13 @@ exit
 <# powershell open
 #+end_src
 
+Quickstart. Install Emacs and Docker. Then run
+#+begin_src bash
+./source.org setup
+./source.org --check-paths
+./source.org build
+#+end_src
+
 * Setup
 :PROPERTIES:
 :CUSTOM_ID: setup
