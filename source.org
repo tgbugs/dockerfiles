@@ -5050,6 +5050,11 @@ sys-devel/crossdev
 *** world
 #+name: world-package-builder
 #+begin_src conf :tangle ./musl/package-builder/world
+tgbugs-meta/package-builder-meta
+#+end_src
+
+#+name: world-package-builder-old
+#+begin_src conf :tangle ./musl/package-builder/world
 <<ident((dedupe-lines "world-package-builder-dupes"))>>
 #+end_src
 
@@ -5445,7 +5450,13 @@ to require updates to the profile followed by a rebuild here. I can't quite
 remember whether binpkgs check use flags.
 #+name: world-package-builder-nox
 #+begin_src conf :tangle ./musl/package-builder/nox.world
+tgbugs-meta/package-builder-meta
+#+end_src
+
+#+name: world-package-builder-nox-old
+#+begin_src conf
 <<world-debug>>
+<<world-emacs>>
 <<world-python>>
 <<world-schemes>>
 <<world-blazegraph>>
@@ -5731,6 +5742,10 @@ blocked by the container.
 
 #+name: world-docker
 #+begin_src conf :tangle ./musl/docker/world
+tgbugs-meta/docker-meta
+#+end_src
+
+#+begin_src conf
 dev-vcs/git
 app-misc/screen
 app-editors/emacs
@@ -5808,6 +5823,10 @@ Python testing.
 # dev-lang/python:3.14
 #+name: world-python
 #+begin_src conf :tangle ./musl/testing-python/world
+tgbugs-meta/python-testing-meta
+#+end_src
+
+#+begin_src conf
 dev-lang/python:3.8
 dev-lang/python:3.9
 dev-lang/python:3.10
@@ -5828,13 +5847,18 @@ Emacs testing.
 *** world
 # app-editors/emacs:23
 # app-editors/emacs:24
+# app-editors/emacs:25
 #+begin_src conf :tangle ./musl/testing-emacs/world
+tgbugs-meta/emacs-testing-meta
+#+end_src
+
+#+begin_src conf
 app-editors/emacs:18
-app-editors/emacs:25
 app-editors/emacs:26
 app-editors/emacs:27
 app-editors/emacs:28
-app-editors/emacs:29-vcs
+app-editors/emacs:29
+app-editors/emacs:30
 #+end_src
 ** emacs
 Emacs using the athena 3d toolkit to avoid pulling in gtk.
@@ -5929,6 +5953,10 @@ fi
 # FIXME I think something in the emacs ebuild is broken because sometimes it fails to pull in libbsd???
 #+name: world-emacs
 #+begin_src conf :tangle ./musl/emacs/world
+tgbugs-meta/emacs-meta
+#+end_src
+
+#+begin_src conf
 app-emacs/vterm
 app-emacs/zmq
 app-editors/emacs
@@ -6939,6 +6967,10 @@ FROM tgbugs/musl:emacs
 *** world
 #+name: world-kg-release
 #+begin_src conf :tangle ./musl/kg-release/world
+tgbugs-meta/kg-release-meta
+#+end_src
+
+#+begin_src conf
 <<world-emacs>>
 dev-db/blazegraph-bin
 dev-java/scigraph-bin
@@ -7273,6 +7305,10 @@ eselect racket set cs
 *** world
 #+name: world-kg-dev
 #+begin_src conf :tangle ./musl/kg-dev/world
+tgbugs-meta/kg-dev-meta
+#+end_src
+
+#+begin_src conf
 <<world-kg-release>>
 <<world-sbcl-base>>
 <<world-tex>>
@@ -7794,6 +7830,10 @@ FROM tgbugs/musl:kg-dev
 *** TODO world
 #+name: world-tgbugs-dev
 #+begin_src conf :tangle ./musl/tgbugs-dev/world
+tgbugs-meta/dev-meta
+#+end_src
+
+#+begin_src conf
 <<world-kg-dev>>
 dev-python/pytest
 #+end_src
@@ -8080,6 +8120,10 @@ eselect racket set cs
 *** world
 #+name: world-racket
 #+begin_src conf :tangle ./musl/racket/world
+tgbugs-meta/racket-meta
+#+end_src
+
+#+begin_src conf
 <<world-emacs>>
 dev-scheme/racket
 #+end_src
@@ -8133,6 +8177,10 @@ FROM tgbugs/musl:racket
 *** world
 #+name: world-dynapad-base
 #+begin_src conf :tangle ./musl/dynapad-base/world
+tgbugs-meta/dynapad-meta
+#+end_src
+
+#+begin_src conf
 <<world-racket>>
 dev-build/cmake
 dev-libs/libconfig
@@ -8382,6 +8430,10 @@ emerge -q -uDN dev-python/sparcur \
 # reuse of the base image for the -user variant as the builder
 #+name: world-sparcron
 #+begin_src conf :tangle ./musl/sparcron/world
+tgbugs-meta/sparcron-meta
+#+end_src
+
+#+begin_src conf
 dev-db/redict
 dev-python/pip
 dev-python/sparcur
@@ -8868,6 +8920,11 @@ FROM tgbugs/musl:static-binpkg-only
 *** world
 #+name: world-sbcl
 #+begin_src conf :tangle ./musl/sbcl/world
+dev-lisp/sbcl
+tgbugs-meta/emacs-meta
+#+end_src
+
+#+begin_src conf
 <<world-emacs>>
 <<world-sbcl-base>>
 #+end_src
@@ -9563,6 +9620,10 @@ FROM tgbugs/gnu:eselect-repo
 *** world
 #+name: world-package-builder-gnu
 #+begin_src conf :tangle ./gnu/package-builder/world
+dev-lisp/sbcl
+#+end_src
+
+#+begin_src conf
 <<world-sbcl-base>>
 #+end_src
 *** sets
