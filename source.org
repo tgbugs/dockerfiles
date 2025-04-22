@@ -6663,9 +6663,9 @@ ENTRYPOINT ["/etc/entrypoints/default.sh"]
 #+name: world-interlex
 #+begin_src conf :tangle ./musl/interlex/world
 dev-python/interlex
-dev-libs/redland
 #+end_src
 FIXME there has got to be a better way to do this ...
+
 *** entrypoints
 **** default
 #+header: :shebang "#!/usr/bin/env bash"
