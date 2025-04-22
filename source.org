@@ -603,7 +603,7 @@ gnu-container-check
 echo gnu builder start
 docker image inspect ${_tg_pbs} > /dev/null 2>&1
 NEED_RESNAP=$?
-[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || gnu-builder-resnap || return $?
+{ [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || gnu-builder-resnap || return $?
 [ ! -z $NOBUILD ] || gnu-builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || gnu-builder-world || return $?
 [ ! -z $NOBUILD ] || gnu-cross-musl-sbcl || return $?
@@ -671,7 +671,7 @@ if [ -z $ONLY_STATIC ]; then
 echo musl builder start
 docker image inspect ${_tm_pbs} > /dev/null 2>&1
 NEED_RESNAP=$?
-[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || builder-resnap || return $?
+{ [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || builder-resnap || return $?
 # FIXME autodetect the --no-build case
 [ ! -z $NOBUILD ] || builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || musl-bootstrap-sbcl || return $?
@@ -687,7 +687,7 @@ fi
 echo musl static builder start
 docker image inspect ${_tm_s_pbs} > /dev/null 2>&1
 NEED_RESNAP=$?
-[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || static-builder-resnap || return $?
+{ [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || static-builder-resnap || return $?
 [ ! -z $NOBUILD ] || static-builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || static-musl-bootstrap-sbcl || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
@@ -698,7 +698,7 @@ NEED_RESNAP=$?
 echo musl nox builder start
 docker image inspect ${_tm_n_pbs} > /dev/null 2>&1
 NEED_RESNAP=$?
-[ -z $RESNAP ] || [ ${NEED_RESNAP} -eq 0 ] || nox-builder-resnap || return $?
+{ [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || nox-builder-resnap || return $?
 [ -z $NOBUILD ] || nox-builder-bootstrap || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || nox-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
