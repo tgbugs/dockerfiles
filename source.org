@@ -1806,6 +1806,8 @@ INSTALL_MASK="${INSTALL_MASK}
 -/usr/share/locale/en@shaw
 -/usr/share/locale/en_US"
 
+## binary package settings
+
 BINPKG_FORMAT="gpkg"
 BINPKG_COMPRESS="zstd"
 BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
@@ -1837,6 +1839,8 @@ VIDEO_CARDS="-*"
 # which seem to have been modified by other merges
 QUICKPKG_DEFAULT_OPTS="--include-unmodified-config=y --umask=022"
 
+## account id mappings
+
 ACCT_GROUP_BLAZEGRAPH_ID=834
 ACCT_USER_BLAZEGRAPH_ID="${ACCT_GROUP_BLAZEGRAPH_ID}"
 
@@ -1860,6 +1864,11 @@ ACCT_USER_NIFSTD_TOOLS_ID="${ACCT_GROUP_NIFSTD_TOOLS_ID}"
 
 ACCT_GROUP_METABASE_ID=841
 ACCT_USER_METABASE_ID="${ACCT_GROUP_METABASE_ID}"
+
+## git-r3 settings
+
+# reduce clone times for dev repos for live ebuilds
+EGIT_CLONE_TYPE=mirror
 
 EGIT_OVERRIDE_REPO_SCIGRAPH_SCIGRAPH=https://github.com/SciCrunch/SciGraph.git
 EGIT_OVERRIDE_BRANCH_SCIGRAPH_SCIGRAPH=no-images
@@ -6091,20 +6100,19 @@ docker commit $(docker ps -lq) tgbugs/musl:protege
 *** world
 #+name: world-protege
 #+begin_src conf :tangle ./musl/protege/world
-virtual/jre
+app-misc/protege-bin
 dev-python/pip
 x11-misc/xdg-user-dirs
 #+end_src
 *** file
 We install pip during this step because any builds that =FROM
 tgbugs/musl:protege= default to =protegeuser=.
-# TODO FIXME we should be able to install protege as root
+
 #+name: &musl/protege
 #+begin_src dockerfile :tangle ./musl/protege/Dockerfile
 FROM tgbugs/musl:xorg AS builder
 
 ARG ARCHIVE
-ARG PROTEGE_VERSION="5.6.4"
 
 WORKDIR /build
 
@@ -6115,31 +6123,6 @@ USER ${USER_NAME}
 ARG HOME=/build/home/${USER_NAME}
 
 WORKDIR $HOME
-
-# phase two protege and reasoners
-ARG URL_PROTEGE="https://github.com/protegeproject/protege-distribution/releases/download/protege-${PROTEGE_VERSION}/Protege-${PROTEGE_VERSION}-linux.tar.gz"
-ARG URL_FACT="https://bitbucket.org/dtsarkov/factplusplus/downloads/uk.ac.manchester.cs.owl.factplusplus-P5.x-v1.6.5.jar"
-
-RUN \
-cd ~/ \
-&& curl -L -O ${URL_PROTEGE} \
-&& tar xvzf Protege-${PROTEGE_VERSION}-linux.tar.gz \
-&& pushd Protege-${PROTEGE_VERSION} \
-# remove the glibc linked jre
-&& rm jre/ -r \
-&& sed -i 's/^\$EFFECTIVE_JAVA_HOME\/bin\/java/\/usr\/bin\/java\ --add-opens java.xml\/com.sun.org.apache.xml.internal.serialize=ALL-UNNAMED/' run.sh \
-#&& sed -i 's/500M/12G/' run.sh \
-#&& sed -i 's/200M/5G/' run.sh \
-#&& sed -i 's/16M/160M/' run.sh \
-&& pushd plugins \
-&& curl -L -O ${URL_FACT} \
-&& popd; popd \
-&& mkdir -p ~/.local/share ~/.local/bin \
-&& mv Protege-${PROTEGE_VERSION} ~/.local/share/ \
-&& pushd ~/.local/bin \
-&& ln -s ../share/Protege-${PROTEGE_VERSION}/run.sh protege \
-&& popd \
-&& rm Protege-${PROTEGE_VERSION}-linux.tar.gz
 
 # paths to preferences files
 ARG PATH_CFU_1=_\!\&\!\!\`g\"\>\!\&@\!\[@\"\(\!%\`\!\|w\"@\!\&\)\!\[@\"\'\!%\`\!\`g\"\&\!%4\!@w\"\&\!\&:=
@@ -7825,6 +7808,11 @@ the links between =:tangle= paths and =<<noweb>>= references.
 #+begin_src dockerfile :tangle ./musl/tgbugs-dev/Dockerfile :mkdirp yes
 FROM tgbugs/musl:kg-dev
 <<&build-world-common>>
+
+# XXX temporary until upstream fixes missing symlink/eselect pypy
+RUN \
+unlink /usr/bin/pypy3 \
+;  ln -s pypy3.11 /usr/bin/pypy3
 #+end_src
 
 *** TODO world
