@@ -7569,7 +7569,7 @@ mkdir ~/git \
 
 #+name: &dev-user-common-2
 #+begin_src dockerfile
-COPY --from=builder /home/${USER_NAME} /home/${USER_NAME}
+COPY --from=builder /home/ /home/
 
 <<&musl-file-user-base>>
 #+end_src
