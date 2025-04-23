@@ -1911,6 +1911,7 @@ app-misc/yq ~amd64
 dev-libs/miniz ~amd64
 
 # tgbugs-overlay
+app-misc/protege-bin ~amd64
 dev-db/blazegraph-bin ~amd64
 dev-db/pguri **
 dev-java/robot-bin ~amd64
