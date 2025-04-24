@@ -1206,7 +1206,9 @@ ADD ${bp}package.env                             etc/portage/package.env/profile
 # general pataches
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
 ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
-RUN ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.3
+RUN \
+   ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.3 \
+;  ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.4
 
 # ghc memory issue workaround
 RUN \
