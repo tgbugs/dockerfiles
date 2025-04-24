@@ -382,8 +382,13 @@ run-main
 #+name: &workflow-main
 #+begin_src screen
 function run-main () {
-pull musl || echo "ERROR pull musl failed with ${?}"
-pull gnu || echo "ERROR pull gnu failed with ${?}"
+if [ -n "${_refresh}" ]; then  # FIXME implicit global variable when it is hard to set the variable in some contexts :/
+    pull musl || echo "ERROR pull musl failed with ${?}"
+    pull gnu || echo "ERROR pull gnu failed with ${?}"
+fi
+if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
+    pull-portage || { CODE=$?; echo "ERROR failed to pull portage"; return ${CODE}; }
+fi
 package-server-running || { CODE=$?; echo "ERROR package-server is not running"; return ${CODE}; }
 pushd ~/git/dockerfiles  # FIXME hardcoded path
 tangle && {
@@ -469,8 +474,24 @@ fi
 
 <<&sbcl-funs>>
 
+function pull-portage () {
+# these are updated more or less in sync with the upstream snapshot source
+local BEFORE="$(docker image inspect ${_img_portage} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
+docker pull ${_img_portage}
+local AFTER="$(docker image inspect ${_img_portage} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
+local A_DATE=$(date -In --utc --date "${AFTER}")
+local B_DATE=$(date -In --utc --date "${BEFORE}")
+if [[ ${B_DATE} < ${A_DATE} ]] || ! docker container inspect local-portage-snap > /dev/null; then
+    docker rm local-portage-snap
+    docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
+fi
+if [ -n "${_use_podman}" ]; then
+    [ -n "$(podman container ls -q --filter name=local-portage-snap --filter status=initialized)" ] || \
+    podman container init local-portage-snap
+fi
+}
+
 function pull () {
-# FIXME abstract _src_stage3 and _img_stage3 for gnu vs musl
 local _src_stage3 _img_stage3
 if [ "${1}" == "gnu" ]; then
     _src_stage3=${_gnu_src_stage3}
@@ -483,39 +504,20 @@ else
     return 1
 fi
 # echo src img ${_src_stage3} ${_img_stage3}
-if [ -n "${_refresh}" ]; then  # FIXME implicit global variable when it is hard to set the variable in some contexts :/
-    # even when refresh is set avoid spurious pulls where the underlying stage3 has not changed
-    local DIST="https://distfiles.gentoo.org/releases/amd64/autobuilds"
-    local STAGE3_LATEST="$(curl --fail --silent "${DIST}/${_src_stage3}.txt" |\
-        grep -B99 '^-----BEGIN PGP SIGNATURE-----$' | tail -n 2 | head -n 1 |\
-        cut -f 1 -d'/' | sed -r 's/(....)(..)(..)T(..)(..)(..)/\1-\2-\3T\4:\5:\6/')"
-    local LOCDOC_LATEST="$(docker image inspect ${_img_stage3} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
-    local S3_DATE=$(date -In --utc --date "${STAGE3_LATEST}")
-    local LD_DATE=$(date -In --utc --date "${LOCDOC_LATEST}")
-    # XXX there is technically a narrow window between the release of
-    # a stage3 and the building of a docker image where this might fail
-    # have to use double square brackets for this to work correctly
-    [[ ${S3_DATE} < ${LD_DATE} ]] || \
-    docker pull ${_img_stage3}
-fi
 
-# TODO make pull-portage its own function to avoid rerun?
-if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
-    # these are updated more or less in sync with the upstream snapshot source
-    local BEFORE="$(docker image inspect ${_img_portage} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
-    docker pull ${_img_portage}
-    local AFTER="$(docker image inspect ${_img_portage} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
-    local A_DATE=$(date -In --utc --date "${AFTER}")
-    local B_DATE=$(date -In --utc --date "${BEFORE}")
-    if [[ ${B_DATE} < ${A_DATE} ]] || ! docker container inspect local-portage-snap > /dev/null; then
-        docker rm local-portage-snap
-        docker create -v /var/db/repos/gentoo --name local-portage-snap ${_img_portage} /bin/true
-    fi
-    if [ -n "${_use_podman}" ]; then
-        [ -n "$(podman container ls -q --filter name=local-portage-snap --filter status=initialized)" ] || \
-        podman container init local-portage-snap
-    fi
-fi
+# avoid spurious pulls where the underlying stage3 has not changed
+local DIST="https://distfiles.gentoo.org/releases/amd64/autobuilds"
+local STAGE3_LATEST="$(curl --fail --silent "${DIST}/${_src_stage3}.txt" |\
+    grep -B99 '^-----BEGIN PGP SIGNATURE-----$' | tail -n 2 | head -n 1 |\
+    cut -f 1 -d'/' | sed -r 's/(....)(..)(..)T(..)(..)(..)/\1-\2-\3T\4:\5:\6/')"
+local LOCDOC_LATEST="$(docker image inspect ${_img_stage3} --format '{{.Created}}' || date --utc +%Y-%m-%dT%H:%M:%SZ --date @0)"
+local S3_DATE=$(date -In --utc --date "${STAGE3_LATEST}")
+local LD_DATE=$(date -In --utc --date "${LOCDOC_LATEST}")
+# XXX there is technically a narrow window between the release of
+# a stage3 and the building of a docker image where this might fail
+# have to use double square brackets for this to work correctly
+[[ ${S3_DATE} < ${LD_DATE} ]] || \
+docker pull ${_img_stage3}
 }
 
 function tangle () {
@@ -569,9 +571,6 @@ local REPOS="${_repos}"
 # gnu-container-check and container-check will fail
 docker image inspect tgbugs/repos:latest > /dev/null 2>&1
 NEED_REPOS=$?
-if [ ${NEED_REPOS} -ne 0 ]; then
-    REPOS=1
-fi
 
 # we build both eselect repos images in common because the output is
 # usable in common ideally we will be able to get rid of a continually
@@ -579,12 +578,11 @@ fi
 # shift away from using docker build and toward running containers
 <<&gnu-build-eselect-repo>> || return $?
 <<&musl-build-eselect-repo>> || return $?;
-  [ -z $REPOS ] || {
+  { [ -z $REPOS ] && [ ${NEED_REPOS} -eq 0 ]; } || {
   <<&repos-build-repos>> || return $?;
   <<&re-local-repos-snap>>
   echo repos done;
   }
-
 }
 
 function run-gnu () {
@@ -1275,12 +1273,14 @@ sync-uri = http://host.docker.internal:<<&host-binpkgs-port()>>/multi
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
 app-text/pandoc-cli::gentoo
 dev-python/*::tgbugs-overlay
+dev-racket/*::racket-overlay
 dev-scheme/racket::tgbugs-overlay
 dev-haskell/*::tgbugs-overlay **
 dev-haskell/*::haskell
 dev-lang/ghc::gentoo
 app-admin/haskell-updater::gentoo
 dev-util/shellcheck::gentoo
+sys-apps/racket-where::racket-overlay
 #+end_src
 
 We only use the =::haskell= overlay for the graphviz dependencies.
@@ -2532,6 +2532,20 @@ be to create an image that can be mounted as a volume by users which contains on
 this depends on the license and might only work for e.g. something like media-fonts/corefonts. We aren't going to
 go that route for now, and if I can find any guidance on redistributing docker images containing these I will add
 and update here. However I can't find any clear guidance at this time.
+*** dev-racket
+There is an issue with =racket-overlay= licenses that is cause
+by https://pkgs.racket-lang.org missing license metadata for a
+very large number of projects and rather than translating a missing
+license as simply missing, it is listed as all-rights-reserved which
+is not accurate. This is a workaround for that issue until it can be
+resolved.
+
+#+name: license-dev-racket
+#+begin_src conf :tangle ./musl/package-builder/package.license/dev-racket :mkdirp yes
+# FIXME HACK
+dev-racket/*::racket-overlay all-rights-reserved
+#+end_src
+
 *** media-fonts/corefonts
 #+name: license-media-libs/corefonts
 #+begin_src conf :tangle ./musl/package-builder/package.license/media-fonts/corefonts :mkdirp yes
@@ -2778,8 +2792,7 @@ builder-debug
 
 #+name: &re-local-repos-snap
 #+begin_src bash
-docker container inspect local-repos-snap > /dev/null && {
-docker rm local-repos-snap;
+docker container inspect local-repos-snap > /dev/null && { docker rm local-repos-snap; }
 docker create -v /var/db/repos --name local-repos-snap tgbugs/repos:latest /bin/true || return $?;
 # https://github.com/containers/podman/issues/10262
 # FIXME TODO if podman then you must run the following for reasons I still do not entirely understand
@@ -2787,7 +2800,6 @@ if [ -n "${_use_podman}" ]; then
 [ -n "$(podman container ls -q --filter name=local-repos-snap --filter status=initialized)" ] || \
 podman container init local-repos-snap
 fi
-}
 #+end_src
 
 *** build
@@ -2812,6 +2824,7 @@ COPY --from=docker.io/gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/g
 RUN \
    emaint sync --repo musl \
 && emaint sync --repo haskell \
+&& emaint sync --repo racket-overlay \
 && emaint sync --repo tgbugs-overlay
 
 # manual sync in cases where there is a showstopper blocking progress
@@ -3166,6 +3179,12 @@ echo "MAKEOPTS=\"-j$(nproc)\"" >> /etc/portage/make.conf
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 emerge --info 2>&1 | { grep Invalid\ atom && exit 1; exit 0; }
 
+RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
+let diff=( $(date +%s) - $(awk '{ print $1 }' /var/db/repos/gentoo/metadata/timestamp.x) ) \
+;  let days=( ${diff} / 86400 ) \
+;  [ ${days} -lt 14 ] \
+|| { echo 'portage is too old ${days} > 14 days' 1>&2; exit 1; }
+
 # handle updates for python version changes that block further calls to emerge
 # these happen periodically when portage and stage3 images have mismached PYTHON_TARGETS
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
@@ -3184,7 +3203,8 @@ emerge -q \
 
 # if you need to build from a fork change remote for tgbugs-overlay here (ref:tgbugs-overlay-fork)
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+   eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
+&& eselect repository add racket-overlay git https://gitlab.com/tgbugs/gentoo-racket-overlay.git \
 && eselect repository enable haskell
 #+end_src
 # TODO should we be adding the mount points here as well or is that not necessary?
