@@ -9161,12 +9161,13 @@ done
 #+end_src
 
 #+name: &musl-run-sbcl-generate-patches-etc
-#+begin_src bash
+#+begin_src bash :noweb yes
 docker run \
 --volumes-from local-repos-snap \
 -v ${_path_dockerfiles}:/dockerfiles \
+-e _uid=$(if [ ${UID} -lt 60000 ]; then echo ${UID}; else echo 1000; fi) \
 --rm tgbugs/musl:updated \
-bash -c "pushd /dockerfiles; source bin/sbcl-funs.sh; sbcl-clone-fetch && sbcl-ensure-latest && sbcl-generate-patches; CODE=$?; echo TODO chown on linux?; exit ${CODE}" &&
+bash -c 'git config --global --add safe.directory /dockerfiles/helper-repos/sbcl; pushd /dockerfiles; source bin/sbcl-funs.sh; sbcl-clone-fetch && sbcl-ensure-latest && sbcl-generate-patches; CODE=$?; chown -R ${_uid}:${_uid} /dockerfiles/helper-repos/sbcl; exit ${CODE}' &&
 ./source.org non-tangled
 #+end_src
 
