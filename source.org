@@ -8069,6 +8069,8 @@ The advantage of using =docker run= is that
 | sparc-curation
 | scibot
 | interlex
+| pyontutils/nifstd
+| pyontutils/neurondm
 
 #+name: &dev-rkt-install-order-name
 | qrcode/                                 | barcode     |
