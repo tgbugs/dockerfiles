@@ -676,7 +676,8 @@ NEED_RESNAP=$?
 [ ! -z $NOBUILD ] || \
 <<&musl-run-build-need-priv>>
 [ ! -z $NOBUILD ] || builder-world || return $?
-[ -z $LIVE_REBUILD ] || builder-smart-live-rebuild || return $?
+{ [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-smart-live-rebuild || return $?
+{ [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-smart-also-live-rebuild || return $?
 # TODO
 # builder-license || return $?
 
@@ -690,17 +691,17 @@ NEED_RESNAP=$?
 [ ! -z $NOBUILD ] || static-musl-bootstrap-sbcl || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || static-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
-[ -z $LIVE_REBUILD ] || static-builder-smart-live-rebuild || return $?  # no live builds right now
+{ [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && static-builder-smart-live-rebuild || return $?  # no live builds right now
 
 
 echo musl nox builder start
 docker image inspect ${_tm_n_pbs} > /dev/null 2>&1
 NEED_RESNAP=$?
 { [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || nox-builder-resnap || return $?
-[ -z $NOBUILD ] || nox-builder-bootstrap || return $?
+[ ! -z $NOBUILD ] || nox-builder-bootstrap || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || nox-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
-# [ -z $LIVE_REBUILD ] || nox-builder-smart-live-rebuild || return $?  # no live builds right now
+# { [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && nox-builder-smart-live-rebuild || return $?  # no live builds right now
 
 # TODO consider whether we need to rebuild baselayout openrc sgml-common due to config issues with quickpkg
 
