@@ -8859,11 +8859,11 @@ touch /run/openrc/softlevel
 /etc/init.d/sparcron-server start
 
 # testing and ensure that there is an existing cache on first run
-su sparc -c 'pypy3 -m sparcur.sparcron'
+runuser -u sparc -- pypy3.11 -m sparcur.sparcron
 
-su sparc -c 'EPYTHON=pypy3 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wcron -Q cron,default --concurrency=1 --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO' &
+runuser -u sparc -- sh -c 'EPYTHON=pypy3.11 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wcron -Q cron,default --concurrency=1 --beat --schedule-filename ./sparcur-cron-schedule --loglevel=INFO' &
 
-su sparc -c 'EPYTHON=pypy3 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wexport -Q export --loglevel=INFO'
+runuser -u sparc -- sh -c 'EPYTHON=pypy3.11 PYTHONBREAKPOINT=0 celery --app sparcur.sparcron worker -n wexport -Q export --loglevel=INFO'
 # FIXME missing rmeta stuff ?
 
 #/etc/init.d/redict stop
