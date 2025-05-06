@@ -4663,6 +4663,14 @@ sh -c 'rebuilds=$(live-changed); if [ -n "${rebuilds}" ]; then { emerge --with-b
 <<&docker-run-suffix>>
 }
 
+function builder-smart-also-live-rebuild () {
+local _builder CODE
+_builder=${_tm_pbs}
+<<&docker-run-prefix>>
+sh -c 'rebuilds=$(live-changed also); if [ -n "${rebuilds}" ]; then { export ACCEPT_KEYWORDS="**"; emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -q --keep-going ${rebuilds} && emerge --color=y -q --keep-going --usepkg=n --nodeps --buildpkgonly ${rebuilds}; } fi'
+<<&docker-run-suffix>>
+}
+
 function static-builder-smart-live-rebuild () {
 # rebuild packages modified without revbump e.g. due to changing /etc/portage/patches
 local _builder CODE
@@ -5244,6 +5252,16 @@ dev-python/sxpyr
 dev-python/ttlser
 #+end_src
 
+Meta live.
+#+begin_src conf :tangle ./musl/package-builder/sets/meta-live
+tgbugs-meta/sparcron-meta
+#+end_src
+
+FIXME TODO check the ebuild in the package meta for changes against the tree
+#+begin_src bash
+builder-run sh -c 'ACCEPT_KEYWORDS="**" emerge --buildpkgonly --nodeps @meta-live'
+#+end_src
+
 FIXME not clear where this should go, but need a way to toggle
 maybe do it by mounting the file to =/etc/portage/package.accept_keywords/00-live= when run?
 emerge from package and then run smart live rebuild?
@@ -5499,6 +5517,8 @@ try:
         #            # TODO git merge-base --is-ancestor
         #            pass
 
+        # FIXME TODO use release-next to check that only the files
+        # that are actually included in the package have changed
         if new_commit != egit_version:
             rebuild.append(cp)
 
@@ -7250,7 +7270,7 @@ rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
-su user -c 'emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sckan/welcome.org'
+runuser -u user -- emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sckan/welcome.org
 /etc/init.d/scigraph stop
 /etc/init.d/blazegraph stop
 #+end_src
@@ -7290,9 +7310,9 @@ BLAZ_OOPS=$?
 [ ${BLAZ_OOPS} -eq 0 ] || { echo blazegraph failed to start; exit 3;}
 
 # check elisp config
-su user -c 'sckan/queries.org test config' || { echo basic config test failed cannot continue; exit 4;}
+runuser -u user -- sh -c 'sckan/queries.org test config' || { echo basic config test failed cannot continue; exit 4;}
 # run data sanity check queries
-su user -c 'sckan/queries.org test query neurons datasets protocols' || { echo at least one query test failed; exit 5;}
+runuser -u user -- sh -c 'sckan/queries.org test query neurons datasets protocols' || { echo at least one query test failed; exit 5;}
 #+end_src
 
 *** file
@@ -8766,14 +8786,16 @@ path-sparcron-gsaro
 *** build
 #+name: &musl-build-sparcron-user
 #+begin_src screen
-docker build \
+<<&docker-build>>
 --tag tgbugs/musl:sparcron-user \
 --file musl/sparcron-user/Dockerfile musl/sparcron-user
 #+end_src
 
 *** file
 #+begin_src dockerfile :tangle ./musl/sparcron-user/Dockerfile
-FROM tgbugs/musl:sparcron
+ARG START_IMAGE=tgbugs/musl:sparcron
+
+FROM ${START_IMAGE}
 
 ADD --chown=836:836 idlib-config.yaml /var/lib/sparc/.config/idlib/config.yaml
 ADD --chown=836:836 sparcur-config.yaml /var/lib/sparc/.config/sparcur/config.yaml
@@ -8871,6 +8893,54 @@ SVR_OOPS=$?
 [ ${RED_OOPS} -ne 0 ] || [ ${RAB_OOPS} -ne 0 ] || [ ${SVR_OOPS} -ne 0 ] && { echo at least on service failed; exit 1;}
 
 su sparc -c 'pypy3 -m sparcur.sparcron' || { echo startup check failed; exit 2;}
+#+end_src
+
+** sparcron-live
+so the problem here is at least twofold
+1. package.accept_keywords needs to be set appropriately for the packages in questions
+2. we somehow have to build and rebuild the 9999 ebuilds automatically knowing that we
+   also want to have the versioned ebuilds present too, this might be a case where
+   ~ACCEPT_KEYWORDS='**'~ along with ~--buildpkgonly~ might be what we need and live.world
+   being separate might help
+
+*** build
+#+name: &musl-build-sparcron
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:sparcron-live \
+--file musl/sparcron-live/Dockerfile musl/sparcron-live
+#+end_src
+
+*** file
+#+name: &musl/sparcron-live
+#+begin_src dockerfile :tangle ./musl/sparcron-live/Dockerfile
+FROM tgbugs/musl:binpkg-only
+
+ADD package.accept_keywords /etc/portage/package.accept_keywords/99-live-sparcron
+
+<<&build-world-common>>
+#+end_src
+
+*** world
+#+name: world-sparcron-live
+#+begin_src conf :tangle ./musl/sparcron-live/world
+=tgbugs-meta/sparcron-meta-9999
+#+end_src
+
+*** package.accept_keywords
+#+begin_src conf :tangle ./musl/sparcron-live/package.accept_keywords
+tgbugs-meta/*::tgbugs-overlay **
+dev-python/*::tgbugs-overlay **
+#+end_src
+
+** sparcron-live-user
+*** build
+#+name: &musl-build-sparcron-live-user
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:sparcron-live-user \
+--build-arg START_IMAGE=tgbugs/musl:sparcron-live \
+--file musl/sparcron-user/Dockerfile musl/sparcron-user
 #+end_src
 
 ** protc
