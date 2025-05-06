@@ -4912,6 +4912,7 @@ ADD world /etc/portage/sets/docker
 ADD sets/builder /etc/portage/sets/builder
 ADD sets/license /etc/portage/sets/license
 ADD sets/live /etc/portage/sets/live
+ADD sets/also-live /etc/portage/sets/also-live
 # ADD accept_keywords.temp /etc/portage/package.accept_keywords/temp  # XXX mount in docker run not here
 
 RUN \
@@ -5212,34 +5213,34 @@ media-fonts/dejavu
 #+end_src
 
 **** live
-TODO use release-next to determine which have actually changed since their last release
-and/or their last build, because smart-live-rebuild won't cut it
-
+Always live (right now).
 #+begin_src conf :tangle ./musl/package-builder/sets/live
 dev-java/scigraph-bin
 dev-java/robot-bin
+dev-node/apinat-converter
 dev-python/sparcur
 dev-python/interlex
 #+end_src
 
-#+begin_src conf :tangle ./musl/package-builder/sets/live-hrm
-=dev-python/augpathlib-9999
-=dev-python/clifn-9999
-=dev-python/htmlfn-9999
-=dev-python/hyputils-9999
-=dev-python/idlib-9999
-#=dev-python/interlex-9999  # ssh issues for now
-=dev-python/neurondm-9999
-=dev-python/nifstd-tools-9999
-=dev-python/ontquery-9999
-=dev-python/orthauth-9999
-=dev-python/pysercomb-9999
-=dev-python/protcur-9999
-=dev-python/pyontutils-9999
-#=dev-python/scibot-9999
-=dev-python/sparcur-9999
-=dev-python/sxpyr-9999
-=dev-python/ttlser-9999
+Also live.
+#+begin_src conf :tangle ./musl/package-builder/sets/also-live
+dev-python/augpathlib
+dev-python/clifn
+dev-python/htmlfn
+dev-python/hyputils
+dev-python/idlib
+#dev-python/interlex
+dev-python/neurondm
+dev-python/nifstd-tools
+dev-python/ontquery
+dev-python/orthauth
+dev-python/protcur
+dev-python/pyontutils
+dev-python/pysercomb
+dev-python/scibot
+#dev-python/sparcur
+dev-python/sxpyr
+dev-python/ttlser
 #+end_src
 
 FIXME not clear where this should go, but need a way to toggle
@@ -5272,23 +5273,15 @@ emerge --color=y --nodeps -q --keep-going @live  # TODO use live-changed
 
 #+header: :shebang "#!/usr/bin/env python" :tangle-mode (or #o0755)
 #+begin_src python :tangle ./bin/live-changed :mkdirp yes
-#from portage.package.ebuild.doebuild import doebuild_environment, doebuild
-#atom = a = list(bintree.dbapi.match('dev-python/ttlser'))[-1]
-#p_atom = p = list(porttree.dbapi.match('dev-python/ttlser'))[-1]
-#cat, name, version, rev = p_atom.cpv_split
-#epath = p_atom._db.getRepositoryPath(p_atom.repo) + f'/{cat}/{name}/{name}-{version}.ebuild'
-#_settings = p_atom._settings.__class__()
-#doebuild_environment(epath, 'help', settings=_settings, db=p_atom._db)
-## SO CLOSE YET SO FAR
-#[(k, v) for k, v in sorted(_settings.environ().items()) if v and '(' not in v and '\n' not in v and ' ' not in v]
-#_env = '\n'.join([f'export {k}={v}' for k, v in sorted(_settings.environ().items()) if v and '(' not in v and '\n' not in v and ' ' not in v])
-#funs = b'\nfunction inherit () { :; }\nfunction pypi_sdist_url () { :; }\n'
-#load_byte_string(bp, env + b'\n' + _env.encode() + funs + b'\n' + ebuild)
-##_ = [bp(f'export {k}={v}') for k, v in sorted(_settings.environ().items()) if v and '(' not in v and '\n' not in v and ' ' not in v]
-
+import sys
 from _emerge.actions import load_emerge_config
 ec = load_emerge_config()
-lives = ec.target_config.sets['live'].getAtoms()  # TODO /etc/portage/sets/live
+if 'also' in sys.argv:
+    lives = ec.target_config.sets['also-live'].getAtoms()
+    sys.argv.remove('also')
+else:
+    lives = ec.target_config.sets['live'].getAtoms()
+
 # FIXME better to do it from packages in general or from @docker
 # and infer ... smart-live-rebuild doesn't help us here because it only
 # works on packages that are already installed fortunately the package builder is the only
@@ -5328,10 +5321,11 @@ maybe_rebuild = []
 not_live = set()
 for live in sorted(lives, reverse=True):
     atoms = list(bintree.dbapi.match(live))
-    #atoms = list(bintree.dbapi.match('dev-python/ttlser'))
 
     if not atoms:
-        maybe_rebuild.append(live)  # no binpkg exists at all, but that doesn't mean that live is actually newer than latest release
+        # no binpkg exists at all, but that doesn't mean that live is
+        # actually newer than latest release
+        maybe_rebuild.append(live)
         continue
 
     _9999_done = False
@@ -5379,18 +5373,21 @@ for live in sorted(lives, reverse=True):
                 #f.file.seek(0)
                 #bp.load_file(f)  # XXX somehow this severly breaks the bashproc ... ah well yeah bunch of undefined functions
 
+            slot = bp['SLOT']
             egit_dir = bp['EGIT_DIR']
             egit_version = bp['EGIT_VERSION']
             egit_min_clone_type = bp['EGIT_MIN_CLONE_TYPE']
             egit_repo_uri = bp['EGIT_REPO_URI']
+            egit_branch = bp['EGIT_BRANCH']
 
             S = bp['S']
-            ebuilds[atom.cp] = key_ebuild, ebuild, egit_dir, egit_version
+            ebuilds[atom.cp] = key_ebuild, ebuild, slot, egit_dir, egit_version, egit_branch,
             cp_data[atom.cp] = (
                 egit_dir,
                 egit_version,
                 #egit_min_clone_type,
                 egit_repo_uri,
+                egit_branch,
                 S,
             )
 
@@ -5405,6 +5402,11 @@ for live in sorted(lives, reverse=True):
     if not _nl_done:
         # case where no not live package has been built
         maybe_rebuild.append(atom)
+
+    if not _9999_done:
+        # no 9999 ebuild was found in binpkgs so check the tree for a live
+        # ebuild since we need to build it (not even rebuild)
+        maybe_rebuild.append(live)
 
 rebuild = []
 for mr_atom in maybe_rebuild:
@@ -5433,8 +5435,8 @@ for natom, version, name in sorted(not_live, reverse=True):  # FIXME TODO make s
 
 # a deep clone is required for all of these
 # it probably makes sense to keep those repos somewhere else (i.e. not in distfiles) to keep things simple and separate from portage
+# actually, it seems ok to keep these with portage and they can be used as a local source to clone user image dev repos
 
-import sys
 import shutil
 import pathlib
 import subprocess
@@ -5452,7 +5454,7 @@ try:
 
     simple_unpack = b'\nfunction src_unpack () { git-r3_src_unpack; }\nfunction pkg_setup () { :; }\n'
 
-    for cp, (efn, ebuild, egit_dir, egit_version) in ebuilds.items():
+    for cp, (efn, ebuild, slot, egit_dir, egit_version, egit_branch) in ebuilds.items():
         cpp = ebuild_path / cp
         cpp.mkdir(parents=True, exist_ok=True)
         nep = cpp / efn
@@ -5464,8 +5466,37 @@ try:
         argv = 'ebuild', nep.as_posix(), 'digest', 'unpack', 'clean'
         p = subprocess.Popen(argv, stderr=sys.stderr, stdout=sys.stderr)
         out = p.communicate()
-        with open(pathlib.Path(egit_dir) / 'FETCH_HEAD', 'rt') as f:
+
+        egit_path = pathlib.Path(egit_dir)
+        # g3_main from git-r3_fetch local_ref in git-r3.eclass
+        g3_main = egit_path / 'refs/git-r3' / cp / slot / '__main__'
+        with open(g3_main, 'rt') as f:
+            # FIXME may need to use git symbolic-ref --quiet if not ref: refs/a/b
+            g3_ref = f.read().split()[1]
+
+        ref_path = egit_path / g3_ref
+        with open(ref_path, 'rt') as f:
             new_commit = f.read().strip().split()[0]
+
+        # XXX the way things work now it is not clear we need to do this
+        # because if we are building live ebuilds then we don't care if
+        # there is a non-live that is equivalent because there is no easy
+        # way to say "only use live if live is newer than non-live"
+        # there are other reasons we might want to use this though
+        #tag = cp_tag[cp] if cp in cp_tag else None
+        #if tag is not None:
+        #    tag_path = egit_path / 'refs/tags' / tag
+        #    if tag_path.exists():
+        #        with open(tag_path, 'rt') as f:
+        #            tag_commit = f.read().strip().split()[0]
+
+        #        if tag_commit == new_commit:
+        #            pass
+        #        elif tag_commit == egit_version:
+        #            pass
+        #        else:
+        #            # TODO git merge-base --is-ancestor
+        #            pass
 
         if new_commit != egit_version:
             rebuild.append(cp)
@@ -9732,6 +9763,10 @@ dev-lisp/sbcl
 **** live
 #+name: set-live-package-builder-gnu
 #+begin_src conf :tangle ./gnu/package-builder/sets/live
+#+end_src
+
+#+name: set-also-live-package-builder-gnu
+#+begin_src conf :tangle ./gnu/package-builder/sets/also-live
 #+end_src
 
 *** cross
