@@ -765,6 +765,8 @@ echo start image builds
 ## sparcron
 <<&musl-build-sparcron>> || return $?; echo mbsp;
 <<&musl-build-sparcron-user>> || return $?; echo mbspu;
+<<&musl-build-sparcron-live>> || return $?; echo mbspl;
+<<&musl-build-sparcron-live-user>> || return $?; echo mbsplu;
 
 }
 #+end_src
