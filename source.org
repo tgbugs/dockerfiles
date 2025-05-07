@@ -8906,7 +8906,7 @@ so the problem here is at least twofold
    being separate might help
 
 *** build
-#+name: &musl-build-sparcron
+#+name: &musl-build-sparcron-live
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:sparcron-live \
@@ -8924,6 +8924,20 @@ figure out how to reduce rework later.
 #+begin_src bash
 ./source.org build-image tgbugs/musl:sparcron-live --no-cache
 ./source.org build-image tgbugs/musl:sparcron-live-user
+#+end_src
+
+sanity check to make sure updated as expected
+#+begin_src bash
+pushd ~/git/sparc-curation > /dev/null 2>&1;
+git fetch > /dev/null 2>&1;
+git rev-parse origin/master;
+popd > /dev/null 2>&1
+
+docker run --rm --entrypoint /usr/bin/python tgbugs/musl:sparcron-live-user -c "import sparcur as mod; print(mod.__version__)"
+#+end_src
+
+#+begin_src bash
+docker push tgbugs/musl:sparcron-live-user; docker push tgbugs/musl:sparcron-live
 #+end_src
 
 *** file
