@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 00544150fe6b51c5e35213a8251a4b4fb64721680ef41059a69d59a984b00b2d; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: d9c30b32338daea3e67bb1f60cc16b362a251b1420cbebcb77280b33af45d799; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -8913,6 +8913,19 @@ so the problem here is at least twofold
 --file musl/sparcron-live/Dockerfile musl/sparcron-live
 #+end_src
 
+*** rebuild
+#+begin_src screen
+builder-smart-live-rebuild
+builder-smart-also-live-rebuild
+#+end_src
+
+FIXME for the time being we are just going to do the full rebuild will
+figure out how to reduce rework later.
+#+begin_src bash
+./source.org build-image tgbugs/musl:sparcron-live --no-cache
+./source.org build-image tgbugs/musl:sparcron-live-user
+#+end_src
+
 *** file
 #+name: &musl/sparcron-live
 #+begin_src dockerfile :tangle ./musl/sparcron-live/Dockerfile
@@ -11885,7 +11898,6 @@ currently only sbcl static uses this but other things might need it in the futur
     (goto-char (point-min))
     (re-search-forward (concat "--tag " tag " ")) ; trailing space to avoid shared prefix issues
     (let ((info (org-babel-get-src-block-info)))
-      (message "at point %s" (point))
       (when execute
         (when no-cache ; FIXME assumes --tag name \
           (insert "--no-cache "))
