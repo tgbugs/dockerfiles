@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: dca1e1487be17d82e00a56d0428b2405619e201be87beb9d29ffe38638acaac9; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 00544150fe6b51c5e35213a8251a4b4fb64721680ef41059a69d59a984b00b2d; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -11880,13 +11880,17 @@ currently only sbcl static uses this but other things might need it in the futur
            out)
          ))))
 
-(defun find-tag-build-scr-block (tag &optional execute)
+(defun find-tag-build-scr-block (tag &optional execute no-cache)
   (save-excursion
     (goto-char (point-min))
     (re-search-forward (concat "--tag " tag " ")) ; trailing space to avoid shared prefix issues
     (let ((info (org-babel-get-src-block-info)))
+      (message "at point %s" (point))
       (when execute
-        (org-babel-execute-src-block))
+        (when no-cache ; FIXME assumes --tag name \
+          (insert "--no-cache "))
+        (org-babel-execute-src-block)
+        (undo))
       ;; always return the name we we execute build blocks they are nearly always screen
       ;; and the return value is thus nil
       (nth 4 info))))
@@ -11960,7 +11964,8 @@ currently only sbcl static uses this but other things might need it in the futur
                                     (member "--no-build" argv)
                                     (member "--no-pkg-bldr" argv))))
           (use-podman (member "--podman" argv))
-          (cli-images  (cdr build-image)) ; must come last will build all listed images in order they are listed
+          (cli-images  (cl-remove-if (lambda (s) (string= s "--no-cache")) (cdr build-image))) ; must come last will build all listed images in order they are listed
+          (cli-no-cache (member "--no-cache" argv))
           (cli-check-paths (member "--check-paths" argv))
           (cli-pretend (member "--pretend" argv)) ; FIXME sequencing wrt build-image and cli-images
           (cli-uif (cli-opt "--user-init-file"))
@@ -12090,7 +12095,7 @@ currently only sbcl static uses this but other things might need it in the futur
                        collect (cons
                                 image
                                 (with-error-on-fail ; FIXME sequencing here is a bit off, so we fail to get the block name
-                                 (find-tag-build-scr-block image (not cli-pretend)))))))
+                                 (find-tag-build-scr-block image (not cli-pretend) cli-no-cache))))))
                 (message "image src blocks:")
                 (cl-loop
                  for (image . block) in image-blocks do
