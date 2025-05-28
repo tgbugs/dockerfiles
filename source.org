@@ -7777,15 +7777,18 @@ pushd git \
 RUN \
 pushd git \
 &&     pushd pyontutils \
+&&         touch pyproject.toml \
 &&         python -m pip install --user --break-system-packages -e . \
 &&         pypy3 -m pip install --user --break-system-packages -e . \
 &&         pushd nifstd \
+&&             touch pyproject.toml \
 &&             python setup.py --release || true \
 &&             python -m pip install --user --break-system-packages -e . \
 &&             pypy3 -m pip install --user --break-system-packages -e . \
 &&         popd \
 &&     popd \
 &&     pushd sparc-curation \
+&&         touch pyproject.toml \
 &&         python setup.py --release || true \
 &&         python -m pip install --user --break-system-packages -e . \
 &&         pypy3 -m pip install --user --break-system-packages -e . \
@@ -8192,6 +8195,7 @@ popd
         unless (string-match "interlex" pi) ; TODO needs ssh
         collect ; FIXME didn't we wind up having to use PYTHONPATH ???
         (concat "pushd " pi "
+touch pyproject.toml
 python -m pip install --break-system-packages --user -e .
 pypy3 -m pip install --break-system-packages --user -e .
 popd"))
