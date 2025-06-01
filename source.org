@@ -1544,6 +1544,7 @@ dev-haskell/zlib
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
 dev-java/openjdk-bin  # libc linking issues, must compile openjdk
+<dev-lang/rust-1.70.0::musl  # stale
 dev-lang/rust-bin  # prefer our own
 <virtual/jdk-17
 <virtual/jre-17
@@ -2411,9 +2412,13 @@ index 7914d3a..41d1506 100644
 **** package.use
 #+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.use
 dev-lang/ghc ghcbootstrap
-
+#+end_src
+**** package.use.mask
+Reminder: can't use package.use =-flag= at profile level because
+=/etc/portage/package.use= will overwrite.
+#+begin_src conf :tangle ./docker-profile/musl/docker-profile/profiles/tgbugs/musl/package.use.mask
 # clisp with X fails to build on musl
-dev-lisp/clisp -X
+dev-lisp/clisp X
 #+end_src
 **** package.use.force
 We have a cross compile bootstrap and the clisp build is broken.
