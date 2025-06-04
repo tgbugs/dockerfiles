@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: d9c30b32338daea3e67bb1f60cc16b362a251b1420cbebcb77280b33af45d799; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 2bfed64839aea1c94c0d1008c52d436dec56b8cd0ac7cdc2c643de014c25dda1; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -12094,9 +12094,9 @@ currently only sbcl static uses this but other things might need it in the futur
                    (package-server-running
                     (condition-case out-err
                         (url-http-file-exists-p (format "http://localhost:%s/%s/Packages" host-binpkgs-port host-binpkgs-repo-name))
-                      (file-error
-                       (unless (string= (caddr out-err) "Connection refused")
-                         (signal (car out-err) (cdr out-err)))))))
+                      (file-error ; FIXME not sure why also need the Cannot assign requested address case?
+                       (unless (member (caddr out-err) '("Connection refused" "Cannot assign requested address"))
+                         (signal (car out-err) (cdr out-err))))) ))
               ;; because of how ob-screen calls work we have to test whether
               ;; the package server is running from elisp otherwise we don't
               ;; know what we need to do at startup FIXME also there isn't
