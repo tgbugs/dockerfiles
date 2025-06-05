@@ -604,7 +604,7 @@ NEED_RESNAP=$?
 { [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || gnu-builder-resnap || return $?
 [ ! -z $NOBUILD ] || gnu-builder-bootstrap || return $?
 [ ! -z $NOBUILD ] || gnu-builder-world || return $?
-[ ! -z $NOBUILD ] || gnu-cross-musl-sbcl || return $?
+#[ ! -z $NOBUILD ] || gnu-cross-musl-sbcl || return $?
 }
 
 function run-musl () {
@@ -672,7 +672,7 @@ NEED_RESNAP=$?
 { [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || builder-resnap || return $?
 # FIXME autodetect the --no-build case
 [ ! -z $NOBUILD ] || builder-bootstrap || return $?
-[ ! -z $NOBUILD ] || musl-bootstrap-sbcl || return $?
+#[ ! -z $NOBUILD ] || musl-bootstrap-sbcl || return $?
 [ ! -z $NOBUILD ] || \
 <<&musl-run-build-need-priv>>
 [ ! -z $NOBUILD ] || builder-world || return $?
@@ -688,7 +688,7 @@ docker image inspect ${_tm_s_pbs} > /dev/null 2>&1
 NEED_RESNAP=$?
 { [ -z $RESNAP ] && [ ${NEED_RESNAP} -eq 0 ]; } || static-builder-resnap || return $?
 [ ! -z $NOBUILD ] || static-builder-bootstrap || return $?
-[ ! -z $NOBUILD ] || static-musl-bootstrap-sbcl || return $?
+#[ ! -z $NOBUILD ] || static-musl-bootstrap-sbcl || return $?
 # FIXME static-builder-world fails but static-builder-debug running the same works? with @world and _then_ @docker?
 [ ! -z $NOBUILD ] || static-builder-world || return $?  # FIXME if this is not run once at the start then something fails above
 { [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && static-builder-smart-live-rebuild || return $?  # no live builds right now
@@ -834,7 +834,7 @@ To push the latest cycle of images to the default remote run the
 following after checking that they work as expected.
 
 # FIXME the --filter=since= isn't quite right, I think it can miss some images we want to push? not entirely sure?
-#+begin_src bash
+#+begin_src bash :results code
 for _image in $(docker image ls \
 --filter=reference="tgbugs/musl:*" \
 --filter=since='tgbugs/musl:eselect-repo' \
