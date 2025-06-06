@@ -4561,6 +4561,10 @@ echo ghc targets
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -1 -q --keep-going ${targets_ghc}
 <<&docker-run-suffix>>
 
+# FIXME workaround for ghc PDEPEND !ghcbootstrap? haskell-updater
+<<&docker-run-prefix>>
+emerge --color=y -q --keep-going haskell-updater
+<<&docker-run-suffix>>
 
 <<&docker-run-prefix>>
 emerge --color=y -q --keep-going ${targets_ghc}
