@@ -4601,7 +4601,7 @@ emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-wi
 
 echo only targets not acct-group
 <<&docker-run-prefix>>
-sh -c "source /dockerfiles/bin/workflow-funs.sh; batch-emerge-nodeps ${targets_nogruser}"
+bash -c "source /dockerfiles/bin/workflow-funs.sh; batch-emerge-nodeps ${targets_nogruser}"
 <<&docker-run-suffix>>
 
 }
@@ -9959,7 +9959,7 @@ portage now defaults to =binpkg-multi-instance= and crossdev includes
 BINPKG_FORMAT="gpkg"
 BINPKG_COMPRESS="zstd"
 BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
-EMERGE_DEFAULT_OPTS="--jobs <<&emerge-jobs()>> --binpkg-respect-use=y"
+EMERGE_DEFAULT_OPTS="--jobs <<&emerge-jobs()>> --load-average 2.5 --binpkg-respect-use=y"
 #+end_src
 
 work around lack of cross compile support in =src_compile= during system-bootstrap
