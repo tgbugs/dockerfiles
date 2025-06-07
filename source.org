@@ -1227,7 +1227,7 @@ sh -c '\
 #+begin_src bash :eval never
 set -e -o pipefail; \
 cd etc/portage/env; \
-cpvs=$(cat ../package.accept_keywords/profile.haskell <(cat ../package.unmask/profile | grep haskell | awk -F':' '{ print $1 }')); \
+cpvs=$(cat ../package.accept_keywords/profile.haskell <(cat ../package.unmask/profile | grep haskell | awk -F':' '{ print $1 }') <(echo dev-haskell/dot2graphml)); \
 for cpv in ${cpvs}; do \
 if [ -f ${cpv} ]; then \
     cat ghc-rtsopts >> ${cpv}; \
@@ -4596,12 +4596,12 @@ echo only targets_nogruser bdeps
 # e.g. due to slot depends changes
 # FIXME for some reason this fails to pull in the user packages needed by e.g. redict thus the manual merge above
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -q --keep-going -uDN ${targets_nogruser}
+emerge --load-average 2.5 --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -q --keep-going -uDN ${targets_nogruser}
 <<&docker-run-suffix>>
 
 echo only targets not acct-group
 <<&docker-run-prefix>>
-bash -c "source /dockerfiles/bin/workflow-funs.sh; batch-emerge-nodeps ${targets_nogruser}"
+bash -c "source /dockerfiles/bin/workflow-funs.sh; batch-emerge-nodeps '${targets_nogruser}'"
 <<&docker-run-suffix>>
 
 }
@@ -9959,7 +9959,7 @@ portage now defaults to =binpkg-multi-instance= and crossdev includes
 BINPKG_FORMAT="gpkg"
 BINPKG_COMPRESS="zstd"
 BINPKG_COMPRESS_FLAGS_ZSTD="--ultra -22"
-EMERGE_DEFAULT_OPTS="--jobs <<&emerge-jobs()>> --load-average 2.5 --binpkg-respect-use=y"
+EMERGE_DEFAULT_OPTS="--jobs <<&emerge-jobs()>> --binpkg-respect-use=y"
 #+end_src
 
 work around lack of cross compile support in =src_compile= during system-bootstrap
