@@ -4601,7 +4601,7 @@ emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-wi
 
 echo only targets not acct-group
 <<&docker-run-prefix>>
-emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${targets_nogruser}
+sh -c "source /dockerfiles/bin/workflow-funs.sh; batch-emerge-nodeps ${targets_nogruser}"
 <<&docker-run-suffix>>
 
 }
@@ -4610,6 +4610,23 @@ emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${targets_nogruse
 # then we should not return the value of [ "${targets_nogruser}" ]
 return 0
 
+}
+
+function batch-emerge-nodeps () {
+    local to_run n
+    to_run=()
+    for atom in ${@}; do
+        to_run+=(${atom})
+        ((n++))
+        if [ $((n % <<&emerge-jobs()>>)) -eq 0 ]; then
+            emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${to_run[@]}
+            to_run=()
+        fi
+    done
+
+    if [ ${#to_run[@]} -ne 0 ]; then
+        emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${to_run[@]}
+    fi
 }
 
 # FIXME SIGH code dupe
