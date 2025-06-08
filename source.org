@@ -1227,7 +1227,7 @@ sh -c '\
 #+begin_src bash :eval never
 set -e -o pipefail; \
 cd etc/portage/env; \
-cpvs=$(cat ../package.accept_keywords/profile.haskell <(cat ../package.unmask/profile | grep haskell | awk -F':' '{ print $1 }') <(echo dev-haskell/dot2graphml)); \
+cpvs=$(cat ../package.accept_keywords/profile.haskell <(cat ../package.unmask/profile | grep haskell | cut -d: -f1) <(echo dev-haskell/dot2graphml)); \
 for cpv in ${cpvs}; do \
 if [ -f ${cpv} ]; then \
     cat ghc-rtsopts >> ${cpv}; \
