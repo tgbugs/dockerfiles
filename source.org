@@ -7319,7 +7319,7 @@ rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
-runuser -u user -- emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~/sckan/welcome.org
+runuser -u user -- emacs -geometry 120x40 -eval "(find-file-noselect (pop argv))" ~user/sckan/welcome.org
 /etc/init.d/scigraph stop
 /etc/init.d/blazegraph stop
 #+end_src
