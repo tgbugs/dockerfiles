@@ -678,7 +678,7 @@ NEED_RESNAP=$?
 [ ! -z $NOBUILD ] || builder-world || return $?
 { [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-smart-live-rebuild || return $?
 { [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-smart-also-live-rebuild || return $?
-#{ [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-meta-live || return $?
+{ [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-meta-live || return $?
 
 # TODO
 # builder-license || return $?
@@ -4695,11 +4695,10 @@ _builder=${_tm_n_pbs}
 }
 
 function builder-meta-live () {
-# FIXME TODO only rebuild if the 9999 ebuild changed (implies needs revs?)
 local _builder CODE
 _builder=${_tm_pbs}
 <<&docker-run-prefix>>
-sh -c 'ACCEPT_KEYWORDS="**" emerge --buildpkgonly --nodeps @meta-live'
+sh -c 'targs=$(set -o pipefail; export ACCEPT_KEYWORDS="**"; emerge -p --nodeps @meta-live | { grep "^\[ebuild" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'"'); [ "${targs}" ] && { ACCEPT_KEYWORDS="**" emerge --buildpkgonly --nodeps ${targs}; }'
 <<&docker-run-suffix>>
 }
 
