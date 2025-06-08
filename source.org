@@ -4715,7 +4715,7 @@ function builder-smart-also-live-rebuild () {
 local _builder CODE
 _builder=${_tm_pbs}
 <<&docker-run-prefix>>
-sh -c 'rebuilds=$(live-changed also); if [ -n "${rebuilds}" ]; then { { echo ${rebuilds} | sed "s/ /\n/g" | sed "s/$/ **/" > /etc/portage/package.accept_keywords/99-live-tmp; } && emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -q --keep-going ${rebuilds} && emerge --color=y -q --keep-going --usepkg=n --nodeps --buildpkgonly ${rebuilds}; } fi; rm /etc/portage/package.accept_keywords/99-live-tmp'
+sh -c 'rebuilds=$(live-changed also); _tmpth=/etc/portage/package.accept_keywords/99-live-tmp; if [ -n "${rebuilds}" ]; then { { echo ${rebuilds} | sed "s/ /\n/g" | sed "s/$/ **/" > ${_tmpth}; } && emerge --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y --color=y -q --keep-going ${rebuilds} && emerge --color=y -q --keep-going --usepkg=n --nodeps --buildpkgonly ${rebuilds}; } fi; if [ -f ${_tmpth} ]; then rm ${_tmpth}; fi'
 <<&docker-run-suffix>>
 }
 
