@@ -4599,7 +4599,7 @@ echo only targets_nogruser bdeps
 emerge --load-average 2.5 --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n --onlydeps-with-ideps=y -q --keep-going -uDN ${targets_nogruser}
 <<&docker-run-suffix>>
 
-echo only targets not acct-group
+echo only targets not acct-group or acct-user
 <<&docker-run-prefix>>
 bash -c "source /dockerfiles/bin/workflow-funs.sh; batch-emerge-nodeps '${targets_nogruser}'"
 <<&docker-run-suffix>>
