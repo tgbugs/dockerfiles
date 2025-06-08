@@ -4613,20 +4613,26 @@ return 0
 }
 
 function batch-emerge-nodeps () {
-    local to_run n
+    local to_run n one_failed
+    one_failed=0
     to_run=()
     for atom in ${@}; do
         to_run+=(${atom})
         ((n++))
         if [ $((n % <<&emerge-jobs()>>)) -eq 0 ]; then
             emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${to_run[@]}
+            CODE=$?
+            if [ ${CODE} -ne 0 ]; then one_failed=${CODE}; fi
             to_run=()
         fi
     done
 
     if [ ${#to_run[@]} -ne 0 ]; then
         emerge --color=y --with-bdeps=y --nodeps -1 -q --keep-going -u ${to_run[@]}
+        CODE=$?
+        if [ ${CODE} -ne 0 ]; then one_failed=${CODE}; fi
     fi
+    return ${one_failed}
 }
 
 # FIXME SIGH code dupe
