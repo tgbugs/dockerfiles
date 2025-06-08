@@ -678,6 +678,8 @@ NEED_RESNAP=$?
 [ ! -z $NOBUILD ] || builder-world || return $?
 { [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-smart-live-rebuild || return $?
 { [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-smart-also-live-rebuild || return $?
+#{ [ -z $NOBUILD ] && [ -n $LIVE_REBUILD ]; } && builder-meta-live || return $?
+
 # TODO
 # builder-license || return $?
 
@@ -4692,6 +4694,15 @@ _builder=${_tm_n_pbs}
 <<&docker-run-suffix>>
 }
 
+function builder-meta-live () {
+# FIXME TODO only rebuild if the 9999 ebuild changed (implies needs revs?)
+local _builder CODE
+_builder=${_tm_pbs}
+<<&docker-run-prefix>>
+sh -c 'ACCEPT_KEYWORDS="**" emerge --buildpkgonly --nodeps @meta-live'
+<<&docker-run-suffix>>
+}
+
 function builder-smart-live-rebuild () {
 local _builder CODE
 _builder=${_tm_pbs}
@@ -4959,6 +4970,7 @@ ADD sets/builder /etc/portage/sets/builder
 ADD sets/license /etc/portage/sets/license
 ADD sets/live /etc/portage/sets/live
 ADD sets/also-live /etc/portage/sets/also-live
+ADD sets/meta-live /etc/portage/sets/meta-live
 # ADD accept_keywords.temp /etc/portage/package.accept_keywords/temp  # XXX mount in docker run not here
 
 RUN \
@@ -9906,6 +9918,10 @@ dev-lisp/sbcl
 
 #+name: set-also-live-package-builder-gnu
 #+begin_src conf :tangle ./gnu/package-builder/sets/also-live
+#+end_src
+
+#+name: set-meta-live-package-builder-gnu
+#+begin_src conf :tangle ./gnu/package-builder/sets/meta-live
 #+end_src
 
 *** cross
