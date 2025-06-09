@@ -1635,7 +1635,7 @@ the old behavior.
 post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/rabbitmq; }
 #+end_src
 ***** dev-haskell/pandoc
-#+begin_src ./docker-profile/base/pandoc.env
+#+begin_src ebuild :tangle ./docker-profile/base/pandoc.env
 GHCRTS=-M5G
 #+end_src
 
