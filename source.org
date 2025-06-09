@@ -1204,7 +1204,7 @@ ADD ${bp}erlang.env                              etc/portage/env/dev-lang/erlang
 ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/pipenv
 ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/google-auth-oauthlib
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
-ADD ${bp}pandoc-lua-engine.env                   etc/portage/env/dev-haskell/pandoc-lua-engine
+ADD ${bp}pandoc.env                              etc/portage/env/dev-haskell/pandoc
 ADD ${bp}ghc-rtsopts.env                         etc/portage/env/ghc-rtsopts
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
@@ -1634,11 +1634,17 @@ the old behavior.
 #+begin_src ebuild :tangle ./docker-profile/base/rabbitmq.env
 post_src_install() { sed -i '/need/d' "${D}"/etc/init.d/rabbitmq; }
 #+end_src
-***** dev-haskell/pandoc-lua-engine
+***** dev-haskell/pandoc
+#+begin_src ./docker-profile/base/pandoc.env
+GHCRTS=-M5G
+#+end_src
+
+***** DONE dev-haskell/pandoc-lua-engine
 Workaround for https://bugs.gentoo.org/916785.
 Not clear what is actually going wrong, but ensuring that
 the ghc package cache is actually up to date solves the problem.
-#+begin_src ebuild :tangle ./docker-profile/base/pandoc-lua-engine.env
+Fixed via https://gitweb.gentoo.org/repo/gentoo.git/commit/?id=8ae4c6d315b09451163b0f8fdc95b52ce1f1374c
+#+begin_src ebuild :tangle ./docker-profile/base/pandoc-lua-engine.env :tangle no
 pre_pkg_setup() {
 	ghc-recache-db
 }
