@@ -4704,7 +4704,7 @@ function builder-meta-live () {
 local _builder CODE
 _builder=${_tm_pbs}
 <<&docker-run-prefix>>
-sh -c 'targs=$(set -o pipefail; export ACCEPT_KEYWORDS="**"; emerge -p --nodeps @meta-live | { grep "^\[ebuild" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'"'); [ "${targs}" ] && { ACCEPT_KEYWORDS="**" emerge --buildpkgonly --nodeps ${targs}; }'
+sh -c 'targs=$(set -o pipefail; export ACCEPT_KEYWORDS="**"; emerge -p --nodeps @meta-live | { grep "^\[ebuild" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'"'); { [ "${targs}" ] && { ACCEPT_KEYWORDS="**" emerge --buildpkgonly --nodeps ${targs}; } || true; }'
 <<&docker-run-suffix>>
 }
 
