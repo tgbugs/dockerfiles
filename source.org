@@ -1549,7 +1549,6 @@ dev-haskell/zlib
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
 dev-java/openjdk-bin  # libc linking issues, must compile openjdk
-<dev-lang/rust-1.70.0::musl  # stale
 dev-lang/rust-bin  # prefer our own
 <virtual/jdk-17
 <virtual/jre-17
@@ -3222,9 +3221,6 @@ eselect profile set docker-profile:tgbugs/musl \
 && env-update
 
 <<&gentoo-file-eselect-repo-common-3>>
-
-RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
-eselect repository enable musl
 #+end_src
 
 #+name: &gentoo-file-eselect-repo-common-1
