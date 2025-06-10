@@ -2925,8 +2925,7 @@ FROM ${IMG_REPOS_BUILDER} AS builder
 COPY --from=docker.io/gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/gentoo
 
 RUN \
-   emaint sync --repo musl \
-&& emaint sync --repo haskell \
+   emaint sync --repo haskell \
 && emaint sync --repo racket-overlay \
 && emaint sync --repo tgbugs-overlay
 
