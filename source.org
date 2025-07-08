@@ -6726,6 +6726,39 @@ dev-db/postgresql
 dev-db/pguri
 #+end_src
 ** interlex
+*** run
+WARNING! If you mount your postgres data directory like this make sure
+the host system is NOT also running postgres on top of that directory
+otherwise you will have a BAD TIME.
+
+**** setup
+FIXME file ownership issues on pgpass and mypass AS IS TRADITION
+see https://www.postgresql.org/docs/current/libpq-envars.html for possible alternate approaches
+but for now we just have entrypoints do the very stupid thing of copying the =.*pass= files from
+=/root/= to the actual location SIGH.
+#+begin_src screen
+# container-check
+docker run \
+--volumes-from local-repos-snap \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
+-v ~/.pgpass-interlex:/root/.pgpass-interlex \
+-v ~/.mypass-interlex:/root/.mypass-interlex \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:interlex
+#+end_src
+
+**** ops
+#+begin_src screen
+docker run \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
+-v ~/.pgpass-interlex:/root/.pgpass-interlex \
+-v ~/.mypass-interlex:/root/.mypass-interlex \
+-e DISPLAY=$DISPLAY \
+-it tgbugs/musl:interlex
+#+end_src
+
 *** test
 #+begin_src screen
 test-image tgbugs/musl:interlex
@@ -6808,38 +6841,6 @@ return gen_key()
 
 #+begin_src conf
 localhost:3306:*:nif_eelg_secure:password
-#+end_src
-
-*** run
-WARNING! If you mount your postgres data directory like this make sure
-the host system is NOT also running postgres on top of that directory
-otherwise you will have a BAD TIME.
-**** setup
-FIXME file ownership issues on pgpass and mypass AS IS TRADITION
-see https://www.postgresql.org/docs/current/libpq-envars.html for possible alternate approaches
-but for now we just have entrypoints do the very stupid thing of copying the =.*pass= files from
-=/root/= to the actual location SIGH.
-#+begin_src screen
-# container-check
-docker run \
---volumes-from local-repos-snap \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
--v ~/.pgpass-interlex:/root/.pgpass-interlex \
--v ~/.mypass-interlex:/root/.mypass-interlex \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:interlex
-#+end_src
-
-**** ops
-#+begin_src screen
-docker run \
--v /tmp/.X11-unix:/tmp/.X11-unix \
--v ~/files/docker-postgres/interlex-dev:/var/lib/postgresql \
--v ~/.pgpass-interlex:/root/.pgpass-interlex \
--v ~/.mypass-interlex:/root/.mypass-interlex \
--e DISPLAY=$DISPLAY \
--it tgbugs/musl:interlex
 #+end_src
 
 *** build
@@ -9157,6 +9158,13 @@ FROM tgbugs/musl:static-xorg
 #+end_src
 
 ** sbcl
+*** build
+#+name: &musl-build-sbcl
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:sbcl \
+--file musl/sbcl/Dockerfile musl/sbcl
+#+end_src
 *** test
 #+name: &test-musl-sbcl
 #+begin_src screen
@@ -9169,6 +9177,7 @@ test-image tgbugs/musl:sbcl
 sbcl --noinform --noprint --non-interactive --load test.lisp
 #+end_src
 
+#+name: &sbcl-test-lisp
 #+begin_src lisp :tangle ./bin/test/tgbugs/musl/sbcl/test.lisp :mkdirp yes
 (let ((have-static-executable (find-symbol "LINKAGE-TABLE-INDEX" 'sb-sys)))
   (format t "~a ~a~%" (lisp-implementation-type) (lisp-implementation-version))
@@ -9183,13 +9192,6 @@ sbcl --noinform --noprint --non-interactive --load test.lisp
 # these are build time features and don't show up in the image itself
 # (and (member :sb-linkable-runtime *features*) (member :sb-prelink-linkage-table *features*))
 
-*** build
-#+name: &musl-build-sbcl
-#+begin_src screen
-<<&docker-build>>
---tag tgbugs/musl:sbcl \
---file musl/sbcl/Dockerfile musl/sbcl
-#+end_src
 *** file
 #+begin_src dockerfile :tangle ./musl/sbcl/Dockerfile
 FROM tgbugs/musl:static-binpkg-only
@@ -9506,6 +9508,20 @@ TODO if we want to experiment with woo we need libev
 
 #+begin_src lisp
 swank-api:*emacs-connection*
+#+end_src
+
+*** test
+#+name: &test-musl-sbcl-stripped
+#+begin_src screen
+_sbcl_test_lisp=$(cat <<EOF
+<<&sbcl-test-lisp>>
+EOF
+)
+docker run \
+--rm \
+tgbugs/musl:sbcl-stripped \
+--eval "${_sbcl_test_lisp}" \
+--quit
 #+end_src
 
 *** build
