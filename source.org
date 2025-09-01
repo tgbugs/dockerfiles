@@ -12242,6 +12242,7 @@ currently only sbcl static uses this but other things might need it in the futur
                   (setf (alist-get :results (nth 2 info)) "raw silent") ; heh setf power
                   (setf (nth 1 info)
                         (concat
+                         (if (string= system-type "windows-nt") "export MSYS_NO_PATHCONV=1\n" "")
                          "source ./bin/workflow-funs.sh\n" ; ensure test-image is defined
                          "exec 2>&1\n"
                          (nth 1 info)))
