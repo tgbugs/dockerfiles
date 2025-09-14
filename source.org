@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 2bfed64839aea1c94c0d1008c52d436dec56b8cd0ac7cdc2c643de014c25dda1; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 0efca48ec9ea954ef971037f722da5eb1210997202c912114aa9f378b11a6801; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -39,7 +39,7 @@ This file needs Emacs installed on the host system.
 At some point we will get bootstrap worked out so that only docker or
 podman is needed, but we aren't there yet.
 
-On windows-nt you will need to symlink this file to source.ps1 if you
+On windows-nt you will need to symlink this file to =source.ps1= if you
 want to invoke it from powershell.
 
 *** Bash
@@ -111,7 +111,7 @@ auths section as well (and fill it in with your credentials).
 ** Package host
 Prepare package host folders. The server will be started automatically
 below if it is not already up.
-#+begin_src screen
+#+begin_src screen :eval never
 # this step is now done as part of ./source.org setup
 mkdir -p <<&host-binpkgs-root-path()>>/<<&host-binpkgs-repo-name()>>
 mkdir -p <<&host-binpkgs-root-path()>>/cross/gnu/x86_64-pc-linux-musl
@@ -948,6 +948,15 @@ value
 #+name: &default-host-binpkgs-root-path
 : ~/files/binpkgs
 
+At the moment docker and podman set mutually incompatible users
+on binpkgs so we keep them separate. I'm searching for workarounds
+so the split between the two is implemented only in the elisp layer
+and not in the bash layer in hopes that it won't be needed. Until
+then the two processes are mutually exclusive and require a retangle.
+
+#+name: &default-host-binpkgs-podman-root-path
+: ~/files/binpkgs-podman
+
 #+name: &host-binpkgs-root-path
 #+begin_src elisp :noweb yes :var value=(or path-binpkgs-root)
 value
@@ -961,11 +970,25 @@ appears to be for implementation convenience.
 
 ** host-binpkgs-port
 #+name: &host-binpkgs-port
+#+begin_src elisp :noweb yes :var value=(or host-binpkgs-port)
+value
+#+end_src
+
+#+name: &host-binpkgs-docker-port
 : 8089
 
+#+name: &host-binpkgs-podman-port
+: 8087
+
 ** path-distfiles
+# FIXME podman issue here because can't write
+# to distfiles directory because it would be as the host system user
+# which doesn't match the docker user which does everything as root/portage
 #+name: &default-host-distfiles-path
 : /mnt/str/portage/distfiles
+
+#+name: &alt-host-distfiles-path
+: ~/files/portage/distfiles
 
 #+name: &host-distfiles-path
 #+begin_src elisp :noweb yes :var value=(or path-distfiles)
@@ -984,6 +1007,9 @@ value
 ** path-ssh
 #+name: &default-host-ssh-path
 : /var/lib/portage/home/.ssh
+
+#+name: &alt-host-ssh-path
+: ~/files/portage/home/.ssh
 
 #+name: &host-ssh-path
 #+begin_src elisp :noweb yes :var value=(or path-ssh)
@@ -5870,6 +5896,10 @@ dev-debug/gdb
 #+end_src
 
 ** docker :bootstrap:
+:PROPERTIES:
+:CUSTOM_ID: docker-bootstrap
+:END:
+
 This image provides one route to bootstrap an environment that can
 execute this file. Other routes also exist.
 
@@ -6778,6 +6808,8 @@ mkdir ~/.config/orthauth
 chmod 0700 ~/.config/orthauth
 cp /dockerfiles/musl/interlex/test-secrets.sxpr ~/.config/orthauth/secrets.sxpr
 chmod 0600 ~/.config/orthauth/secrets.sxpr
+_rand_key=$(pypy3 -c 'from interlex.auth import gen_key; print(gen_key(), end="")')
+sed -i "s/ixp_.\+/${_rand_key}/" ~/.config/orthauth/secrets.sxpr
 
 touch ~/.mypass
 mkdir ~/git
@@ -6817,9 +6849,24 @@ auth-variables:
   ontology-local-repo: ~/git/NIF-Ontology
 #+end_src
 
+We hardcode a placeholder key here to avoid requiring python and
+interlex installed on the host system when tangling.  The placeholder
+is replaced when running the text (see above).  This way we avoid
+major dependency on the host system.
+
 #+name: ilx-test-key
+#+begin_src python :cache yes
+import binascii
+from interlex.auth import _gen_key
+actual_key = b'hellotherethisistestkey'
+return _gen_key(actual_key)
+#+end_src
+
+#+RESULTS[39fd771e2474f5433dc217134c789181835058d4]: ilx-test-key
+: ixp_1HHw4r7rYU5c0l2IG9xw9MQFW4CD8Xei89G6y
+
+#+name: ilx-test-key-random
 #+begin_src python
-# py-safe-block
 from interlex.auth import gen_key
 return gen_key()
 #+end_src
@@ -11709,15 +11756,28 @@ and then to the tangle target to the block contents
 (defvar-local use-podman   nil)
 
 (defvar-local emerge-jobs "<<&default-emerge-jobs()>>")
-(defvar-local host-binpkgs-port "<<&host-binpkgs-port()>>")
+(defvar-local host-binpkgs-docker-port "<<&host-binpkgs-docker-port()>>")
+(defvar-local host-binpkgs-podman-port "<<&host-binpkgs-podman-port()>>")
+(defun --host-binpkgs-port () (if use-podman host-binpkgs-podman-port host-binpkgs-docker-port))
+(defvar-local host-binpkgs-port (--host-binpkgs-port))
 (defvar-local host-binpkgs-repo-name "<<&host-binpkgs-repo-name()>>")
 
 (defvar-local path-dockerfiles (directory-file-name default-directory))
-(defvar-local path-distfiles (expand-file-name "<<&default-host-distfiles-path()>>"))
-(defvar-local path-binpkgs-root (expand-file-name "<<&default-host-binpkgs-root-path()>>"))
-(defvar-local path-binpkgs (expand-file-name host-binpkgs-repo-name path-binpkgs-root))
+(defvar-local path-distfiles-alt (expand-file-name "<<&alt-host-distfiles-path()>>"))
+(defvar-local path-distfiles-def (expand-file-name "<<&default-host-distfiles-path()>>"))
+(defvar-local path-distfiles (or (and (file-directory-p path-distfiles-def) path-distfiles-def) path-distfiles-alt))
+
+(defvar-local path-binpkgs-docker-root (expand-file-name "<<&default-host-binpkgs-root-path()>>"))
+(defvar-local path-binpkgs-podman-root (expand-file-name "<<&default-host-binpkgs-podman-root-path()>>"))
+(defun --path-binpkgs-root () (if use-podman path-binpkgs-podman-root path-binpkgs-docker-root))
+(defvar-local path-binpkgs-root (--path-binpkgs-root))
+
+(defun --path-binpkgs () (expand-file-name host-binpkgs-repo-name (if use-podman path-binpkgs-podman-root path-binpkgs-docker-root)))
+(defvar-local path-binpkgs (--path-binpkgs))
 (defvar-local path-distcc-hosts (expand-file-name "<<&default-host-distcc-hosts-path()>>"))
-(defvar-local path-ssh (expand-file-name "<<&default-host-ssh-path()>>"))
+(defvar-local path-ssh-alt (expand-file-name "<<&alt-host-ssh-path()>>"))
+(defvar-local path-ssh-def (expand-file-name "<<&default-host-ssh-path()>>"))
+(defvar-local path-ssh (or (and (file-directory-p path-ssh-def) path-ssh-def) path-ssh-alt))
 
 (defvar-local path-sparcron-sparcur-config nil)
 (defvar-local path-sparcron-secrets nil)
@@ -11774,6 +11834,11 @@ and then to the tangle target to the block contents
       ;; wait until screen session is available before returning
       )))
 
+(defun check-for-no-screen ()
+  (or
+   (eq system-type 'windows-nt)
+   (not (executable-find "screen"))))
+
 (when noninteractive ; prevent wrong-type-argument keymapp nil errors due to our old friend `org-install-agenda-files-menu'
   ;; this is a pitfall that can happen as a result of any number of things, but the one that hit this file was running e.g.
   ;; ./source.org build-image run:sckan-build-save-image
@@ -11793,7 +11858,7 @@ and then to the tangle target to the block contents
   (apply #'format
          "export _use_podman=%s _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
 _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_binpkgs=%S _in_path_distcc_hosts=%S _in_path_ssh=%S \\
-%s %s %s%s;"
+%s %s %s%s%s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
                   (list use-podman refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
@@ -11806,7 +11871,11 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
                         (format "_%s=%S" (string-replace "-" "_" (symbol-name s)) (symbol-value s))
                       ""))
                   '(path-sparcron-sparcur-config path-sparcron-secrets path-sparcron-gsaro))
-          (list (if (string= system-type "windows-nt") " MSYS_NO_PATHCONV=1" "")))))
+          (list
+           (if (eq system-type 'windows-nt) " MSYS_NO_PATHCONV=1" "")
+           ;; ok to klobber if in screen or emacs here because we know
+           ;; the session is specifically for working with docker
+           (if (member system-type '(windows-nt darwin)) " DISPLAY=host.docker.internal:0" "")))))
 
 (defvar retfile-cache-directory (expand-file-name "retfile/cache/" default-directory))
 (defun retfile (cypher checksum path-or-url &rest alternates)
@@ -11907,6 +11976,7 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
                    (string-prefix-p "# bash-safe-block
 " body))
               (and (member lang '("screen"))
+                   (>= (length body) 15)
                    (string= (cl-subseq body 0 15) "HISTFILE=~/.org")))))))
 
 (fix-ocbe-source)
@@ -12012,7 +12082,7 @@ currently only sbcl static uses this but other things might need it in the futur
         result
       (apply fun args))))
 
-(when (string= system-type "windows-nt")
+(when (eq system-type 'windows-nt)
   ;; ensure that when tangling files that might be mounted into
   ;; a unix environment that they won't have \r at bol
   ;; as far as I can tell there is no way to set this in the
@@ -12041,6 +12111,12 @@ currently only sbcl static uses this but other things might need it in the futur
   (setq
    comint-scroll-to-bottom-on-output
    (not comint-scroll-to-bottom-on-output)))
+
+(unless (or noninteractive no-screen-start-gui)
+  ;; avoid failures when running in interactive mode
+  (org-babel-do-load-languages 'org-babel-load-languages '((screen . t) (shell . t)))
+  (fmakunbound 'org-babel-prep-session:screen)
+  (defalias 'org-babel-prep-session:screen #'dockerfiles-source-org-babel-prep-session:screen))
 
 (when (or noninteractive no-screen-start-gui)
   (let ((setup (member "setup" argv))
@@ -12071,12 +12147,13 @@ currently only sbcl static uses this but other things might need it in the futur
           (cli-path-distfiles    (cli-opt "--path-distfiles"))
           (cli-path-binpkgs-root (cli-opt "--path-binpkgs-root"))
           (cli-path-binpkgs      (cli-opt "--path-binpkgs"))
+          (cli-host-binpkgs-port (cli-opt "--host-binpkgs-port"))
           (cli-path-distcc-hosts (cli-opt "--path-distcc-hosts"))
           (cli-path-ssh          (cli-opt "--path-ssh"))
           (cli-ssc (cli-opt "--path-sparcron-sparcur-config"))
           (cli-ss  (cli-opt "--path-sparcron-secrets"))
           (cli-sg  (cli-opt "--path-sparcron-gsaro")))
-      (unless (or no-screen (string= system-type "windows-nt"))
+      (unless (or no-screen (check-for-no-screen))
         ;; need to be able to pass argv to the emacs subprocess
         (setq argv nil)) ; FIXME should we allow the uif to see argv? probably not?
       (when cli-uif
@@ -12084,8 +12161,9 @@ currently only sbcl static uses this but other things might need it in the futur
         (setq user-init-file cli-uif))
       (let ((path-dockerfiles (or cli-path-dockerfiles path-dockerfiles ""))
             (path-distfiles (or cli-path-distfiles path-distfiles ""))
-            (path-binpkgs-root (or cli-path-binpkgs-root path-binpkgs-root ""))
-            (path-binpkgs (or cli-path-binpkgs path-binpkgs ""))
+            (path-binpkgs-root (or cli-path-binpkgs-root (--path-binpkgs-root) ""))
+            (path-binpkgs (or cli-path-binpkgs (--path-binpkgs) ""))
+            (host-binpkgs-port (or cli-host-binpkgs-port (--host-binpkgs-port) ""))
             (path-distcc-hosts (or cli-path-distcc-hosts path-distcc-hosts ""))
             (path-ssh (or cli-path-ssh path-ssh ""))
             (path-sparcron-sparcur-config (or cli-ssc path-sparcron-sparcur-config ""))
@@ -12129,7 +12207,7 @@ currently only sbcl static uses this but other things might need it in the futur
           ;; start screen or start an emacs process that is not in batch mode
           ;; start up the packages server
           ;; run build
-          (if (or no-screen (string= system-type "windows-nt"))
+          (if (or no-screen (check-for-no-screen))
               (let ((emacs-command (expand-file-name invocation-name invocation-directory)))
                 (apply
                  #'call-process
@@ -12204,9 +12282,6 @@ currently only sbcl static uses this but other things might need it in the futur
             (define-derived-mode dockerfile-mode prog-mode "Dockerfile"
               "Stub to avoid comment-start issues"
               (set (make-local-variable 'comment-start) "#")))
-          (org-babel-do-load-languages
-           'org-babel-load-languages
-           '((python . t)))
           (let (enable-local-eval)
             ;; this pattern is required when tangling to avoid infinite loops
             (revert-buffer nil t nil)
