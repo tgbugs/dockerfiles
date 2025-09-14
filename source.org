@@ -390,7 +390,7 @@ if [ -n "${_refresh}" ] || [ -n "${_repos}" ]; then
     pull-portage || { CODE=$?; echo "ERROR failed to pull portage"; return ${CODE}; }
 fi
 package-server-running || { CODE=$?; echo "ERROR package-server is not running"; return ${CODE}; }
-pushd ~/git/dockerfiles  # FIXME hardcoded path
+pushd <<&host-dockerfiles-path()>>
 tangle && {
   # FIXME popd sigh ... unwind-protect when
   run-profile || return $?
