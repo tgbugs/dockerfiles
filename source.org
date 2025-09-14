@@ -528,7 +528,12 @@ function tangle () {
 [ -d ./musl ] && rm -r ./musl
 [ -d ./repos ] && rm -r ./repos
 [ -d ./other ] && rm -r ./other
-./source.org tangle
+
+if [ -n "${_use_podman}" ]; then
+    ./source.org tangle --podman
+else
+    ./source.org tangle
+fi
 return $?
 }
 
