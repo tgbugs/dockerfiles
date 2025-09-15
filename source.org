@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 0efca48ec9ea954ef971037f722da5eb1210997202c912114aa9f378b11a6801; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 960a69c9b905c7fa3cf74a6f21d1fe98282223332193aeac2aad74921ecc718b; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -11779,7 +11779,9 @@ and then to the tangle target to the block contents
 
 (defun --path-binpkgs () (expand-file-name host-binpkgs-repo-name (if use-podman path-binpkgs-podman-root path-binpkgs-docker-root)))
 (defvar-local path-binpkgs (--path-binpkgs))
-(defvar-local path-distcc-hosts (expand-file-name "<<&default-host-distcc-hosts-path()>>"))
+(defvar-local path-distcc-hosts-def (expand-file-name "<<&default-host-distcc-hosts-path()>>"))
+(defvar-local path-distcc-hosts (if (file-exists-p path-distcc-hosts-def) path-distcc-hosts-def (expand-file-name "hosts.docker" default-directory)))
+
 (defvar-local path-ssh-alt (expand-file-name "<<&alt-host-ssh-path()>>"))
 (defvar-local path-ssh-def (expand-file-name "<<&default-host-ssh-path()>>"))
 (defvar-local path-ssh (or (and (file-directory-p path-ssh-def) path-ssh-def) path-ssh-alt))
@@ -11941,6 +11943,7 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
          (with-temp-buffer
            (let* ((return-code (apply #'call-process (if use-podman "podman" "docker") nil (current-buffer) nil '("buildx" "version"))))
              (not (= 0 return-code)))))
+        (missing-distcc (not (file-exists-p path-distcc-hosts)))
         (missing-configs
          (and
           (not use-podman)
@@ -11950,7 +11953,7 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
      for sp in (list host-binpkgs-repo-name "cross/gnu/x86_64-pc-linux-musl" "cross/gnu/x86_64-gentoo-linux-musl" )
      do (make-directory (expand-file-name sp bp) 'parents))
     (unless (file-exists-p (expand-file-name (concat host-binpkgs-repo-name "/Packages") bp))
-      ;; FIXME this goes to network during setup which is back
+      ;; FIXME this goes to network during setup which is bad
       ;; FIXME no feedback in the terminal when this is running since we run it in bash not screen
       (execute-src-block "&run-quickpkg-first-time"))
     ;; TODO docker buildx version || oops
@@ -11959,9 +11962,16 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
     (when missing-configs
       ;; even if we can't create /etc/docker/daemon.json we can warn if it is missing (for now)
       (message "Missing docker configs %S" missing-configs))
+    (when missing-distcc
+      (unless (string= path-distcc-hosts path-distcc-hosts-def)
+        (write-region "" nil path-distcc-hosts)
+        (setq missing-distcc (not (file-exists-p path-distcc-hosts))))
+      (when missing-distcc
+        (message "Missing distcc hosts file %S" path-distcc-hosts)))
     (when (or missing-buildx missing-configs)
       ;; sigh ... the must collect errors pattern ...
-      (error "Setup incomplete."))))
+      (let (backtrace-on-error-noninteractive)
+        (error "Setup incomplete.")))))
 
 (defun fix-ocbe-source ()
   "it would seem that blanking `enable-local-eval' resets this"
