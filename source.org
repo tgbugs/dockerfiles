@@ -8207,6 +8207,7 @@ The advantage of using =docker run= is that
 | SciCrunch/NIF-Ontology
 | SciCrunch/scibot
 | SciCrunch/sparc-curation
+| SciCrunch/quantitative-db
 | Ophirr33/pda
 | zussitarze/qrcode
 
@@ -8279,7 +8280,7 @@ popd
        "pushd ~/git"
        (cl-loop
         for (gr . _) in group-repo
-        unless (string-match "dynapad\\|interlex" gr) ; TODO needs ssh
+        unless (string-match "dynapad" gr) ; TODO needs ssh
         collect
         (concat "git clone " (format fgitstr gr)))
        (cl-loop
