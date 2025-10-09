@@ -7571,6 +7571,8 @@ net-libs/nodejs
 dev-python/seaborn
 dev-libs/redland
 media-gfx/inkscape
+acct-group/docker
+app-containers/docker-cli
 #+end_src
 
 FIXME can't put license stuff in world because it gets pulled into the global package world
@@ -7843,6 +7845,7 @@ USER 0
 RUN \
 usermod -a -G blazegraph user \
 ;  usermod -a -G scigraph user \
+;  usermod -a -G docker user \
 ;  usermod -a -G wheel user
 
 RUN \
@@ -7870,6 +7873,7 @@ ENV PYTHONPYCACHEPREFIX=${HOME}/.cache/pycache/
 
 RUN \
 pushd git \
+&&     git clone https://github.com/tgbugs/dockerfiles.git \
 &&     git clone https://github.com/tgbugs/pyontutils.git \
 &&     git clone https://github.com/SciCrunch/sparc-curation.git \
 && popd
@@ -11122,8 +11126,9 @@ To save a gzipped archive run
 # first run the following to find the latest build, then
 docker image ls tgbugs/sckan:data-*
 _datetime=$(docker image ls tgbugs/sckan:data-* | sort | tail -n 1 | awk '{ print $2 }')
-echo writing docker image to /tmp/docker-sckan-${_datetime}.tar.gz
-docker save tgbugs/sckan:${_datetime} | gzip > /tmp/docker-sckan-${_datetime}.tar.gz
+if [ ! -d /tmp/build ]; mkdir /tmp/build; fi
+echo writing docker image to /tmp/build/docker-sckan-${_datetime}.tar.gz
+docker save tgbugs/sckan:${_datetime} | gzip > /tmp/build/docker-sckan-${_datetime}.tar.gz
 #+end_src
 
 To restore from the archive run
