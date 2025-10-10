@@ -7886,6 +7886,7 @@ RUN \
 pushd git \
 &&     pushd dockerfiles \
 &&         ./source.org tangle \
+&&     popd \
 &&     pushd pyontutils \
 &&         touch pyproject.toml \
 &&         python -m pip install --user --break-system-packages -e . \
