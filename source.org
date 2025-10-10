@@ -2150,6 +2150,9 @@ dev-python/pypy3_10 ~amd64
 **** package.use
 # TODO consider dev-db/sqlite secure-delete
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use
+# needed for podman
+net-firewall/iptables nftables
+
 # setpriv command
 sys-apps/util-linux caps
 
@@ -2190,10 +2193,6 @@ dev-libs/jemalloc stats
 
 # pypy3
 dev-lang/pypy sqlite
-dev-python/pypy3-exe jit
-dev-python/pypy3 sqlite
-dev-python/pypy3_10-exe jit
-dev-python/pypy3_10 sqlite
 
 # uwsgi needs at least one backend enabled
 www-servers/uwsgi python
@@ -2220,6 +2219,9 @@ dev-python/orthauth yaml
 dev-python/pint babel uncertainties
 dev-python/sparcur cron  # XXX FIXME not all images want to pull in the cron deps, or the dashboard deps
 dev-python/sxpyr -cli  # XXX FIXME avoid circular dep on clifun
+
+# tgbugs-meta
+tgbugs-meta/kg-dev-meta nest  # include docker-cli and acct-group/docker for sckan release
 #+end_src
 **** package.use.mask
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use.mask
