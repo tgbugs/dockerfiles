@@ -7619,6 +7619,61 @@ of as use flags on texlive to avoid pulling in xetex as a dependency.
 :END:
 # FIXME somehow missing blazegraph user?
 *** run
+**** An example of building a SCKAN release
+#+begin_src bash
+# pull
+docker pull tgbugs/sckan:latest
+docker pull tgbugs/musl:kg-dev-user
+
+# ensure latest sckan-data volume
+docker container inspect sckan-data > /dev/null && \
+docker rm sckan-data
+docker create -v /var/lib/blazegraph -v /var/lib/scigraph --name sckan-data tgbugs/sckan:latest /bin/true
+
+# avoid permisisons errors
+mkdir /tmp/build
+mkdir /tmp/scigraph-build
+
+# run the container
+docker run \
+--volumes-from sckan-data \
+-v /tmp/build:/tmp/build \
+-v /tmp/scigraph-build:/tmp/scigraph-build \
+-v /tmp/.X11-unix:/tmp/.X11-unix \
+-v /var/run/docker.sock:/var/run/docker.sock \
+-e DISPLAY=$DISPLAY \
+-e SCIGRAPH_API=http://localhost:9000/scigraph \
+-e PYTHONPATH=/home/user/git/pyontutils \
+-it tgbugs/musl:kg-dev-user
+#+end_src
+Release artifacts are deposited in =/tmp/build= and =/tmp/scigraph-build=.
+Setting =SCIGRAPH_API= to localhost:9000 uses the image internal SciGraph with sckan-data.
+Setting =PYTHONPATH= to include =~/git/pyontutils= is a hack to avoid needing any further configuration.
+Data sync and full release requires additional configuration that is beyond the scope of this example.
+
+In the user container shell.
+#+begin_src bash
+# if there were fixes pushed since the last container build pull the changes
+pushd git/sparc-curation
+git pull
+popd
+
+# build the release in one shot
+sh ~/git/sparc-curation/docs/developer-guide.org sckan-release
+#+end_src
+
+If =sh developer-guide.org sckan-release= fails for some reason then you can run the individual
+commands in [[~/git/sparc-curation/docs/developer-guide.org::build-sckan-release]].
+# TODO Forward the output from babel to stdout without waiting until everything finishes.
+
+You can track of progress from the host by looking in [[/tmp/build/release-*-sckan/]]
+
+You can get a root shell for the container via
+#+begin_src bash
+docker exec -it $(docker ps -lqf ancestor=tgbugs/musl:kg-dev-user -f status=running) /bin/bash
+#+end_src
+
+**** old
 # TODO -v /var/lib/scigraph:/var/lib/scigraph \
 reminder: localhost:9000 tells the image to use its own internal
 scigraph not the host scigraph specifically it prevents it from using
@@ -7743,6 +7798,7 @@ rc-status
 touch /run/openrc/softlevel
 /etc/init.d/scigraph start
 /etc/init.d/blazegraph start
+if [ -e /var/run/docker.sock ] ; then groupmod -g $(stat -c '%g' /var/run/docker.sock) -o docker; fi
 #su user -c 'emacs -visit ~/git/sparc-curation/docs/queries.org'
 su user -
 /etc/init.d/scigraph stop
