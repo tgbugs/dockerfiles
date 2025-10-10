@@ -1268,7 +1268,7 @@ during the call to =ln -s= because the link already exists.
 #+begin_src bash :eval never
 set -e -o pipefail; \
 cd etc/portage/env; \
-cpvs=$(cat ../package.accept_keywords/profile.haskell <(cat ../package.unmask/profile | grep haskell | cut -d: -f1) <(echo dev-haskell/dot2graphml) | sed '#.+//' | sort -u); \
+cpvs=$(cat ../package.accept_keywords/profile.haskell <(cat ../package.unmask/profile | grep haskell | cut -d: -f1) <(echo dev-haskell/dot2graphml) | sed 's/#.*//' | sort -u); \
 for cpv in ${cpvs}; do \
 if [ -f ${cpv} ]; then \
     cat ghc-rtsopts >> ${cpv}; \
@@ -2420,7 +2420,7 @@ index 5f39279d..3573b1a5 100644
 
 =./autogen.sh= is not rerun and expects aclocal-1.16 which of course we don't have
 so force it in the ebuild for now
-#+begin_src ebuild :tangle ./musl/package-builder/crun.env
+#+begin_src ebuild :tangle ./docker-profile/base/crun.env
 pre_src_configure() { ./autogen.sh; }
 #+end_src
 
