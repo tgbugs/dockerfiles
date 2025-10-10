@@ -127,6 +127,8 @@ fail with strange errors in strange ways.
 shopt -s expand_aliases
 if [ -n "${_use_podman}" ]; then
 alias docker=podman
+elif $(type -t docker | grep alias > /dev/null 2>&1); then
+unalias docker
 fi
 for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
     docker pull docker.io/gentoo/stage3:${stage3}
@@ -462,6 +464,8 @@ fi
 shopt -s expand_aliases
 if [ -n "${_use_podman}" ]; then
 alias docker=podman
+elif $(type -t docker | grep alias > /dev/null 2>&1); then
+unalias docker
 fi
 
 <<&workflow-vars>>
