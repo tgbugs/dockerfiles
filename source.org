@@ -7693,10 +7693,11 @@ In the user container shell.
 # if there were fixes pushed since the last container build pull the changes
 pushd git/sparc-curation
 git pull
+python setup.py --release
 popd
 
 # build the release in one shot
-sh ~/git/sparc-curation/docs/developer-guide.org sckan-release
+~/git/sparc-curation/bin/build-sckan-release
 #+end_src
 
 If =sh developer-guide.org sckan-release= fails for some reason then you can run the individual
@@ -11226,7 +11227,7 @@ To save a gzipped archive run
 # first run the following to find the latest build, then
 docker image ls tgbugs/sckan:data-*
 _datetime=$(docker image ls tgbugs/sckan:data-* | sort | tail -n 1 | awk '{ print $2 }')
-if [ ! -d /tmp/build ]; mkdir /tmp/build; fi
+if [ ! -d /tmp/build ]; then mkdir /tmp/build; fi
 echo writing docker image to /tmp/build/docker-sckan-${_datetime}.tar.gz
 docker save tgbugs/sckan:${_datetime} | gzip > /tmp/build/docker-sckan-${_datetime}.tar.gz
 #+end_src
