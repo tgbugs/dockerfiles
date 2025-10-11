@@ -7700,9 +7700,8 @@ popd
 ~/git/sparc-curation/bin/build-sckan-release
 #+end_src
 
-If =sh developer-guide.org sckan-release= fails for some reason then you can run the individual
-commands in [[~/git/sparc-curation/docs/developer-guide.org::build-sckan-release]].
-# TODO Forward the output from babel to stdout without waiting until everything finishes.
+Alternately you can use the =docker run= command above with
+=--entrypoint /etc/entrypoints/sckan-release.sh=.
 
 You can track of progress from the host by looking in [[/tmp/build/release-*-sckan/]]
 
@@ -7856,7 +7855,7 @@ echo TODO testing ...
 
 #+header: :shebang "#!/usr/bin/env sh"
 #+begin_src bash :tangle ./musl/kg-dev-user/entrypoints/sckan-release.sh :mkdirp yes
-su user -c 'sh ~/git/sparc-curation/docs/developer-guide.org sckan-release'
+su user -c '~/git/sparc-curation/bin/build-sckan-release'
 #+end_src
 
 *** file
