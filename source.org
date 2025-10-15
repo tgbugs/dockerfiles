@@ -2233,6 +2233,9 @@ dev-libs/uriparser -doc
 # needed to ensure that -egl doesn't introduce conflicts
 x11-base/xorg-server minimal
 
+# gtk avoid dbus
+x11-libs/gtk+ -accessibility
+
 app-editors/emacs dynamic-loading gmp json threads
 
 # gdb don't pull in the world
@@ -3079,6 +3082,13 @@ RUN \
 || { mv /var/db/repos /var/db/repos-wat; cp -a /var/db/repos-wat /var/db/repos; rm -r /var/db/repos-wat; emaint sync --repo gentoo; }
 # why this by itself hangs forever but a simple mv and cp -a resolves the issue we may never know
 # || emaint sync --repo gentoo
+
+# fix ebuilds in place so that we don't have to maintain them elsewhere
+RUN \
+pushd /var/db/repos/gentoo/x11-libs/gtk+ \
+&& sed -i 's/^IUSE="/IUSE="+accessibility /' gtk+-3.*.ebuild \
+&& sed -i 's/\(>=app-accessibility.\+\)/accessibility? ( \1 )/' gtk+-3.*.ebuild \
+&& ebuild "$(ls *.ebuild | tail -n1)" digest
 
 FROM docker.io/library/busybox:latest
 
