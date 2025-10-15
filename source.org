@@ -1248,6 +1248,9 @@ ADD ${bp}package.env                             etc/portage/package.env/profile
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
 ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
 ADD ${bp}cloudpickle-pypy3.11.patch              etc/portage/patches/dev-python/cloudpickle-3.1.1/cloudpickle-pypy3.11.patch
+ADD ${bp}gtk-no-atk-gtkacc.patch                 etc/portage/patches/x11-libs/gtk+/gtk-no-atk-gtkacc.patch
+ADD ${bp}gtk-no-atk-mb.patch                     etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mb.patch
+ADD ${bp}gtk-no-atk-mot.patch                    etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mot.patch
 RUN \
    ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.3 \
 ;  ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.4
@@ -1912,6 +1915,70 @@ index 01a49bcb5..654801db0 100644
 -- 
 2.41.0
 
+#+end_src
+
+***** x11-libs/gtk+
+avoid dbus dep
+# FIXME unfortunately this also requires a modified ebuild ...
+# from https://github.com/lah7/gkt3-classic/pull/101/files
+#+begin_src diff :tangle ./docker-profile/base/gtk-no-atk-gtkacc.patch
+--- a/gtk/a11y/gtkaccessibility.c
++++ b/gtk/a11y/gtkaccessibility.c
+@@ -38,8 +38,10 @@
+ #include <gtk/gtkaccessible.h>
+ 
+ #ifdef GDK_WINDOWING_X11
++#ifdef HAVE_ATK_BRIDGE
+ #include <atk-bridge.h>
+ #endif
++#endif
+ 
+ static gboolean gail_focus_watcher      (GSignalInvocationHint *ihint,
+                                          guint                  n_param_values,
+@@ -987,8 +989,10 @@
+   do_window_event_initialization ();
+ 
+ #ifdef GDK_WINDOWING_X11
++#ifdef HAVE_ATK_BRIDGE
+   atk_bridge_adaptor_init (NULL, NULL);
+ #endif
++#endif
+ 
+   atk_misc_instance = g_object_new (GTK_TYPE_MISC_IMPL, NULL);
+ }
+#+end_src
+
+#+begin_src diff :tangle ./docker-profile/base/gtk-no-atk-mb.patch
+--- a/meson.build
++++ b/meson.build
+@@ -565,7 +565,6 @@
+   xfixes_dep     = dependency('xfixes', required: false)
+   xcomposite_dep = dependency('xcomposite', required: false)
+   fontconfig_dep = dependency('fontconfig', fallback: ['fontconfig', 'fontconfig_dep'])
+-  atkbridge_dep  = dependency('atk-bridge-2.0', version: at_spi2_atk_req)
+ 
+   backend_immodules += ['xim']
+ 
+@@ -584,8 +583,6 @@
+     x11_pkgs += ['xdamage']
+   endif
+ 
+-  atk_pkgs += ['atk-bridge-2.0']
+-
+   cdata.set('HAVE_XDAMAGE', xdamage_dep.found() ? 1 : false)
+   cdata.set('HAVE_XCURSOR', xcursor_dep.found() ? 1 : false)
+   cdata.set('HAVE_XCOMPOSITE', xcomposite_dep.found() ? 1 : false)
+#+end_src
+
+#+begin_src diff :tangle ./docker-profile/base/gtk-no-atk-mot.patch
+--- a/meson_options.txt
++++ b/meson_options.txt
+@@ -47,3 +47,5 @@
+ # input modules
+ option('builtin_immodules', type: 'string',
+        value: '', description: 'Build specified immodules into GTK so/DLL (comma-separated list), "all", "none" or "backend"')
++
++option('atk_bridge', type: 'boolean', value: false, description: 'enable atk-bridge')
 #+end_src
 
 *** profiles
