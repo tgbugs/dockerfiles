@@ -3431,7 +3431,7 @@ RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,tar
 let diff=( $(date +%s) - $(awk '{ print $1 }' /var/db/repos/gentoo/metadata/timestamp.x) ) \
 ;  let days=( ${diff} / 86400 ) \
 ;  [ ${days} -lt 14 ] \
-|| { echo 'portage is too old ${days} > 14 days' 1>&2; exit 1; }
+|| { echo "portage is too old ${days} > 14 days" 1>&2; exit 1; }
 
 # handle updates for python version changes that block further calls to emerge
 # these happen periodically when portage and stage3 images have mismached PYTHON_TARGETS
