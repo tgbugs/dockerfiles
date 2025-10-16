@@ -6186,52 +6186,18 @@ sys-apps/sed
 ** testing-python
 Python testing.
 *** world
-# gentoo no longer has 3.{6,7} in the main tree, going to be a pain test back there
-# dev-lang/python:3.6
-# dev-lang/python:3.7
-
-# dev-lang/python:3.13t
-# dev-lang/python:3.14t
-# dev-lang/python:3.14
 #+name: world-python
 #+begin_src conf :tangle ./musl/testing-python/world
 tgbugs-meta/python-testing-meta
 #+end_src
 
-#+begin_src conf
-dev-lang/python:3.8
-dev-lang/python:3.9
-dev-lang/python:3.10
-dev-lang/python:3.11
-dev-lang/python:3.12
-dev-lang/python:3.13
-dev-lang/python:3.14
-dev-lang/pypy:2.7
-dev-lang/pypy:3.11
-dev-python/pip
-dev-python/pipenv
-#+end_src
-# XXX pipenv continues to be a toxic waste dump of insanity and brokeness
-# https://bugs.gentoo.org/717666 really really bad call on my part for
-# picking it back in 2018 because Pipfile seemed useful
 ** testing-emacs
 Emacs testing.
 *** world
-# app-editors/emacs:23
-# app-editors/emacs:24
-# app-editors/emacs:25
 #+begin_src conf :tangle ./musl/testing-emacs/world
 tgbugs-meta/emacs-testing-meta
 #+end_src
 
-#+begin_src conf
-app-editors/emacs:18
-app-editors/emacs:26
-app-editors/emacs:27
-app-editors/emacs:28
-app-editors/emacs:29
-app-editors/emacs:30
-#+end_src
 ** emacs
 Emacs using the athena 3d toolkit to avoid pulling in gtk.
 *** bugs
