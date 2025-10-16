@@ -746,11 +746,6 @@ echo start image builds
 ## services
 <<&musl-build-blazegraph>> || return $?; echo mbb;
 
-## sbcl
-<<&musl-build-sbcl>> || return $?; echo mbsbcl;
-<<&musl-build-sbcl-user>> || return $?; echo mbsbclu;
-<<&musl-build-sbcl-stripped>> || return $?; echo mbsbcls;
-
 ## racket
 <<&musl-build-racket>> || return $?; echo mbrac;
 <<&musl-build-racket-user>> || return $?; echo mbracu;
