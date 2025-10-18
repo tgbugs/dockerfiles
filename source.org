@@ -4567,11 +4567,6 @@ CHOST=$(docker run --volumes-from local-repos-snap --rm ${_builder} portageq env
 emerge --color=y --with-bdeps=y -q --keep-going --usepkg @builder
 <<&docker-run-suffix>>
 
-# FIXME https://bugs.gentoo.org/964382
-<<&docker-run-prefix>>
-touch /usr/share/i18n/SUPPORTED
-<<&docker-run-suffix>>
-
 for target in {x86_64-pc-linux-gnu,x86_64-pc-linux-musl}; do
 if [ ${target} != ${CHOST} ]; then
 <<&docker-run-prefix>>
