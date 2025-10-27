@@ -9478,7 +9478,7 @@ sh -c "ls /var/db/repos/gentoo/dev-lisp/sbcl | grep sbcl | sed 's/\.ebuild//' | 
 }
 
 function sbcl-get-would-install () {
-emerge -pq --nodeps sbcl 2>/dev/null | grep ebuild | awk '{$1=$1}1' | awk -F- '{ print $NF }'
+emerge -pq --nodeps sbcl 2>/dev/null | grep ebuild | awk '{$1=$1}1' | awk -F/ '{ print $2 }' | awk -F- '{ print $2 }'
 }
 
 function sbcl-get-would-install-external () {
