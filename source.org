@@ -3646,7 +3646,7 @@ ADD world /etc/portage/sets/docker
 ADD sets/license /etc/portage/sets/license
 
 RUN \
-echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
+echo 'FEATURES="${FEATURES} buildpkg compress-index"' >> /etc/portage/make.conf \
 && echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
 #+end_src
 
@@ -5121,7 +5121,7 @@ ADD sets/meta-live /etc/portage/sets/meta-live
 # ADD accept_keywords.temp /etc/portage/package.accept_keywords/temp  # XXX mount in docker run not here
 
 RUN \
-echo 'FEATURES="${FEATURES} buildpkg"' >> /etc/portage/make.conf \
+echo 'FEATURES="${FEATURES} buildpkg compress-index"' >> /etc/portage/make.conf \
 && echo 'EMERGE_DEFAULT_OPTS="${EMERGE_DEFAULT_OPTS} --binpkg-changed-deps=y --usepkg"' >> /etc/portage/make.conf
 
 #+end_src
