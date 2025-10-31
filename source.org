@@ -2129,6 +2129,8 @@ EGIT_OVERRIDE_BRANCH_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=fix-wrapper
 
 **** mask
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.mask
+# see https://bugs.gentoo.org/965098 https://github.com/gentoo/portage/pull/1490
+>=sys-apps/portage-3.0.69
 # dynapad
 >=media-gfx/imagemagick-7
 # no dbus
@@ -3492,6 +3494,10 @@ FROM tgbugs/musl:eselect-repo
 #+end_src
 #+name: &updated-common
 #+begin_src dockerfile
+# XXX TEMP see package.mask re: binrepos issue with 3.0.69
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -1q sys-apps/portage
+
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -q -uDN @system @world \
    --getbinpkg \
