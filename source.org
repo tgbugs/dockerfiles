@@ -295,10 +295,11 @@ To prepare a fresh cycle of images.
 # things break at ref:&musl-build-xorg
 #+name: workflow-manual
 #+begin_src screen
-unset _refresh _repos _sync_gentoo _resnap _live_rebuild _nopkgbldr
+unset _refresh _repos _sync_gentoo _update_portage _resnap _live_rebuild _nopkgbldr
 _refresh=       # pull base images
 _repos=         # pull ebuild repo images
 _sync_gentoo=   # run emaint sync for gentoo repo
+_update_portage= # run emaint sync for gentoo repo and emerge sys-apps/portage
 _resnap=        # snap package build containers set this if you changed the profile or you will have a bad time
 _live_rebuild=  # rebuild 9999 ebuilds e.g. from git
 _nopkgbldr=     # do not run package building steps
@@ -573,6 +574,7 @@ function run-profile () {
 
 function run-common () {
 local REPOS="${_repos}"
+local UPDATE_PORTAGE="${_update_portage}"
 <<&build-user>> || return $?;
 <<&build-portage-maven>> || return $?;
 
@@ -2129,8 +2131,6 @@ EGIT_OVERRIDE_BRANCH_OPEN_PHYSIOLOGY_OPEN_PHYSIOLOGY_VIEWER=fix-wrapper
 
 **** mask
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.mask
-# see https://bugs.gentoo.org/965098 https://github.com/gentoo/portage/pull/1490
->=sys-apps/portage-3.0.69
 # dynapad
 >=media-gfx/imagemagick-7
 # no dbus
@@ -3351,6 +3351,7 @@ docker run \
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:eselect-repo \
+--build-arg UPDATE_PORTAGE=$UPDATE_PORTAGE \
 --file musl/eselect-repo/Dockerfile musl/eselect-repo
 #+end_src
 
@@ -3374,6 +3375,7 @@ eselect profile set docker-profile:tgbugs/musl \
 #+name: &gentoo-file-eselect-repo-common-1
 #+begin_src dockerfile
 ARG ARCHIVE
+ARG UPDATE_PORTAGE
 
 # fix for bad defaults in stage3 images
 # remove any default repos as gpg failures cause none type errors
@@ -3432,6 +3434,14 @@ let diff=( $(date +%s) - $(awk '{ print $1 }' /var/db/repos/gentoo/metadata/time
 ;  let days=( ${diff} / 86400 ) \
 ;  [ ${days} -lt 14 ] \
 || { echo "portage is too old ${days} > 14 days" 1>&2; exit 1; }
+
+RUN \
+   test -z $UPDATE_PORTAGE \
+|| { mv /var/db/repos /var/db/repos-wat; cp -a /var/db/repos-wat /var/db/repos; rm -r /var/db/repos-wat; emaint sync --repo gentoo; }
+
+RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos,target=/var/db/repos,rw \
+   test -z $UPDATE_PORTAGE \
+|| emerge -1q sys-apps/portage
 
 # handle updates for python version changes that block further calls to emerge
 # these happen periodically when portage and stage3 images have mismached PYTHON_TARGETS
@@ -3492,12 +3502,9 @@ the =--sync-gentoo= option is for!
 FROM tgbugs/musl:eselect-repo
 <<&updated-common>>
 #+end_src
+
 #+name: &updated-common
 #+begin_src dockerfile
-# XXX TEMP see package.mask re: binrepos issue with 3.0.69
-RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -1q sys-apps/portage
-
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -q -uDN @system @world \
    --getbinpkg \
@@ -10027,6 +10034,7 @@ docker build \
 --tag tgbugs/gnu:eselect-repo \
 --network host \
 --add-host local.binhost:127.0.0.1 \
+--build-arg UPDATE_PORTAGE=$UPDATE_PORTAGE \
 --file gnu/eselect-repo/Dockerfile gnu/eselect-repo
 #+end_src
 
@@ -11908,6 +11916,7 @@ and then to the tangle target to the block contents
 (defvar-local refresh      nil)
 (defvar-local repos        nil)
 (defvar-local sync-gentoo  nil)
+(defvar-local update-portage nil)
 (defvar-local resnap       nil)
 (defvar-local live-rebuild nil)
 (defvar-local no-pkg-bldr  nil)
@@ -12017,12 +12026,12 @@ and then to the tangle target to the block contents
 
 (defun make-screen-vars ()
   (apply #'format
-         "export _use_podman=%s _refresh=%s _repos=%s _sync_gentoo=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
+         "export _use_podman=%s _refresh=%s _repos=%s _sync_gentoo=%s _update_portage=%s _resnap=%s _live_rebuild=%s _nopkgbldr=%s _only_static=%s \\
 _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_binpkgs=%S _in_path_distcc_hosts=%S _in_path_ssh=%S \\
 %s %s %s%s%s;"
          (append
           (mapcar (lambda (b) (if b 1 ""))
-                  (list use-podman refresh repos sync-gentoo resnap live-rebuild no-pkg-bldr only-static))
+                  (list use-podman refresh repos sync-gentoo update-portage resnap live-rebuild no-pkg-bldr only-static))
           (list path-dockerfiles path-distfiles path-binpkgs-root path-binpkgs path-distcc-hosts path-ssh)
           ;; FIXME TODO see whether whether we can use the path-sparcron approach for all paths?
           ;; the difference seems to be whether it makes sense to embed default paths in this file
@@ -12299,6 +12308,7 @@ currently only sbcl static uses this but other things might need it in the futur
           (refresh      (and build (member "--refresh" argv)))
           (repos        (and build (member "--repos" argv)))
           (sync-gentoo  (and build (member "--sync-gentoo" argv)))
+          (update-portage (and build (member "--update-portage" argv)))
           (resnap       (and build (member "--resnap" argv)))
           (only-static  (and build (member "--only-static" argv)))
           (live-rebuild (and build (member "--live-rebuild" argv)))
