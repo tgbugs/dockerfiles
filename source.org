@@ -4285,11 +4285,13 @@ FROM ${START_IMAGE}
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 export JDKATOM="=$(emerge -p --usepkg=n --getbinpkg=n openjdk | grep openjdk | awk '{ print $4 }')" \
 && emerge -1q \
+   --binpkg-changed-deps=y \
    --getbinpkgonly \
    ${JDKATOM} \
 # remove openjdk-bin mask for just this bootstrap if openjdk is not present
 || { sed -i "/openjdk-bin/d" /etc/portage/package.mask/profile \
 ;  emerge -q -uDN dev-java/openjdk-bin \
+   --binpkg-changed-deps=y \
    --getbinpkg \
    --keep-going;} \
 && emerge -q -uDN openjdk \
