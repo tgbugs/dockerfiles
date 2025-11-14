@@ -639,9 +639,6 @@ container-check
   # build the generalized builder so we can dispense with the stacked image nonsense
   <<&musl-build-package-builder-musl>> || return $?; echo mbpbm;
 
-  # TODO conditional to speed things up
-  # <<&musl-run-free-harf-nonsense>> || return $?; echo mrfhn;
-
   <<&musl-build-nox>> || return $?; echo mbnox;
   <<&musl-run-nox-quickpkg>> || return $?; echo mrnoxq;
 
@@ -2155,9 +2152,6 @@ dev-python/shellingham ~amd64
 
 app-misc/yq ~amd64
 
-# harfbuzz 3.1.2 needs freetype-2.11.1 otherwise build fails
-=media-libs/freetype-2.11.1 ~amd64
-
 # needed for media-gfx/renderdoc
 dev-libs/miniz ~amd64
 
@@ -2250,6 +2244,9 @@ dev-lang/rust mrustc-bootstrap
 
 # needed for apinat-converter
 net-libs/nodejs npm
+
+# needed for x and nox for racket minimal pango apparently
+media-libs/freetype harfbuzz
 
 dev-scheme/racket jit
 
@@ -2625,8 +2622,6 @@ VIDEO_CARDS="-*"
 # app-editors/emacs libxml2 svg
 #+begin_src conf :tangle ./docker-profile/x/docker-profile/profiles/tgbugs/x/package.use
 # ,*/* X # FIXME it seems that wildcards are not allowed in here so for now has to be done later
-
-media-libs/freetype harfbuzz
 
 # the mesa ebuilds in the main tree are missing the fact that
 # gbm expects egl to be enabled, if it is not build errors
@@ -3587,7 +3582,7 @@ COPY --from=tgbugs/common:user / /
 there are a number of packages that we need to build variants of
 before we get our fully configured builder(s) up and running this
 should simplify many of the bootstrapping circularity issues that we
-have, particularly with pypy3, harfbuzz/freetype, openjdk, and
+have, particularly with pypy3, openjdk, ghc, sbcl, and
 anything else that has circular dependencies or long build times, it
 does mean that flags on the target profile must be known in advance
 
@@ -3611,6 +3606,7 @@ beyond the base update and we would have to build anyway, the good news
 is that by doing this after updated we don't have to rebuild updated
 so updates to the early builder become more or less free
 *** run
+This block is no longer needed since the harfbuzz/freetype circular dependency has been fixed.
 #+name: &musl-run-free-harf-nonsense
 #+begin_src bash
 docker run \
@@ -3665,8 +3661,10 @@ echo 'FEATURES="${FEATURES} buildpkg compress-index"' >> /etc/portage/make.conf 
 
 *** entrypoints
 TODO only build if the package has not already been built
+
+This block is no longer needed for harfbuzz/freetype, but might be useful if something similar comes up in the future. For now we no longer tangle it.
 #+header: :shebang "#!/usr/bin/env sh"
-#+begin_src bash :tangle ./bin/harfbuzz-freetype-sigh.sh :mkdirp yes
+#+begin_src bash :tangle ./bin/harfbuzz-freetype-sigh.sh :mkdirp yes :tangle no
 function doqp () {
 local _qpvar
 emerge --info 2>&1 | grep "Unable to parse profile" && { echo "bad profile, if using podman did you container init?"; return 1; };
@@ -3704,7 +3702,7 @@ doqp
     should be done separately from the =--onlydeps --only-deps-with-rdeps=n= run
 
 #+begin_src bash
-{media-libs/freetype,metia-libs/harfbuzz}
+{media-libs/freetype,media-libs/harfbuzz}
 {"harfbuzz"}
 {"cairo truetype"}
 #+end_src
@@ -4090,10 +4088,6 @@ be built and deposited into musl-x. The less good news is that this is
 not fully implemented yet as noted in <https://wiki.gentoo.org/wiki/
 Binary_package_guide#Pulling_packages_from_a_binary_package_host>.
 
-If you need to work around a broken ~USE="-harfbuzz -truetype"~ case
-build them in a container rather than a builder and then quickpkg them
-and then run the builder again.
-
 #+name: &xorg-nox-common-1
 #+begin_src dockerfile
 # ARG PROFILE_IMAGE=tgbugs/musl:profile-x
@@ -4123,32 +4117,8 @@ eselect profile set $PROFILE \
 
 #+name: &xorg-nox-common-3
 #+begin_src dockerfile
-# FIXME I think we have to update binhosts here
-
-# FIXME this rebuild is bad because it results in duplication of
-# rebuilt packages between layers, probably need updated-x
-# XXX install freetype without harfbuzz first to avoid the circular dependency (sigh)
-# also have to install harfbuzz -freetype as well https://bugs.gentoo.org/830966#c5
-# XXX NOTE when harfbuzz and freetype are installed from binpkgs sometimes fontconfig
-# will scream about missing libs, this is because the good harfbuzz is installed after
-# fontconfig, confusing and scary, but apparently not fatal
-
-# FIXME may need to break this out into a binpkg builder ala what we now do for openjdk
-# that can be use by any profile that modifies useflags on these and thus needs a rebuild
-# e.g. openjdk-nox pulls these all in, and only by sheer luck have they already been built
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-emerge -1q \
-   --getbinpkgonly \
-   media-libs/freetype \
-   media-libs/harfbuzz \
-# have to set -cairo here otherwise harfbuzz -truetype will fail to build
-|| USE="-cairo -harfbuzz -truetype" emerge -1q \
-   --getbinpkg \
-   media-libs/freetype \
-   media-libs/harfbuzz \
-# FIXME need to quickpkg the minimal harfbuzz here, re: note above
-# remind me again why were we using -j1 here? old gcc issues?
-&& emerge -q -uDN @world \
+emerge -q -uDN @world \
    --getbinpkg \
    --exclude sys-process/procps \
    --keep-going \
