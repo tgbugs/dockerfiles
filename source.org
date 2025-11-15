@@ -4131,7 +4131,7 @@ test ! -e /emerge-fail
 RUN \
 eselect fontconfig disable 10-hinting-slight.conf \
 && eselect fontconfig enable \
-   10-no-sub-pixel.conf \
+   10-sub-pixel-none.conf \
    57-dejavu-sans.conf \
    57-dejavu-sans-mono.conf
 #+end_src
