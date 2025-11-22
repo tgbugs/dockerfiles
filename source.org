@@ -1218,6 +1218,7 @@ ARG bp=docker-profile/base/
 
 ADD ${bp}docker-profile                          var/db/docker-profile
 ADD ${bp}docker-profile.conf                     etc/portage/repos.conf/docker-profile.conf
+ADD ${bp}priority.conf                           etc/portage/repos.conf/priority.conf
 ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi.conf
 ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
 ADD ${bp}package.accept_keywords.haskell.gentoo  etc/portage/package.accept_keywords/profile.haskell
@@ -1300,6 +1301,23 @@ COPY --from=builder /build /
 [docker-profile]
 location = /var/db/docker-profile
 #+end_src
+
+This works because portage combines sections in multiple files into a single record
+so we don't have to modify eselect-repo.conf directly.
+#+begin_src conf :tangle ./docker-profile/base/priority.conf
+[gnu-elpa]
+priority = -1001
+
+[nongnu-elpa]
+priority = -1002
+
+[melpa-stable]
+priority = -1003
+
+[melpa]
+priority = -1004
+#+end_src
+
 **** binrepos.conf
 =tgbugs-multi-sigh= needed to work around linux and macos/windows-nt
 networking differences without forcing the docker sources to be
@@ -1580,6 +1598,7 @@ dev-haskell/zlib
 
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
+app-emacs/*::melpa
 dev-scheme/racket::gentoo
 dev-haskell/*::haskell
 dev-java/openjdk-bin  # libc linking issues, must compile openjdk
@@ -1589,6 +1608,13 @@ dev-lang/rust-bin  # prefer our own
 #+end_src
 **** package.unmask
 #+begin_src conf :tangle ./docker-profile/base/package.unmask
+app-emacs/cypher-mode::melpa
+app-emacs/evil-paredit::melpa
+app-emacs/glsl-mode::melpa
+app-emacs/glue::melpa
+app-emacs/scribble-mode::melpa
+app-emacs/ssh-config-mode::melpa
+app-emacs/vimrc-mode::melpa
 dev-haskell/colour::haskell
 dev-haskell/fgl::haskell
 dev-haskell/graphviz::haskell
@@ -3458,7 +3484,7 @@ emerge -q \
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
    eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && eselect repository add racket-overlay git https://gitlab.com/tgbugs/gentoo-racket-overlay.git \
-&& eselect repository enable haskell
+&& eselect repository enable haskell gnu-elpa nongnu-elpa melpa-stable melpa
 #+end_src
 # TODO should we be adding the mount points here as well or is that not necessary?
 
