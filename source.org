@@ -1596,6 +1596,86 @@ dev-haskell/zlib
 #+end_src
 # and they say haskell is a safe language
 
+I don't think we can blindly accept these using e.g.
+app-emacs/*::overlay because it might unmask versions
+that are newer than what is in ::gentoo which we don't
+want, might be able to check on the fly by comparing
+app-emacs in each of the repos.
+#+begin_src conf :tangle ./docker-profile/base/package.accept_keywords.emacs
+app-emacs/*::melpa  # ok because the whole overlay is masked
+
+app-emacs/auto-complete::gentoo
+app-emacs/bison-mode::gentoo
+app-emacs/closql::gentoo
+app-emacs/elpy::gentoo
+app-emacs/emacsql::gentoo
+app-emacs/forge::gentoo
+app-emacs/hl-todo::gentoo
+app-emacs/js2-mode::gentoo
+app-emacs/julia-mode::gentoo
+app-emacs/julia-repl::gentoo
+app-emacs/ninja-mode::gentoo
+app-emacs/polymode::gentoo
+app-emacs/pyvenv::gentoo
+app-emacs/rust-mode::gentoo
+app-emacs/sly::gentoo
+app-emacs/ts::gentoo
+app-emacs/typescript-mode::gentoo
+app-emacs/websocket::gentoo
+
+app-emacs/crdt::gnu-elpa
+app-emacs/heap::gnu-elpa
+app-emacs/map::gnu-elpa
+app-emacs/parsec::gnu-elpa
+app-emacs/peg::gnu-elpa
+app-emacs/pq::gnu-elpa
+app-emacs/tNFA::gnu-elpa
+app-emacs/tramp-theme::gnu-elpa
+app-emacs/trie::gnu-elpa
+app-emacs/vdiff::gnu-elpa
+
+app-emacs/arduino-mode::nongnu-elpa
+app-emacs/gnuplot::nongnu-elpa
+app-emacs/orgit::nongnu-elpa
+
+app-emacs/ac-slime::melpa-stable
+app-emacs/annalist::melpa-stable
+app-emacs/bibtex-completion::melpa-stable
+app-emacs/clojure-mode-extra-font-locking::melpa-stable
+app-emacs/color-theme-modern::melpa-stable
+app-emacs/dash-functional::melpa-stable
+app-emacs/docopt::melpa-stable
+app-emacs/erlang::melpa-stable
+app-emacs/eval-sexp-fu::melpa-stable
+app-emacs/evil-collection::melpa-stable
+app-emacs/evil-org::melpa-stable
+app-emacs/fill-column-indicator::melpa-stable
+app-emacs/git-link::melpa-stable
+app-emacs/helm-bibtex::melpa-stable
+app-emacs/highlight-numbers::melpa-stable
+app-emacs/hy-mode::melpa-stable
+app-emacs/json-mode::melpa-stable  # the one on gnu-elpa is ... different?
+app-emacs/json-snatcher::melpa-stable
+app-emacs/jupyter::melpa-stable
+app-emacs/keychain-environment::melpa-stable
+app-emacs/ob-hy::melpa-stable
+app-emacs/org-make-toc::melpa-stable
+app-emacs/org-ql::melpa-stable
+app-emacs/org-ref::melpa-stable
+app-emacs/org-super-agenda::melpa-stable
+app-emacs/org-sync::melpa-stable
+app-emacs/outorg::melpa-stable
+app-emacs/outshine::melpa-stable
+app-emacs/ov::melpa-stable
+app-emacs/ox-gfm::melpa-stable
+app-emacs/ox-pandoc::melpa-stable
+app-emacs/parent-mode::melpa-stable
+app-emacs/quelpa::melpa-stable
+app-emacs/quelpa-use-package::melpa-stable
+app-emacs/simple-httpd::melpa-stable
+app-emacs/sparql-mode::melpa-stable
+#+end_src
+
 **** package.mask
 #+begin_src conf :tangle ./docker-profile/base/package.mask
 app-emacs/*::melpa
@@ -1606,13 +1686,16 @@ dev-lang/rust-bin  # prefer our own
 <virtual/jdk-17
 <virtual/jre-17
 #+end_src
+
 **** package.unmask
 #+begin_src conf :tangle ./docker-profile/base/package.unmask
+app-emacs/ac-sly::melpa
 app-emacs/cypher-mode::melpa
 app-emacs/evil-paredit::melpa
 app-emacs/glsl-mode::melpa
 app-emacs/glue::melpa
 app-emacs/scribble-mode::melpa
+app-emacs/sly-repl-ansi-color::melpa
 app-emacs/ssh-config-mode::melpa
 app-emacs/vimrc-mode::melpa
 dev-haskell/colour::haskell
@@ -1626,6 +1709,7 @@ dev-haskell/polyparse::haskell
 dev-haskell/temporary::haskell
 dev-haskell/wl-pprint-text::haskell
 #+end_src
+
 **** package.use
 #+begin_src conf :tangle ./docker-profile/base/package.use
 dev-scheme/racket::tgbugs-overlay cs bc cgc
@@ -2256,7 +2340,8 @@ x11-base/xorg-server minimal
 # gtk avoid dbus
 x11-libs/gtk+ -accessibility
 
-app-editors/emacs dynamic-loading gmp json threads
+# gif libxml2 svg required by certain elisp packages
+app-editors/emacs dynamic-loading gif gmp json libxml2 threads svg
 
 # gdb don't pull in the world
 sys-devel/gdb -nls -python
@@ -2279,8 +2364,8 @@ dev-scheme/racket jit
 # graphviz
 media-libs/gd truetype fontconfig
 
-# needed for inkscape
-app-text/poppler cairo
+# cairo needed for inkscape and pdf-tools, png needed for pdf-tools
+app-text/poppler cairo png
 
 # needed for redict
 dev-libs/jemalloc stats
