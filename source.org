@@ -1221,6 +1221,7 @@ ADD ${bp}docker-profile.conf                     etc/portage/repos.conf/docker-p
 ADD ${bp}priority.conf                           etc/portage/repos.conf/priority.conf
 ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi.conf
 ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
+ADD ${bp}package.accept_keywords.emacs           etc/portage/package.accept_keywords/profile.emacs
 ADD ${bp}package.accept_keywords.haskell.gentoo  etc/portage/package.accept_keywords/profile.haskell
 ADD ${bp}package.mask                            etc/portage/package.mask/profile
 ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
@@ -1240,6 +1241,7 @@ ADD ${bp}ghc-rtsopts.env                         etc/portage/env/ghc-rtsopts
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
 ADD ${bp}package.env                             etc/portage/package.env/profile
 # general pataches
+ADD ${bp}pdf-tools-link-error.patch              etc/portage/patches/app-emacs/pdf-tools/pdf-tools-link-error.patch
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
 ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
 ADD ${bp}cloudpickle-pypy3.11.patch              etc/portage/patches/dev-python/cloudpickle-3.1.1/cloudpickle-pypy3.11.patch
@@ -1808,6 +1810,22 @@ dev-haskell/* ghc-rts-m
 #+end_src
 
 **** patches
+
+***** app-emacs/pdf-tools
+Need to link against liberror.so if it is present (i.e. on musl).
+#+begin_src diff :tangle ./docker-profile/base/pdf-tools-link-error.patch
+--- a/server/configure.ac
++++ b/server/configure.ac
+@@ -65,6 +65,7 @@
+ AC_MSG_CHECKING([for error.h])
+ SAVED_CFLAGS=$CFLAGS
+ CFLAGS="$poppler_CFLAGS $poppler_glib_CFLAGS"
++AC_CHECK_LIB([error], [error])
+ AC_LANG_PUSH([C])
+ AC_COMPILE_IFELSE([AC_LANG_PROGRAM([
+         #include <error.h>
+#+end_src
+
 ***** dev-python/cloudpickle
 See https://github.com/cloudpipe/cloudpickle/pull/566
 #+begin_src diff :tangle ./docker-profile/base/cloudpickle-pypy3.11.patch
