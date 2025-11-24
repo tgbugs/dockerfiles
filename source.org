@@ -1218,7 +1218,7 @@ ARG bp=docker-profile/base/
 
 ADD ${bp}docker-profile                          var/db/docker-profile
 ADD ${bp}docker-profile.conf                     etc/portage/repos.conf/docker-profile.conf
-ADD ${bp}priority.conf                           etc/portage/repos.conf/priority.conf
+ADD ${bp}priority.conf                           etc/portage/priority.conf
 ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi.conf
 ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
 ADD ${bp}package.accept_keywords.emacs           etc/portage/package.accept_keywords/profile.emacs
@@ -1605,6 +1605,8 @@ want, might be able to check on the fly by comparing
 app-emacs in each of the repos.
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords.emacs
 app-emacs/*::melpa  # ok because the whole overlay is masked
+
+=app-emacs/haskell-mode-17.5::gentoo  # 17.4 broken
 
 app-emacs/auto-complete::gentoo
 app-emacs/bison-mode::gentoo
@@ -3193,7 +3195,11 @@ COPY --from=docker.io/gentoo/portage:latest /var/db/repos/gentoo /var/db/repos/g
 RUN \
    emaint sync --repo haskell \
 && emaint sync --repo racket-overlay \
-&& emaint sync --repo tgbugs-overlay
+&& emaint sync --repo tgbugs-overlay \
+&& emaint sync --repo gnu-elpa \
+&& emaint sync --repo nongnu-elpa \
+&& emaint sync --repo melpa-stable \
+&& emaint sync --repo melpa
 
 # manual sync in cases where there is a showstopper blocking progress
 ARG SYNC_GENTOO
@@ -3587,7 +3593,8 @@ emerge -q \
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
    eselect repository add tgbugs-overlay git https://github.com/tgbugs/tgbugs-overlay.git \
 && eselect repository add racket-overlay git https://gitlab.com/tgbugs/gentoo-racket-overlay.git \
-&& eselect repository enable haskell gnu-elpa nongnu-elpa melpa-stable melpa
+&& eselect repository enable haskell gnu-elpa nongnu-elpa melpa-stable melpa \
+&& mv /etc/portage/priority.conf /etc/portage/repos.conf/priority.conf
 #+end_src
 # TODO should we be adding the mount points here as well or is that not necessary?
 
