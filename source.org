@@ -8069,7 +8069,10 @@ ADD --chown=1000:1000 early-init.el ./.emacs.d/early-init.el
 
 RUN \
 emacs --batch --quick --eval \
-"(progn (load early-init-file) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
+"(progn (add-to-list 'load-path (pop argv)) (load (pop argv)) (load (pop argv)) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
+"/usr/share/emacs/site-lisp/" \
+"/etc/emacs/site-start.el" \
+"~/.emacs.d/early-init.el" \
 "${INIT_URL}"
 
 RUN \
@@ -9784,10 +9787,18 @@ COPY --from=tgbugs/common:user / /
 
 <<&musl-file-user-base>>
 
+ADD --chown=1000:1000 early-init.el ./.emacs.d/early-init.el
+
 # FIXME builder to factor common here
 <<&emacs-sanity>>
 
 # TODO quicklisp https
+#+end_src
+
+*** retangles
+# leave empty for now
+# <<elisp-populate-site-gentoo-packages>>
+#+begin_src elisp :noweb yes :tangle ./musl/sbcl-user/early-init.el
 #+end_src
 
 ** sbcl-stripped
