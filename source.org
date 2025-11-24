@@ -1668,6 +1668,7 @@ app-emacs/org-ql::melpa-stable
 app-emacs/org-ref::melpa-stable
 app-emacs/org-super-agenda::melpa-stable
 app-emacs/org-sync::melpa-stable
+app-emacs/orgstrap::melpa-stable
 app-emacs/outorg::melpa-stable
 app-emacs/outshine::melpa-stable
 app-emacs/ov::melpa-stable
@@ -1698,6 +1699,7 @@ app-emacs/cypher-mode::melpa
 app-emacs/evil-paredit::melpa
 app-emacs/glsl-mode::melpa
 app-emacs/glue::melpa
+app-emacs/ob-cypher::melpa
 app-emacs/scribble-mode::melpa
 app-emacs/sly-repl-ansi-color::melpa
 app-emacs/ssh-config-mode::melpa
