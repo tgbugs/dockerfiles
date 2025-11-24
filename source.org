@@ -7683,9 +7683,44 @@ ENTRYPOINT ["/etc/entrypoint.sh"]
 Must disable early loading of =package.el= because it makes it
 impossible for site-lisp to add packages which breaks the activation
 of any dependent packages.
+#+name: elisp-populate-site-gentoo-packages
 #+begin_src elisp :tangle ./musl/kg-release-user/early-init.el
 (setq package-enable-at-startup nil)
+(require 'package)
+(package-initialize 'no-activate)
+(let* ((ll (or (locate-library "site-gentoo")))
+       (site-lisp-directory
+        (cond (ll (file-name-directory ll))
+              (t (warn "don't know site-lisp location") nil)))
+       (cands
+        (cl-loop
+         for p in load-path
+         when (and (string-prefix-p site-lisp-directory p) (string-match-p "/site-lisp/[^/]+$" p))
+         append
+         (cl-loop
+          for e in (directory-files p)
+          when (and (string-suffix-p ".el" e) (not (string-suffix-p "-autoloads.el" e)))
+          collect (expand-file-name e p)))))
+  (cl-remove-if
+   #'null
+   (cl-loop
+    for c in cands
+    ;collect
+    do
+    (let* ((pkg-desc
+           (with-temp-buffer
+             (insert-file-contents c)
+             (condition-case nil
+                 (package-buffer-info)
+               (error nil)
+               )))
+           (pkg (when pkg-desc (package-desc-name pkg-desc))))
+      (when pkg-desc
+        (setf (package-desc-dir pkg-desc) (file-name-directory c)) ; FIXME redundant
+        (add-to-list 'package-alist (list pkg pkg-desc))
+        (add-to-list 'package-activated-list pkg))))))
 #+end_src
+
 Calling =ow-enable-use-package= makes it possible to load site-lisp
 and call =package-initialize= with =no-activate= set so that site
 dependencies can be loaded correctly. This is all a dance to work
@@ -7693,7 +7728,7 @@ around the fundamentally broken design of =normal-top-level= and
 =early-init= with regard to site-lisp.
 #+begin_src elisp :tangle ./musl/kg-release-user/init.el
 (load (expand-file-name "ow.el" user-emacs-directory))
-(ow-enable-use-package nil '(vterm zmq))
+;;(ow-enable-use-package nil '(vterm zmq))
 #+end_src
 ** kg-dev
 :PROPERTIES:
@@ -8030,9 +8065,11 @@ su user -c '~/git/sparc-curation/bin/build-sckan-release'
 #+begin_src dockerfile
 ARG INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simple.el
 
+ADD --chown=1000:1000 early-init.el ./.emacs.d/early-init.el
+
 RUN \
 emacs --batch --quick --eval \
-"(progn (setq ow-site-packages '(vterm zmq)) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
+"(progn (load early-init-file) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
 "${INIT_URL}"
 
 RUN \
@@ -8040,8 +8077,8 @@ pushd ~/.emacs.d \
 && ln -s reval/cache/*/*-ow.el ow.el \
 && ln -s reval/cache/*/*-reval.el reval.el \
 && ln -s reval/cache/*/*-init-content.el init-content.el \
-&& echo "(setq package-enable-at-startup nil)" >> early-init.el \
-&& echo "(defvar ow-site-packages '(vterm zmq))" >> init.el \
+#&& echo "(setq package-enable-at-startup nil)" >> early-init.el \
+#&& echo "(defvar ow-site-packages '(vterm zmq))" >> init.el \
 && echo "(load (expand-file-name \"ow.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"reval.el\" user-emacs-directory))" >> init.el \
 && echo "(load (expand-file-name \"init-content.el\" user-emacs-directory))" >> init.el \
@@ -8325,6 +8362,10 @@ the links between =:tangle= paths and =<<noweb>>= references.
 <<lisp-qlha-asdf>>
 #+end_src
 
+#+begin_src elisp :noweb yes :tangle ./musl/kg-dev-user/early-init.el
+<<elisp-populate-site-gentoo-packages>>
+#+end_src
+
 ** tgbugs-dev
 *** build
 #+name: &musl-build-tgbugs-dev
@@ -8441,6 +8482,10 @@ USER ${USER_NAME}
 
 #+begin_src lisp :noweb yes :tangle ./musl/tgbugs-dev-user/quicklisp-https-always/quicklisp-https-always.asd
 <<lisp-qlha-asdf>>
+#+end_src
+
+#+begin_src elisp :noweb yes :tangle ./musl/tgbugs-dev-user/early-init.el
+<<elisp-populate-site-gentoo-packages>>
 #+end_src
 
 *** build helper script
