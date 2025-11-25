@@ -7662,7 +7662,7 @@ pushd ./.emacs.d/ \
 
 RUN \
 emacs -batch -eval \
-"(let* ((early-init-file (pop argv)) (user-init-file (pop argv))) (load early-init-file) (load user-init-file) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
+"(let ((early-init-file (pop argv)) (user-init-file (pop argv))) (load early-init-file) (load user-init-file) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
 $HOME/.emacs.d/early-init.el $HOME/.emacs.d/init.el sckan/{queries,welcome,examples,scratch,tutorial}.org
 
 FROM tgbugs/musl:kg-release
@@ -8241,14 +8241,16 @@ raco pkg install --no-docs --name barcode --type git-url https://github.com/zuss
 <<&dev-sbcl-stuff-1>>
 
 RUN \
-./git/sparc-curation/docs/queries.org
+sed -i 's,-no-site-file,-load ~/.emacs.d/early-init.el,' ./git/sparc-curation/docs/queries.org \
+&& ./git/sparc-curation/docs/queries.org
 
 RUN \
 ./git/sparc-curation/docs/apinatomy.org
 
 RUN \
 emacs -batch -eval \
-"(let ((user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))))" \
+"(let ((early-init-file (pop argv)) (user-init-file (pop argv))) (package-initialize) (while argv (orgstrap-whitelist-file (pop argv))))" \
+$HOME/.emacs.d/early-init.el \
 $HOME/.emacs.d/init.el \
 ./git/sparc-curation/docs/queries.org \
 ./git/sparc-curation/docs/apinatomy.org
