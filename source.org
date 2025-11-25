@@ -7649,21 +7649,21 @@ RUN \
 xdg-user-dirs-update \
 ;  rmdir Desktop Pictures Documents Public Downloads Templates Music Videos > /dev/null 2>&1
 
+ADD --chown=1000:1000 early-init.el ./.emacs.d/early-init.el
+ADD --chown=1000:1000 init.el ./.emacs.d/init.el
+
 RUN \
-sed -i 's/-no-site-file//' ./sckan/queries.org \
+sed -i 's,-no-site-file,-load ~/.emacs.d/early-init.el,' ./sckan/queries.org \
 && ./sckan/queries.org
 
 RUN \
 pushd ./.emacs.d/ \
 && ln -s reval/cache/*/*-ow.el ow.el
 
-ADD --chown=1000:1000 early-init.el ./.emacs.d/early-init.el
-ADD --chown=1000:1000 init.el ./.emacs.d/init.el
-
 RUN \
 emacs -batch -eval \
-"(let ((user-init-file (pop argv))) (load (pop argv)) (load user-init-file) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
-$HOME/.emacs.d/init.el $HOME/.emacs.d/early-init.el sckan/{queries,welcome,examples,scratch,tutorial}.org
+"(let* ((early-init-file (pop argv)) (user-init-file (pop argv))) (load early-init-file) (load user-init-file) (while argv (let ((f (pop argv))) (orgstrap-whitelist-file f) (kill-buffer (find-file-noselect f)))) (ow-use-packages evil undo-tree))" \
+$HOME/.emacs.d/early-init.el $HOME/.emacs.d/init.el sckan/{queries,welcome,examples,scratch,tutorial}.org
 
 FROM tgbugs/musl:kg-release
 
@@ -8070,10 +8070,8 @@ ARG INIT_URL=https://raw.githubusercontent.com/tgbugs/orgstrap/master/init-simpl
 ADD --chown=1000:1000 early-init.el ./.emacs.d/early-init.el
 
 RUN \
-emacs --batch --quick --eval \
-"(progn (add-to-list 'load-path (pop argv)) (load (pop argv)) (load (pop argv)) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
-"/usr/share/emacs/site-lisp/" \
-"/etc/emacs/site-start.el" \
+emacs --batch --eval \
+"(progn (load (pop argv)) (url-handler-mode 1) (find-file (pop argv)) (eval-buffer))" \
 "~/.emacs.d/early-init.el" \
 "${INIT_URL}"
 
