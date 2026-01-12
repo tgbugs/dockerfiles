@@ -5490,6 +5490,7 @@ app-portage/gentoopm
 <<set-builder-common>>
 sys-devel/distcc
 sys-devel/crossdev
+dev-lisp/clisp  # XXX temp workaround for https://bugs.gentoo.org/967525
 #+end_src
 
 *** world
