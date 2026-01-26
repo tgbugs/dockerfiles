@@ -1544,6 +1544,7 @@ dev-haskell/string-conversions
 dev-haskell/syb
 dev-haskell/tagged
 dev-haskell/tagsoup
+dev-haskell/tasty
 dev-haskell/temporary
 dev-haskell/texmath
 dev-haskell/text
