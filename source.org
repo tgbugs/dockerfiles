@@ -1223,8 +1223,10 @@ ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi
 ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
 ADD ${bp}package.accept_keywords.emacs           etc/portage/package.accept_keywords/profile.emacs
 ADD ${bp}package.accept_keywords.haskell.gentoo  etc/portage/package.accept_keywords/profile.haskell
+ADD ${bp}package.accept_keywords.versions        etc/portage/package.accept_keywords/profile.versions
 ADD ${bp}package.mask                            etc/portage/package.mask/profile
 ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
+ADD ${bp}package.unmask.versions                 etc/portage/package.unmask/versions
 ADD ${bp}package.use                             etc/portage/package.use/profile
 ADD ${bp}crun.env                                etc/portage/env/app-containers/crun
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
@@ -1346,6 +1348,14 @@ dev-lang/ghc::gentoo
 app-admin/haskell-updater::gentoo
 dev-util/shellcheck::gentoo
 sys-apps/racket-where::racket-overlay
+#+end_src
+
+Transient workarounds for specific versions.
+#+begin_src conf :tangle ./docker-profile/base/package.accept_keywords.versions
+=app-emacs/bind-key-2.4.1::gnu-elpa
+=app-emacs/haskell-mode-17.5::gentoo  # 17.4 broken
+=app-emacs/magit-4.5.0::gentoo  # required by forge
+=app-emacs/use-package-2.4.6::gnu-elpa  # needed by quelpa-use-package ??? must be a bug in the ebuild?
 #+end_src
 
 We only use the =::haskell= overlay for the graphviz dependencies.
@@ -1607,8 +1617,6 @@ app-emacs in each of the repos.
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords.emacs
 app-emacs/*::melpa  # ok because the whole overlay is masked
 
-=app-emacs/haskell-mode-17.5::gentoo  # 17.4 broken
-
 app-emacs/auto-complete::gentoo
 app-emacs/bison-mode::gentoo
 app-emacs/closql::gentoo
@@ -1715,6 +1723,12 @@ dev-haskell/hxt::haskell
 dev-haskell/polyparse::haskell
 dev-haskell/temporary::haskell
 dev-haskell/wl-pprint-text::haskell
+#+end_src
+
+Transient workarounds for specific versions.
+#+begin_src conf :tangle ./docker-profile/base/package.unmask.versions
+=app-emacs/bind-key-2.4.1::gnu-elpa
+=app-emacs/use-package-2.4.6::gnu-elpa  # needed by quelpa-use-package ??? must be a bug in the ebuild?
 #+end_src
 
 **** package.use
