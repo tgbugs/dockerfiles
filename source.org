@@ -1245,6 +1245,7 @@ ADD ${bp}package.env                             etc/portage/package.env/profile
 # general pataches
 ADD ${bp}pdf-tools-link-error.patch              etc/portage/patches/app-emacs/pdf-tools/pdf-tools-link-error.patch
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
+ADD ${bp}kpathsea-c23.patch                      etc/portage/patches/dev-libs/kpathsea/kpathsea-c23.patch
 ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
 ADD ${bp}cloudpickle-pypy3.11.patch              etc/portage/patches/dev-python/cloudpickle-3.1.1/cloudpickle-pypy3.11.patch
 ADD ${bp}gtk-no-atk-gtkacc.patch                 etc/portage/patches/x11-libs/gtk+/gtk-no-atk-gtkacc.patch
@@ -1829,7 +1830,6 @@ dev-haskell/* ghc-rts-m
 #+end_src
 
 **** patches
-
 ***** app-emacs/pdf-tools
 Need to link against liberror.so if it is present (i.e. on musl).
 #+begin_src diff :tangle ./docker-profile/base/pdf-tools-link-error.patch
@@ -1843,6 +1843,96 @@ Need to link against liberror.so if it is present (i.e. on musl).
  AC_LANG_PUSH([C])
  AC_COMPILE_IFELSE([AC_LANG_PROGRAM([
          #include <error.h>
+#+end_src
+***** dev-libs/kpathsea
+Fix not yet merged https://bugs.gentoo.org/952902
+#+begin_src diff :tangle ./docker-profile/base/kpathsea-c23.patch
+From 90c462d1f353ed516d24bf85fd9d4dd873d21554 Mon Sep 17 00:00:00 2001
+From: Michael Orlitzky <michael@orlitzky.com>
+Date: Fri, 11 Jul 2025 07:55:55 -0400
+Subject: [PATCH] getopt.[ch]: use getopt/getenv declarations from the standard
+ headers
+
+These two files go to a lot of trouble to avoid using stdlib.h and
+unistd.h except on glibc systems, where the prototypes for getopt and
+getenv are known and "as expected." But, the workaround on non-glibc
+systems is to declare them as "int getopt()" and "char* getenv()",
+which, under C23, declares them incorrectly. In particular it breaks
+compilation under musl/gcc-15.
+
+Both of these functions are POSIX, and at least on Gentoo we don't
+need to worry about non-standard implementations of basic library
+funtions. This commit drops two glibc conditionals, always includes
+those headers, and uses whatever prototypes they give us.
+
+Bug: https://bugs.gentoo.org/952902
+---
+ texk/kpathsea/getopt.c |  7 -------
+ texk/kpathsea/getopt.h | 14 +-------------
+ 2 files changed, 1 insertion(+), 20 deletions(-)
+
+diff --git a/texk/kpathsea/getopt.c b/texk/kpathsea/getopt.c
+index 04c1e21c..5d90b3bd 100644
+--- a/getopt.c
++++ b/getopt.c
+@@ -59,12 +59,8 @@
+ 
+ /* This needs to come after some library #include
+    to get __GNU_LIBRARY__ defined.  */
+-#ifdef  __GNU_LIBRARY__
+-/* Don't include stdlib.h for non-GNU C libraries because some of them
+-   contain conflicting prototypes for getopt.  */
+ #include <stdlib.h>
+ #include <unistd.h>
+-#endif  /* GNU C library.  */
+ 
+ #ifdef VMS
+ #include <unixlib.h>
+@@ -75,7 +71,6 @@
+ 
+ #if defined (WIN32) && !defined (__CYGWIN__)
+ /* It's not Unix, really.  See?  Capital letters.  */
+-#include <stdlib.h>
+ #include <windows.h>
+ #undef getpid
+ #define getpid() GetCurrentProcessId()
+@@ -206,8 +201,6 @@ static char *posixly_correct;
+ /* Avoid depending on library functions or files
+    whose names are inconsistent.  */
+ 
+-char *getenv ();
+-
+ static char *my_index(const char *str, int chr)
+ {
+   while (*str)
+diff --git a/texk/kpathsea/getopt.h b/texk/kpathsea/getopt.h
+index 8acf05fb..65b4aa16 100644
+--- a/getopt.h
++++ b/getopt.h
+@@ -117,20 +117,8 @@ struct option
+ #define optional_argument       2
+ #endif	/* need getopt */
+ 
+-#if defined(__GNU_LIBRARY__) || defined (WIN32) || defined (__CYGWIN__)
+-/* Many other libraries have conflicting prototypes for getopt, with
+-   differences in the consts, in stdlib.h.  To avoid compilation
+-   errors, only prototype getopt for the GNU C library.  And not when
+-   compiling with C++; g++ 4.7.0 chokes on conflicting exception
+-   specifications.  */
+-#if !defined (__cplusplus)
+-extern KPSEDLL int getopt (int argc, char *const *argv, const char *shortopts);
+-#endif
+ #if defined (__MINGW32__) || defined (__CYGWIN__)
+-#define __GETOPT_H__ /* Avoid that <unistd.h> redeclares the getopt API.  */
+-#endif
+-#elif !defined (__cplusplus)
+-extern KPSEDLL int getopt ();
++  #define __GETOPT_H__ /* Avoid that <unistd.h> redeclares the getopt API.  */
+ #endif
+ 
+ #ifndef __need_getopt
+-- 
+2.50.0
 #+end_src
 
 ***** dev-python/cloudpickle
