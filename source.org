@@ -4922,7 +4922,7 @@ docker run \
 --rm \
 <<&builder-args>>
 ${_builder} \
-sh -c 'set -o pipefail; emerge --color=n --with-bdeps=y -q -uDN -p @docker | { grep "\(^\[ebuild\|acct-\)" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'")
+sh -c 'set -o pipefail; emerge --backtrack=99 --color=n --with-bdeps=y -q -uDN -p @docker | { grep "\(^\[ebuild\|acct-\)" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'")
 # XXX acct- is a workaround for https://bugs.gentoo.org/890777
 # FIXME it seems that sometimes this will fail on packages that need to be rebuilt and then
 # the binpkg only will fail due to incorrect slot deps or something until we reemerge ???
