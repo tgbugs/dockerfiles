@@ -1621,6 +1621,7 @@ app-emacs/*::melpa  # ok because the whole overlay is masked
 app-emacs/auto-complete::gentoo
 app-emacs/bison-mode::gentoo
 app-emacs/closql::gentoo
+app-emacs/cond-let::gentoo
 app-emacs/elpy::gentoo
 app-emacs/emacsql::gentoo
 app-emacs/forge::gentoo
