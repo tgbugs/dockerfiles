@@ -1235,7 +1235,6 @@ ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim
 ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim
 ADD ${bp}vim-core.env                            etc/portage/env/app-editors/gvim
 ADD ${bp}erlang.env                              etc/portage/env/dev-lang/erlang
-ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/pipenv
 ADD ${bp}no-site-docs.env                        etc/portage/env/dev-python/google-auth-oauthlib
 ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbitmq-server
 ADD ${bp}pandoc.env                              etc/portage/env/dev-haskell/pandoc
@@ -1762,7 +1761,7 @@ ghc-make-args() {
 #+end_src
 
 ***** no site-packages/docs
-=dev-python/{pipenv,google-auth-oauthlib}=
+=dev-python/google-auth-oauthlib=
 hack to remove packages installing =site-packages/docs= nonsense
 https://github.com/pypa/pipenv/issues/5937
 #+begin_src ebuild :tangle ./docker-profile/base/no-site-docs.env
@@ -2381,14 +2380,6 @@ dev-python/dicttoxml
 **** accept_keywords
 # FIXME pipdeptree requires hatch-vcs but bug in portage means that it isn't pulled in correctly ;_;
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.accept_keywords
-dev-python/pipenv ~amd64
-# needed for pipenv
-dev-python/dparse ~amd64
-dev-python/pipdeptree ~amd64
-dev-python/plette ~amd64
-dev-python/pythonfinder ~amd64
-dev-python/shellingham ~amd64
-
 app-misc/yq ~amd64
 
 # needed for media-gfx/renderdoc
