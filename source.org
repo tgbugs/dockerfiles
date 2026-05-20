@@ -9871,7 +9871,7 @@ echo ') list)' >> "${CONFIG}"
 #+end_src
 
 Temporary patch to work around https://bugs.launchpad.net/sbcl/+bug/2153432
-#+begin_src diff :tangle ./musl/package-builder/patches/sbcl-2.6.4-musl-termios.patch
+#+begin_src diff :tangle ./musl/package-builder/patches/sbcl-2.6.4-musl-termios.patch :mkdirp yes
 diff --git a/contrib/sb-posix/constants.lisp b/contrib/sb-posix/constants.lisp
 index 26a16d36a..98e17bf3d 100644
 --- a/contrib/sb-posix/constants.lisp
