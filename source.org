@@ -9594,6 +9594,7 @@ ADD sets/static.builder /etc/portage/sets/builder
 # the hack is to set docs or source in the non-static so that there is a mismatch
 ADD patches/dev-lisp /etc/portage/patches/dev-lisp
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
+ADD patches/sbcl-2.6.4-musl-termios.patch /etc/portage/patches/dev-lisp/sbcl-2.6.4/sbcl-2.6.4-musl-termios.patch
 #+end_src
 *** sets
 **** builder
@@ -9867,6 +9868,39 @@ echo ') list)' >> "${CONFIG}"
 # <<&sbcl-env>>
 #+begin_src ebuild :noweb yes :tangle ./musl/package-builder/static-sbcl.env
 <<&sbcl-env-static>>
+#+end_src
+
+Temporary patch to work around https://bugs.launchpad.net/sbcl/+bug/2153432
+#+begin_src diff :tangle ./musl/package-builder/patches/sbcl-2.6.4-musl-termios.patch
+diff --git a/contrib/sb-posix/constants.lisp b/contrib/sb-posix/constants.lisp
+index 26a16d36a..98e17bf3d 100644
+--- a/contrib/sb-posix/constants.lisp
++++ b/contrib/sb-posix/constants.lisp
+@@ -434,7 +434,9 @@
+               (tcflag-t cflag "tcflag_t" "c_cflag")
+               (tcflag-t lflag "tcflag_t" "c_lflag")
+               ((array cc-t) cc "cc_t" "c_cc")
++              #+openbsd
+               (speed-t ispeed "speed_t" "c_ispeed")
++              #+openbsd
+               (speed-t ospeed "speed_t" "c_ospeed")))
+ 
+  ;; utime(), utimes()
+diff --git a/contrib/sb-posix/interface.lisp b/contrib/sb-posix/interface.lisp
+index 416c8ece8..5109262a6 100644
+--- a/contrib/sb-posix/interface.lisp
++++ b/contrib/sb-posix/interface.lisp
+@@ -823,8 +823,10 @@ not supported."
+           :documentation "Local modes.")
+    (cc :initarg :cc :accessor termios-cc :array-length nccs
+        :documentation "Control characters.")
++   #+openbsd
+    (ispeed :initarg :ispeed :accessor termios-ispeed
+            :documentation "Input speed.")
++   #+openbsd
+    (ospeed :initarg :ospeed :accessor termios-ospeed
+            :documentation "Output speed."))
+   (:documentation
 #+end_src
 
 ** sbcl-user
