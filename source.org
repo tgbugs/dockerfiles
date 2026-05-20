@@ -1251,6 +1251,7 @@ ADD ${bp}cloudpickle-pypy3.11.patch              etc/portage/patches/dev-python/
 ADD ${bp}gtk-no-atk-gtkacc.patch                 etc/portage/patches/x11-libs/gtk+/gtk-no-atk-gtkacc.patch
 ADD ${bp}gtk-no-atk-mb.patch                     etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mb.patch
 ADD ${bp}gtk-no-atk-mot.patch                    etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mot.patch
+ADD ${bp}sbcl-2.6.4-musl-termios.patch           etc/portage/patches/dev-lisp/sbcl-2.6.4/sbcl-2.6.4-musl-termios.patch
 
 RUN \
    ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.3 \
@@ -9594,7 +9595,6 @@ ADD sets/static.builder /etc/portage/sets/builder
 # the hack is to set docs or source in the non-static so that there is a mismatch
 ADD patches/dev-lisp /etc/portage/patches/dev-lisp
 ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
-ADD patches/sbcl-2.6.4-musl-termios.patch /etc/portage/patches/dev-lisp/sbcl-2.6.4/sbcl-2.6.4-musl-termios.patch
 #+end_src
 *** sets
 **** builder
@@ -9870,37 +9870,90 @@ echo ') list)' >> "${CONFIG}"
 <<&sbcl-env-static>>
 #+end_src
 
-Temporary patch to work around https://bugs.launchpad.net/sbcl/+bug/2153432
-#+begin_src diff :tangle ./musl/package-builder/patches/sbcl-2.6.4-musl-termios.patch :mkdirp yes
+Backport of sbcl f825ab5db65fd7d68bbd8c39e37a8725409cafce to 2.6.4
+#+begin_src diff :tangle ./docker-profile/base/sbcl-2.6.4-musl-termios.patch :mkdirp yes
+diff --git a/contrib/sb-grovel/def-to-lisp.lisp b/contrib/sb-grovel/def-to-lisp.lisp
+index afd55ac66..82f8481df 100644
+--- a/contrib/sb-grovel/def-to-lisp.lisp
++++ b/contrib/sb-grovel/def-to-lisp.lisp
+@@ -80,25 +80,39 @@ code:
+   (destructuring-bind (cname &rest elements) cstruct
+     (printf "(sb-grovel::define-c-struct ~A %ld" lispname
+             (word-cast (format nil "sizeof(~A)" cname)))
+-    (dolist (e elements)
+-      (destructuring-bind (lisp-type lisp-el-name c-type c-el-name &key distrust-length) e
+-        (printf " (~A ~A \"~A\"" lisp-el-name lisp-type c-type)
+-        ;; offset
+-        (as-c "{" cname "t;")
+-        (printf "  %lu"
+-                (format nil "((unsigned long~A)&(t.~A)) - ((unsigned long~A)&(t))"
+-                        #+(and win32 64-bit) " long" #-(and win32 64-bit) ""
+-                        c-el-name
+-                        #+(and win32 64-bit) " long" #-(and win32 64-bit) ""))
+-        (as-c "}")
+-        ;; length
+-        (if distrust-length
+-            (printf "  0)")
+-            (progn
+-              (as-c "{" cname "t;")
+-              (printf "  %ld)"
+-                      (word-cast (format nil "sizeof(t.~A)" c-el-name)))
+-              (as-c "}")))))
++    (when elements
++      (as-c "{" cname "t;")
++      (dolist (e elements)
++        (destructuring-bind (lisp-type lisp-el-name c-type c-el-name &key distrust-length) e
++          (printf " (~A ~A \"~A\"" lisp-el-name lisp-type c-type)
++          ;; offset
++          (flet ((ifdef (fun c-el-name)
++                   (cond ((typep c-el-name '(cons (eql :if)))
++                          (destructuring-bind (cond then else) (cdr c-el-name)
++                            (as-c "#if" cond)
++                            (funcall fun then)
++                            (as-c "#else")
++                            (funcall fun else)
++                            (as-c "#endif")))
++                         (t
++                          (funcall fun c-el-name)))))
++            (ifdef (lambda (c-el-name)
++                     (printf "  %lu"
++                             (format nil "((unsigned long~A)&(t.~A)) - ((unsigned long~A)&(t))"
++                                     #+(and win32 64-bit) " long" #-(and win32 64-bit) ""
++                                     c-el-name
++                                     #+(and win32 64-bit) " long" #-(and win32 64-bit) "")))
++                   c-el-name)
++
++            ;; length
++            (if distrust-length
++                (printf "  0)")
++                (ifdef (lambda (c-el-name)
++                         (printf "  %ld)"
++
++                                 (word-cast (format nil "sizeof(t.~A)" c-el-name))))
++                       c-el-name)))))
++      (as-c "}"))
+     (printf ")")))
+ 
+ (defun print-c-source (stream headers definitions package-name)
 diff --git a/contrib/sb-posix/constants.lisp b/contrib/sb-posix/constants.lisp
-index 26a16d36a..98e17bf3d 100644
+index 26a16d36a..8632dcded 100644
 --- a/contrib/sb-posix/constants.lisp
 +++ b/contrib/sb-posix/constants.lisp
-@@ -434,7 +434,9 @@
+@@ -434,8 +434,12 @@
                (tcflag-t cflag "tcflag_t" "c_cflag")
                (tcflag-t lflag "tcflag_t" "c_lflag")
                ((array cc-t) cc "cc_t" "c_cc")
-+              #+openbsd
-               (speed-t ispeed "speed_t" "c_ispeed")
-+              #+openbsd
-               (speed-t ospeed "speed_t" "c_ospeed")))
+-              (speed-t ispeed "speed_t" "c_ispeed")
+-              (speed-t ospeed "speed_t" "c_ospeed")))
++              (speed-t ispeed "speed_t" (:if "defined(__linux__) && !defined(__GLIBC__)"
++                                             "__c_ispeed" ;; musl
++                                             "c_ispeed"))
++              (speed-t ospeed "speed_t" (:if "defined(__linux__) && !defined(__GLIBC__)"
++                                             "__c_ospeed" ;; musl
++                                             "c_ospeed"))))
  
   ;; utime(), utimes()
-diff --git a/contrib/sb-posix/interface.lisp b/contrib/sb-posix/interface.lisp
-index 416c8ece8..5109262a6 100644
---- a/contrib/sb-posix/interface.lisp
-+++ b/contrib/sb-posix/interface.lisp
-@@ -823,8 +823,10 @@ not supported."
-           :documentation "Local modes.")
-    (cc :initarg :cc :accessor termios-cc :array-length nccs
-        :documentation "Control characters.")
-+   #+openbsd
-    (ispeed :initarg :ispeed :accessor termios-ispeed
-            :documentation "Input speed.")
-+   #+openbsd
-    (ospeed :initarg :ospeed :accessor termios-ospeed
-            :documentation "Output speed."))
-   (:documentation
+  #-win32
 #+end_src
 
 ** sbcl-user
