@@ -261,6 +261,9 @@ runuser -u portage -- ssh -T git@github.com
 This takes care of itself.
 #+begin_src conf :tangle .gitignore
 .gitignore
+*.swp
+*.swo
+*.swn
 docker-profile/*
 repos/*
 common/*
@@ -633,7 +636,7 @@ container-check
 <<&musl-build-updated>> || return $?; echo mbu;
   <<&musl-run-updated-quickpkg>> || return $?; echo mruq;
   <<&musl-run-ghc-fetch-etc>> || return $?; echo mgfe;
-  <<&musl-run-sbcl-generate-patches-etc>> || return $?; echo msgp;
+  #<<&musl-run-sbcl-generate-patches-etc>> || return $?; echo msgp;
   <<&musl-build-updated-user>> || return $?; echo mbuu;
 
   # build the generalized builder so we can dispense with the stacked image nonsense
@@ -1357,6 +1360,7 @@ Transient workarounds for specific versions.
 =app-emacs/haskell-mode-17.5::gentoo  # 17.4 broken
 =app-emacs/magit-4.5.0::gentoo  # required by forge
 =app-emacs/use-package-2.4.6::gnu-elpa  # needed by quelpa-use-package ??? must be a bug in the ebuild?
+=dev-python/pypy-exe-7.3.22::gentoo  # hopefully temporary?
 #+end_src
 
 We only use the =::haskell= overlay for the graphviz dependencies.
@@ -1625,6 +1629,7 @@ app-emacs/cond-let::gentoo
 app-emacs/elpy::gentoo
 app-emacs/emacsql::gentoo
 app-emacs/forge::gentoo
+app-emacs/ghub::gentoo
 app-emacs/hl-todo::gentoo
 app-emacs/js2-mode::gentoo
 app-emacs/julia-mode::gentoo
@@ -1634,6 +1639,7 @@ app-emacs/polymode::gentoo
 app-emacs/pyvenv::gentoo
 app-emacs/rust-mode::gentoo
 app-emacs/sly::gentoo
+#app-emacs/transient::gentoo
 app-emacs/ts::gentoo
 app-emacs/typescript-mode::gentoo
 app-emacs/websocket::gentoo
@@ -1725,6 +1731,7 @@ dev-haskell/hxt::haskell
 dev-haskell/polyparse::haskell
 dev-haskell/temporary::haskell
 dev-haskell/wl-pprint-text::haskell
+dev-python/flask-sqlalchemy::tgbugs-overlay
 #+end_src
 
 Transient workarounds for specific versions.
@@ -1736,6 +1743,12 @@ Transient workarounds for specific versions.
 **** package.use
 #+begin_src conf :tangle ./docker-profile/base/package.use
 dev-scheme/racket::tgbugs-overlay cs bc cgc
+
+# FIXME TEMP cloudpickle bug workaround
+dev-python/ttlser -ttlfmt
+dev-python/joblib -python_targets_pypy3_11
+dev-python/loky -python_targets_pypy3_11
+dev-python/cloudpickle -python_targets_pypy3_11
 #+end_src
 **** env
 ***** no distcc
@@ -7908,7 +7921,7 @@ net-misc/rabbitmq-server
 dev-scheme/racket
 dev-util/shellcheck
 net-libs/nodejs
-dev-python/seaborn
+#dev-python/seaborn
 dev-libs/redland
 media-gfx/inkscape
 acct-group/docker
