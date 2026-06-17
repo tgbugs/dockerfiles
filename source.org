@@ -1332,10 +1332,12 @@ point of trying to use docker for reproducibility and robustness).
 [tgbugs-multi]
 priority = 100
 sync-uri = http://local.binhost:<<&host-binpkgs-port()>>/multi
+verify-signature = false
 
 [tgbugs-multi-sigh]
 priority = 99
 sync-uri = http://host.docker.internal:<<&host-binpkgs-port()>>/multi
+verify-signature = false
 #+end_src
 **** package.accept_keywords
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords
