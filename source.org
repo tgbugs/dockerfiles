@@ -3633,6 +3633,8 @@ docker run \
 #+begin_src screen
 <<&docker-build>>
 --tag tgbugs/musl:eselect-repo \
+--network host \
+--add-host local.binhost:127.0.0.1 \
 --build-arg UPDATE_PORTAGE=$UPDATE_PORTAGE \
 --file musl/eselect-repo/Dockerfile musl/eselect-repo
 #+end_src
