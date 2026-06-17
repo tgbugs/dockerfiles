@@ -130,7 +130,7 @@ alias docker=podman
 elif $(type -t docker | grep alias > /dev/null 2>&1); then
 unalias docker
 fi
-for stage3 in {amd64-hardened-openrc,amd64-musl-hardened}; do
+for stage3 in {amd64-hardened-openrc,amd64-musl-hardened-openrc}; do
     docker pull docker.io/gentoo/stage3:${stage3}
     docker run \
     -v ${_in_path_binpkgs}:/var/cache/binpkgs \
@@ -313,7 +313,7 @@ _only_static=   # only build static images
 # XXX NOTE that these are embedded in the docker files right now
 _img_portage=${_img_portage:-docker.io/gentoo/portage:latest}
 
-_musl_img_stage3=${_musl_img_stage3:-docker.io/gentoo/stage3:amd64-musl-hardened}
+_musl_img_stage3=${_musl_img_stage3:-docker.io/gentoo/stage3:amd64-musl-hardened-openrc}
 
 __is3_m1=${_musl_img_stage3/docker.io\//}
 __is3_0=${__is3_m1/\//-}
@@ -1191,7 +1191,7 @@ that needed to be done, and we could just copy the user directory
 when building from scratch
 * docker-profile
 ** base
-The right way to do this is to create two custom profiles on top of musl-hardened.
+The right way to do this is to create two custom profiles on top of musl-hardened-openrc.
 
 https://wiki.gentoo.org/wiki/Profile_(Portage)#custom
 
@@ -3443,7 +3443,7 @@ chown -R ${UID}:${UID} home/${USER_NAME}
 
 On the off chance that we don't have a musl source image around make it possible to use a different builder image.
 #+begin_src dockerfile :tangle ./common/user/Dockerfile
-ARG IMG_USER_BUILDER=docker.io/gentoo/stage3:amd64-musl-hardened
+ARG IMG_USER_BUILDER=docker.io/gentoo/stage3:amd64-musl-hardened-openrc
 
 FROM ${IMG_USER_BUILDER} AS builder
 
@@ -3602,8 +3602,8 @@ COPY --from=builder /build /
 
 * musl
 Pushes to https://hub.docker.com/r/tgbugs/musl. \\
-Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened][gentoo/stage3:amd64-musl-hardened]] \\
-Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened/ \\
+Derived from [[https://hub.docker.com/r/gentoo/stage3/tags?page=1&ordering=last_updated&name=musl-hardened-openrc][gentoo/stage3:amd64-musl-hardened-openrc]] \\
+Further derived from https://ftp-osl.osuosl.org/pub/gentoo/releases/amd64/autobuilds/current-stage3-amd64-musl-hardened-openrc/ \\
 and from https://gitweb.gentoo.org/proj/releng.git/tree/releases/specs/amd64/musl/stage3-hardened.spec
 ** eselect-repo
 This is where everything starts. The profile has to be set here etc.
@@ -3639,7 +3639,7 @@ docker run \
 
 *** file
 #+begin_src dockerfile :tangle ./musl/eselect-repo/Dockerfile
-FROM docker.io/gentoo/stage3:amd64-musl-hardened
+FROM docker.io/gentoo/stage3:amd64-musl-hardened-openrc
 
 <<&gentoo-file-eselect-repo-common-1>>
 
@@ -9788,7 +9788,7 @@ function sbcl-get-portage-versions-external () {
 #docker create -v /var/db/repos/gentoo --name local-portage-snap docker.io/gentoo/portage:latest /bin/true
 
 #--volumes-from local-portage-snap \
-#--rm docker.io/gentoo/stage3:amd64-musl-hardened \
+#--rm docker.io/gentoo/stage3:amd64-musl-hardened-openrc \
 
 # unfortunately the changes we make in the profile
 # mean that a different version would be emerged
@@ -9811,7 +9811,7 @@ function sbcl-get-would-install-external () {
 #docker create -v /var/db/repos/gentoo --name local-portage-snap docker.io/gentoo/portage:latest /bin/true
 
 #--volumes-from local-portage-snap \
-#--rm docker.io/gentoo/stage3:amd64-musl-hardened \
+#--rm docker.io/gentoo/stage3:amd64-musl-hardened-openrc \
 
 # unfortunately the changes we make in the profile
 # mean that a different version would be emerged
@@ -12586,7 +12586,7 @@ currently only sbcl static uses this but other things might need it in the futur
   ;; point in +run-main i think+ run-musl
   ;; TODO run [[&sbcl-funs]] and friends as well
   ;; WARNING sbcl-generate-patches is currently dependent on tgbugs/musl:updated
-  ;; we could make it dependent only on gentoo/stage3:amd64-musl-hardened
+  ;; we could make it dependent only on gentoo/stage3:amd64-musl-hardened-openrc
   ;; local-portage-snap but it would still need to run after tangle
   (let ((sbcl-static-patches-source "<<&helper-repos()>>/sbcl/patches")
         (sbcl-static-patches-target "musl/package-builder/patches"))
