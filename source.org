@@ -3325,7 +3325,7 @@ pushd /var/db/repos/gentoo/x11-libs/gtk+ \
 # fix python eclass to restore pypy3_11 support
 ADD python-eclass-pypy3_11-fix.patch /tmp/python-eclass-pypy3_11-fix.patch
 RUN \
-patch --reverse -p2 -i /tmp/python-eclass-pypy3_11-fix.patch /var/db/repos/gentoo/eclass/python-utils-r1.eclass
+patch -p2 -i /tmp/python-eclass-pypy3_11-fix.patch /var/db/repos/gentoo/eclass/python-utils-r1.eclass
 
 FROM docker.io/library/busybox:latest
 
@@ -3338,7 +3338,7 @@ VOLUME /var/db/repos
 #+begin_src diff :tangle ./repos/python-eclass-pypy3_11-fix.patch :mkdirp yes
 --- a/eclass/python-utils-r1.eclass
 +++ b/eclass/python-utils-r1.eclass
-@@ -39,6 +39,7 @@ inherit multiprocessing toolchain-funcs
+@@ -39,6 +39,7 @@
  # @DESCRIPTION:
  # All supported Python implementations, most preferred last.
  _PYTHON_ALL_IMPLS=(
@@ -3346,7 +3346,7 @@ VOLUME /var/db/repos
         python3_{14..15}t
         python3_{12..15}
  )
-@@ -50,7 +51,7 @@ readonly _PYTHON_ALL_IMPLS
+@@ -50,7 +51,7 @@
  # All historical Python implementations that are no longer supported.
  _PYTHON_HISTORICAL_IMPLS=(
         jython2_7
