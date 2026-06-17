@@ -1748,6 +1748,7 @@ Workaround for missing pypy3 support in newer versions of various python librari
 dev-python/ipykernel -python_targets_pypy3_11
 dev-python/jupyter-core -python_targets_pypy3_11
 dev-python/matplotlib-inline -python_targets_pypy3_11
+dev-python/nbconvert -python_targets_pypy3_11
 dev-python/nbformat -python_targets_pypy3_11
 dev-python/traitlets -python_targets_pypy3_11
 #+end_src
