@@ -1228,6 +1228,7 @@ ADD ${bp}package.mask                            etc/portage/package.mask/profil
 ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
 ADD ${bp}package.unmask.versions                 etc/portage/package.unmask/versions
 ADD ${bp}package.use                             etc/portage/package.use/profile
+ADD ${bp}package.use.pypy                        etc/portage/package.use/profile-pypy
 ADD ${bp}crun.env                                etc/portage/env/app-containers/crun
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
 ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim-core
@@ -1623,6 +1624,7 @@ app-emacs/*::melpa  # ok because the whole overlay is masked
 app-emacs/auto-complete::gentoo
 app-emacs/bison-mode::gentoo
 app-emacs/closql::gentoo
+app-emacs/compat::gentoo
 app-emacs/cond-let::gentoo
 app-emacs/elpy::gentoo
 app-emacs/emacsql::gentoo
@@ -1636,6 +1638,7 @@ app-emacs/polymode::gentoo
 app-emacs/pyvenv::gentoo
 app-emacs/rust-mode::gentoo
 app-emacs/sly::gentoo
+app-emacs/transient::gentoo
 app-emacs/ts::gentoo
 app-emacs/typescript-mode::gentoo
 app-emacs/websocket::gentoo
@@ -1739,6 +1742,16 @@ Transient workarounds for specific versions.
 #+begin_src conf :tangle ./docker-profile/base/package.use
 dev-scheme/racket::tgbugs-overlay cs bc cgc
 #+end_src
+
+Workaround for missing pypy3 support in newer versions of various python libraries.
+#+begin_src conf :tangle ./docker-profile/base/package.use.pypy
+dev-python/ipykernel -python_targets_pypy3_11
+dev-python/jupyter-core -python_targets_pypy3_11
+dev-python/matplotlib-inline -python_targets_pypy3_11
+dev-python/nbformat -python_targets_pypy3_11
+dev-python/traitlets -python_targets_pypy3_11
+#+end_src
+
 **** env
 ***** no distcc
 # TODO MAKEOPTS_LOCAL
