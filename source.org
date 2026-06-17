@@ -3730,7 +3730,7 @@ RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos,target=/va
 RUN --mount=from=docker.io/gentoo/portage:latest,source=/var/db/repos/gentoo,target=/var/db/repos/gentoo,rw \
 [ "$(emerge --info | grep -o 'PYTHON_TARGETS="[^"]\+"')" = \
   "$(bzgrep -o 'PYTHON_TARGETS="[^"]\+"' /var/db/pkg/dev-python/wheel-*/environment.bz2)" ] \
-|| emerge -uDN -q --getbinpkg @world \
+|| { echo 'dev-lang/rust mrustc-bootstrap' >> /etc/portage/package.use/99-rust; emerge -uDN -q --getbinpkg @world; } \
 <<&archive-or-rm>>
 
 # FIXME shouldn't we be using binhosts for this step as well?
