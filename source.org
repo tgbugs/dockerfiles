@@ -2437,6 +2437,7 @@ dev-lisp/sbcl ~amd64
 # pypy3
 dev-lang/pypy ~amd64
 dev-lang/pypy3-exe ~amd64
+dev-python/pypy-exe ~amd64
 dev-python/pypy3-exe ~amd64
 dev-python/pypy3 ~amd64
 dev-python/pypy3_10-exe ~amd64
