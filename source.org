@@ -1403,6 +1403,7 @@ dev-haskell/bsb-http-chunked
 dev-haskell/byteorder
 dev-haskell/cabal
 dev-haskell/cabal-doctest
+dev-haskell/cabal-syntax
 dev-haskell/call-stack
 dev-haskell/case-insensitive
 dev-haskell/cassava
