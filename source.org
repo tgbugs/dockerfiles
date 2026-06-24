@@ -1350,6 +1350,7 @@ dev-haskell/*::tgbugs-overlay **
 dev-haskell/*::haskell
 dev-lang/ghc::gentoo
 app-admin/haskell-updater::gentoo
+dev-util/shake::gentoo
 dev-util/shellcheck::gentoo
 sys-apps/racket-where::racket-overlay
 #+end_src
@@ -1369,6 +1370,48 @@ vigilance is needed to catch cases where a missing accept keyword on
 a package will prevent any and all upgrades. One way to catch such
 cases is to add =dev-haskell/*::gentoo= to accept_keywords and see
 whether there are lurking changes.
+
+#+begin: haskell-9.2-to-9.4-to-9.8-bootstrap
+It is now possible to ghcbootstrap =dev-lang/ghc-9.8.4::gentoo=
+from =dev-lang/ghc-9.4.8::gentoo= from =dev-lang/ghc-9.2.8::gentoo=
+on musl without going back to the alpine package.
+
+The set of restrictions below captures most of the requirements,
+however it is incomplete because there are multiple steps where
+different versions of hadrian are needed that have different
+requirements.
+
+You will need the following to bootstrap =dev-lang/ghc-9.8.4= due to
+=dev-haskell/hadrian= inducing a circular dependency if
+=dev-haskell/cabal= or =dev-haskell/text= versions are too new.
+=dev-haskell/hadrian-9.8.4-r1::gentoo= also fails to build if some
+version around ~>=dev-haskell/parsec-3.1.17~ is installed, works with
+=dev-haskell/parsec-3.1.15.0-r1::gentoo=, so the ebuild likely needs
+to be fixed.
+
+Bootstrapping 9.8 via 9.4 needs a series of accept_keywords an unmasks to build 9.4 and then upgrade and
+#+begin_src conf :tangle unmask :tangel no
+=dev-lang/ghc-9.4.8::haskell
+=dev-haskell/hadrian-9.4.8-r1::haskell  # keep for 9.8 merge
+<dev-haskell/cabal-3.10::haskell
+=dev-haskell/cabal-syntax-3.8.1.0::haskell
+dev-haskell/js-flot::haskell  # keep for 9.8 merge
+#+end_src
+
+For 9.4 and 9.8 and then switch back to generic. Also must mask =>dev-lang/ghc-9.6= and merge =hadrian-9.8= otherwise circularity arrives
+You will probably have to emerge -C hadrian because it will conflict with itself ...
+#+begin_src conf :tangle accept_keywords :tangle no
+<dev-haskell/parsec-3.1.17
+<dev-haskell/cabal-3.10  # needed to keep version low enough to bootstrap hadrian for ghc-9.8
+<dev-haskell/text-2  # needed to keep version low enough to bootstrap hadrian for ghc-9.8
+#+end_src
+
+May still be needed during the transition from 9.4 to 9.8.
+#+begin_src conf
+dev-haskell/cabal::haskell
+#+end_src
+#+end:
+
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords.haskell.gentoo
 dev-haskell/aeson
 dev-haskell/aeson-pretty
@@ -1376,6 +1419,7 @@ dev-haskell/alex
 dev-haskell/ansi-terminal
 dev-haskell/ansi-terminal-types
 dev-haskell/appar
+dev-haskell/asciidoc
 dev-haskell/asn1-encoding
 dev-haskell/asn1-parse
 dev-haskell/asn1-types
@@ -1407,9 +1451,11 @@ dev-haskell/cabal-syntax
 dev-haskell/call-stack
 dev-haskell/case-insensitive
 dev-haskell/cassava
+dev-haskell/cborg
 dev-haskell/cereal
 dev-haskell/character-ps
 dev-haskell/citeproc
+dev-haskell/clock
 dev-haskell/cmdargs
 dev-haskell/colour
 dev-haskell/commonmark
@@ -1421,6 +1467,7 @@ dev-haskell/conduit-extra
 dev-haskell/constraints
 dev-haskell/contravariant
 dev-haskell/cookie
+dev-haskell/cryptohash-sha256
 dev-haskell/crypton
 dev-haskell/crypton-connection
 dev-haskell/crypton-x509
@@ -1440,23 +1487,30 @@ dev-haskell/diff
 dev-haskell/digest
 dev-haskell/digits
 dev-haskell/distributive
+dev-haskell/djot
 dev-haskell/dlist
 dev-haskell/doclayout
 dev-haskell/doctemplates
 dev-haskell/easy-file
 dev-haskell/emojis
+dev-haskell/extra
 dev-haskell/fail
 dev-haskell/fast-logger
 dev-haskell/fgl
 dev-haskell/file-embed
+dev-haskell/filepattern
 dev-haskell/foldable1-classes-compat
 dev-haskell/generically
+dev-haskell/generics-sop
 dev-haskell/glob
 dev-haskell/gridtables
 dev-haskell/haddock-library
+dev-haskell/hadrian
+dev-haskell/half
 dev-haskell/happy
 dev-haskell/hashable
 dev-haskell/haskell-lexer
+dev-haskell/heaps
 dev-haskell/hourglass
 dev-haskell/hslua
 dev-haskell/hslua-aeson
@@ -1480,6 +1534,7 @@ dev-haskell/http-client
 dev-haskell/http-client-tls
 dev-haskell/http-date
 dev-haskell/http-media
+dev-haskell/http-semantics
 dev-haskell/http-types
 dev-haskell/http2
 dev-haskell/hunit
@@ -1491,8 +1546,12 @@ dev-haskell/iproute
 dev-haskell/ipynb
 dev-haskell/isocline
 dev-haskell/jira-wiki-markup
+dev-haskell/js-dgtable
+dev-haskell/js-flot
+dev-haskell/js-jquery
 dev-haskell/juicypixels
 dev-haskell/libyaml
+dev-haskell/libyaml-clib
 dev-haskell/lpeg
 dev-haskell/lua
 dev-haskell/memory
@@ -1503,6 +1562,7 @@ dev-haskell/mono-traversable
 dev-haskell/mtl
 dev-haskell/network
 dev-haskell/network-byte-order
+dev-haskell/network-control
 dev-haskell/network-uri
 dev-haskell/old-locale
 dev-haskell/old-time
@@ -1535,6 +1595,7 @@ dev-haskell/scientific
 dev-haskell/semialign
 dev-haskell/semigroupoids
 dev-haskell/semigroups
+dev-haskell/serialise
 dev-haskell/servant
 dev-haskell/servant-server
 dev-haskell/sha
@@ -1546,6 +1607,7 @@ dev-haskell/skylighting-format-ansi
 dev-haskell/skylighting-format-blaze-html
 dev-haskell/skylighting-format-context
 dev-haskell/skylighting-format-latex
+dev-haskell/skylighting-format-typst
 dev-haskell/socks
 dev-haskell/some
 dev-haskell/sop-core
@@ -12478,7 +12540,15 @@ _in_path_dockerfiles=%S _in_path_distfiles=%S _in_path_binpkgs_root=%S _in_path_
 
 (defun fetch-ghc ()
   ;; hack to fetch ghc pacakges since bootstrap is not possible on musl
-  (let ((src-928
+  (let ((src-984
+         (retfile
+          'sha256 '9bbf65983a88c8536971f8cda7039c9af8396ec81010bba7d5dc5e1cc528e394
+          "https://files.olympiangods.org/ghc-9.8.4-r1-1.gpkg.tar"))
+        (src-948
+         (retfile
+          'sha256 '1c6ebc05b3d442d0b1257dea7d047edc30d5fa909af996e576c4aff0e9d17a44
+          "https://files.olympiangods.org/ghc-9.4.8-1.gpkg.tar"))
+        (src-928
          (retfile
           'sha256 '2b1d9ce61b88dcbcc2d32da1b7da50122e9dd0afe805edbcf05fb16f0f0b74d6
           "https://files.olympiangods.org/ghc-9.2.8-1.gpkg.tar"))
