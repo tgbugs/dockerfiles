@@ -1360,7 +1360,6 @@ Transient workarounds for specific versions.
 #+begin_src conf :tangle ./docker-profile/base/package.accept_keywords.versions
 =app-emacs/bind-key-2.4.1::gnu-elpa
 =app-emacs/haskell-mode-17.5::gentoo  # 17.4 broken
-=app-emacs/magit-4.5.0::gentoo  # required by forge
 =app-emacs/use-package-2.4.6::gnu-elpa  # needed by quelpa-use-package ??? must be a bug in the ebuild?
 #+end_src
 
@@ -1697,6 +1696,7 @@ app-emacs/hl-todo::gentoo
 app-emacs/js2-mode::gentoo
 app-emacs/julia-mode::gentoo
 app-emacs/julia-repl::gentoo
+app-emacs/magit::gentoo
 app-emacs/ninja-mode::gentoo
 app-emacs/polymode::gentoo
 app-emacs/pyvenv::gentoo
