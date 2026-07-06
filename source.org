@@ -1252,7 +1252,7 @@ ADD ${bp}gtk-no-atk-gtkacc.patch                 etc/portage/patches/x11-libs/gt
 ADD ${bp}gtk-no-atk-mb.patch                     etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mb.patch
 ADD ${bp}gtk-no-atk-mot.patch                    etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mot.patch
 ADD ${bp}sbcl-2.6.4-musl-termios.patch           etc/portage/patches/dev-lisp/sbcl-2.6.4/sbcl-2.6.4-musl-termios.patch
-ADD ${bp}generically-cabal.patch                 etc/portage/patches/dev-haskell/generically/generically-cabal.patch
+#ADD ${bp}generically-cabal.patch                 etc/portage/patches/dev-haskell/generically/generically-cabal.patch
 
 RUN \
    ln -s rdflib-7.1.1 etc/portage/patches/dev-python/rdflib-7.1.3 \
