@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: 70ff400d7fddacda4df804ed03cf1520815385da33ad0db9af620eefb468d4b8; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: f544374708f14a05c210b8f8e556dba937f0f4906f836308e84047e80dca3749; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -12787,6 +12787,7 @@ currently only sbcl static uses this but other things might need it in the futur
 (when (or noninteractive no-screen-start-gui)
   (let ((setup (member "setup" argv))
         (build (member "build" argv))
+        (screen (member "screen" argv))
         (tangle (member "tangle" argv))
         (non-tangled (member "non-tangled" argv))
         (build-image (member "build-image" argv)) ; FIXME yes the naming is annoying
@@ -12841,7 +12842,7 @@ currently only sbcl static uses this but other things might need it in the futur
         ;; or not quite because we need a way to pass variable values from options, but that means
         ;; that the elisp does have to explicitly make the bridge unless we come up with a fully
         ;; dynamic/generative option, see how frequently we actually need it, vs using cli-uif
-        (when (or build build-image test setup)
+        (when (or screen build build-image test setup)
           (let ((no-screen (or no-screen no-screen-start-gui))
                 (toload '((shell . t))))
             (unless no-screen
@@ -12956,6 +12957,11 @@ currently only sbcl static uses this but other things might need it in the futur
           (fix-ocbe-source)
           (org-babel-tangle)
           (do-non-tangled-files))
+        (when screen ; after tangle so ./source.org screen tangle can source from bin correctly
+          (fix-ocbe-source)
+          (let ((scrn-process (execute-src-block "screen-start")))
+            (while (eq (process-status scrn-process) 'run)
+              (sleep-for 0.1))))
         (when non-tangled
           (do-non-tangled-files))
         (when test
@@ -13035,6 +13041,13 @@ Note that all screen blocks have an implicit eval.
 #+name: &screen-set-vars
 #+begin_src screen
 <<&screen-pass-vars()>>
+#+end_src
+
+Helper block to start screen session.
+#+name: screen-start
+#+begin_src screen
+HISTFILE=~/.org_session_history
+[ -f bin/workflow-funs.sh ] && source bin/workflow-funs.sh
 #+end_src
 
 *** test with-error-on-fail
