@@ -4899,8 +4899,8 @@ gnu-container-check
 -v ${_path_binpkgs_root}/cross/gnu/x86_64-gentoo-linux-musl:/usr/x86_64-gentoo-linux-musl/var/cache/binpkgs \
 -v ${_path_dockerfiles}/bin:/usr/local/bin \
 -v ${_path_dockerfiles}/musl/package-builder/accept_keywords:/etc/portage/package.accept_keywords/tweaks \
---env FEATURES="${_host_features}" \
---env MAKEOPTS="${_host_makeopts}" \
+${_host_features:+--env FEATURES="${_host_features}"} \
+${_host_makeopts:+--env MAKEOPTS="${_host_makeopts}"} \
 #+end_src
 
 # --network host \
