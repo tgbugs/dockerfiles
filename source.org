@@ -4571,10 +4571,10 @@ TODO we start from updated here not from pypy3, there is a pypy3/nox profile, bu
 # FIXME make this modification correctly in the profile images
 # either via unmask or by confining cgc/bc/cs racket to another lineage
 RUN \
-sed -i '/racket/d' /etc/portage/package.mask/profile
+sed -i '/racket/d' /etc/portage/package.mask/00-profile
 
 RUN \
-sed -i '/racket/d' /etc/portage/package.accept_keywords/profile
+sed -i '/racket/d' /etc/portage/package.accept_keywords/00-profile
 
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -q -uDN @world \
@@ -4628,7 +4628,7 @@ export JDKATOM="=$(emerge -p --usepkg=n --getbinpkg=n openjdk | grep openjdk | a
    --getbinpkgonly \
    ${JDKATOM} \
 # remove openjdk-bin mask for just this bootstrap if openjdk is not present
-|| { sed -i "/openjdk-bin/d" /etc/portage/package.mask/profile \
+|| { sed -i "/openjdk-bin/d" /etc/portage/package.mask/00-profile \
 ;  emerge -q -uDN dev-java/openjdk-bin \
    --binpkg-changed-deps=y \
    --getbinpkg \
