@@ -1220,15 +1220,15 @@ ADD ${bp}docker-profile                          var/db/docker-profile
 ADD ${bp}docker-profile.conf                     etc/portage/repos.conf/docker-profile.conf
 ADD ${bp}priority.conf                           etc/portage/priority.conf
 ADD ${bp}binrepos-multi.conf                     etc/portage/binrepos.conf/multi.conf
-ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/profile
-ADD ${bp}package.accept_keywords.emacs           etc/portage/package.accept_keywords/profile.emacs
-ADD ${bp}package.accept_keywords.haskell.gentoo  etc/portage/package.accept_keywords/profile.haskell
-ADD ${bp}package.accept_keywords.versions        etc/portage/package.accept_keywords/profile.versions
-ADD ${bp}package.mask                            etc/portage/package.mask/profile
-ADD ${bp}package.unmask                          etc/portage/package.unmask/profile
+ADD ${bp}package.accept_keywords                 etc/portage/package.accept_keywords/00-profile
+ADD ${bp}package.accept_keywords.emacs           etc/portage/package.accept_keywords/00-profile.emacs
+ADD ${bp}package.accept_keywords.haskell.gentoo  etc/portage/package.accept_keywords/00-profile.haskell
+ADD ${bp}package.accept_keywords.versions        etc/portage/package.accept_keywords/00-profile.versions
+ADD ${bp}package.mask                            etc/portage/package.mask/00-profile
+ADD ${bp}package.unmask                          etc/portage/package.unmask/00-profile
 ADD ${bp}package.unmask.versions                 etc/portage/package.unmask/versions
-ADD ${bp}package.use                             etc/portage/package.use/profile
-ADD ${bp}package.use.pypy                        etc/portage/package.use/profile-pypy
+ADD ${bp}package.use                             etc/portage/package.use/00-profile
+ADD ${bp}package.use.pypy                        etc/portage/package.use/00-profile-pypy
 ADD ${bp}crun.env                                etc/portage/env/app-containers/crun
 ADD ${bp}emacs.env                               etc/portage/env/app-editors/emacs
 ADD ${bp}vim-core.env                            etc/portage/env/app-editors/vim-core
@@ -1241,7 +1241,7 @@ ADD ${bp}rabbitmq.env                            etc/portage/env/net-misc/rabbit
 ADD ${bp}pandoc.env                              etc/portage/env/dev-haskell/pandoc
 ADD ${bp}ghc-rtsopts.env                         etc/portage/env/ghc-rtsopts
 ADD ${bp}no-distcc.env                           etc/portage/env/no-distcc
-ADD ${bp}package.env                             etc/portage/package.env/profile
+ADD ${bp}package.env                             etc/portage/package.env/00-profile
 # general pataches
 ADD ${bp}pdf-tools-link-error.patch              etc/portage/patches/app-emacs/pdf-tools/pdf-tools-link-error.patch
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
@@ -1809,11 +1809,15 @@ dev-scheme/racket::tgbugs-overlay cs bc cgc
 
 Workaround for missing pypy3 support in newer versions of various python libraries.
 #+begin_src conf :tangle ./docker-profile/base/package.use.pypy
+dev-python/flake8 -python_targets_pypy3_11
 dev-python/ipykernel -python_targets_pypy3_11
 dev-python/jupyter-core -python_targets_pypy3_11
 dev-python/matplotlib-inline -python_targets_pypy3_11
+dev-python/mccabe -python_targets_pypy3_11
 dev-python/nbconvert -python_targets_pypy3_11
 dev-python/nbformat -python_targets_pypy3_11
+dev-python/pyflakes -python_targets_pypy3_11
+dev-python/stack-data -python_targets_pypy3_11
 dev-python/traitlets -python_targets_pypy3_11
 #+end_src
 
