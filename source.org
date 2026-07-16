@@ -10307,6 +10307,10 @@ ENTRYPOINT ["/usr/bin/sbcl"]
 (defpackage #:ql-setup)
 ; don't forget the trailing slash for files >_<
 (defvar ql-setup::*quicklisp-home* (probe-file "/build/quicklisp/"))
+; newer versions of ql-https need these loaded first
+(load "/build/quicklisp/quicklisp/package.lisp")
+(load "/build/quicklisp/quicklisp/deflate.lisp")
+(load "/build/quicklisp/quicklisp/dist.lisp")
 (load "/tmp/ql-https/ql-setup.lisp")
 (asdf:load-system :ql-https)
 (save-lisp-and-die "/tmp/continue.core" :purify nil)
@@ -10315,7 +10319,7 @@ ENTRYPOINT ["/usr/bin/sbcl"]
 #+name: lisp-ql-https-bootstrap-2
 #+begin_src lisp :tangle ./musl/sbcl-stripped/bootstrap-2.lisp :mkdirp yes
 (setf ql-https::*quietly-use-https* t)
-(quicklisp:setup)
+(uiop:symbol-call :ql-setup :setup)
 (ql:quickload :dexador) ; FIXME this breaks when building kg-dev-user
 #+end_src
 
