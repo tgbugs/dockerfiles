@@ -2621,6 +2621,7 @@ dev-python/orthauth yaml
 dev-python/pint babel uncertainties
 dev-python/sparcur cron  # XXX FIXME not all images want to pull in the cron deps, or the dashboard deps
 dev-python/sxpyr -cli  # XXX FIXME avoid circular dep on clifun
+sys-apps/file python  # apparently not set by some other profile as of ~2026-07-20?
 
 # tgbugs-meta
 tgbugs-meta/kg-dev-meta nest  # include docker-cli and acct-group/docker for sckan release
