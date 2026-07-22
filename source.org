@@ -6047,6 +6047,9 @@ try:
             g3_ref = f.read().split()[1]
 
         ref_path = egit_path / g3_ref
+        if not ref_path.exists():
+            continue
+
         with open(ref_path, 'rt') as f:
             new_commit = f.read().strip().split()[0]
 
