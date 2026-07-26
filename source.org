@@ -1692,6 +1692,7 @@ app-emacs/cond-let::gentoo
 app-emacs/elpy::gentoo
 app-emacs/emacsql::gentoo
 app-emacs/forge::gentoo
+app-emacs/ghub::gentoo
 app-emacs/hl-todo::gentoo
 app-emacs/js2-mode::gentoo
 app-emacs/julia-mode::gentoo
