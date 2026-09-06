@@ -840,13 +840,15 @@ following after checking that they work as expected.
 
 # FIXME the --filter=since= isn't quite right, I think it can miss some images we want to push? not entirely sure?
 #+begin_src bash :results code
+_boundary='tgbugs/musl:eselect-repo'
 for _image in $(docker image ls \
 --filter=reference="tgbugs/musl:*" \
---filter=since='tgbugs/musl:eselect-repo' \
+--filter=since="${_boundary}" \
 --format "{{.Repository}}:{{.Tag}}" | grep -v snap);
 do
     echo docker push "${_image};\\"
 done
+echo docker push "${_boundary};\\"
 #+end_src
 
 Other things images we don't push right now.
