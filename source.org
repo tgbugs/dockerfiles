@@ -1249,6 +1249,7 @@ ADD ${bp}pdf-tools-link-error.patch              etc/portage/patches/app-emacs/p
 ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/portage/portage-onlydeps-license.patch
 ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
 ADD ${bp}cloudpickle-pypy3.11.patch              etc/portage/patches/dev-python/cloudpickle-3.1.1/cloudpickle-pypy3.11.patch
+ADD ${bp}raptor-2.0.16-ttl-parser.patch          etc/portage/patches/media-libs/raptor/raptor-2.0.16-ttl-parser.patch
 ADD ${bp}gtk-no-atk-gtkacc.patch                 etc/portage/patches/x11-libs/gtk+/gtk-no-atk-gtkacc.patch
 ADD ${bp}gtk-no-atk-mb.patch                     etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mb.patch
 ADD ${bp}gtk-no-atk-mot.patch                    etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mot.patch
@@ -2078,6 +2079,55 @@ index da71405e..9bc83daa 100755
  
 -- 
 2.45.3
+#+end_src
+
+***** media-libs/raptor
+#+begin_src diff :tangle ./docker-profile/base/raptor-2.0.16-ttl-parser.patch
+fix turtle parser doubling blank-node list/collection entries in large files
+
+See https://github.com/dajobe/raptor/issues/76
+
+Always cancel the deferred sequence on non-final chunks because it
+will be reparsed and the stale copy should not be retained.
+
+--- a/src/turtle_parser.y
++++ b/src/turtle_parser.y
+@@ -1759,11 +1759,11 @@
+       memmove(turtle_parser->buffer,
+               turtle_parser->buffer + turtle_parser->processed,
+               turtle_parser->consumed);
+-      /* cancel all deferred eval's */
+-      if(turtle_parser->deferred) {
+-        raptor_free_sequence(turtle_parser->deferred);
+-        turtle_parser->deferred = NULL;
+-      }
++    }
++    /* cancel all deferred eval's. */
++    if(turtle_parser->deferred) {
++      raptor_free_sequence(turtle_parser->deferred);
++      turtle_parser->deferred = NULL;
+     }
+   } else {
+     /* this was the last chunk, finalise */
+--- a/src/turtle_parser.c
++++ b/src/turtle_parser.c
+@@ -3668,11 +3668,11 @@
+       memmove(turtle_parser->buffer,
+               turtle_parser->buffer + turtle_parser->processed,
+               turtle_parser->consumed);
+-      /* cancel all deferred eval's */
+-      if(turtle_parser->deferred) {
+-        raptor_free_sequence(turtle_parser->deferred);
+-        turtle_parser->deferred = NULL;
+-      }
++    }
++    /* cancel all deferred eval's. */
++    if(turtle_parser->deferred) {
++      raptor_free_sequence(turtle_parser->deferred);
++      turtle_parser->deferred = NULL;
+     }
+   } else {
+     /* this was the last chunk, finalise */
 #+end_src
 
 ***** sys-apps/portage
