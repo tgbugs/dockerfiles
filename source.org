@@ -3386,9 +3386,9 @@ pushd /var/db/repos/gentoo/x11-libs/gtk+ \
 && ebuild "$(ls *.ebuild | tail -n1)" digest
 
 # fix python eclass to restore pypy3_11 support
-ADD python-eclass-pypy3_11-fix.patch /tmp/python-eclass-pypy3_11-fix.patch
+ADD pypy3_11-eclass-fix.py /tmp/pypy3_11-eclass-fix.py
 RUN \
-patch -p2 -i /tmp/python-eclass-pypy3_11-fix.patch /var/db/repos/gentoo/eclass/python-utils-r1.eclass
+python /tmp/pypy3_11-eclass-fix.py /var/db/repos/gentoo/eclass/python-utils-r1.eclass
 
 FROM docker.io/library/busybox:latest
 
@@ -3397,27 +3397,121 @@ COPY --from=builder /var/db/repos /var/db/repos
 CMD ["/bin/true"]
 VOLUME /var/db/repos
 #+end_src
+
 *** patches
-#+begin_src diff :tangle ./repos/python-eclass-pypy3_11-fix.patch :mkdirp yes
---- a/eclass/python-utils-r1.eclass
-+++ b/eclass/python-utils-r1.eclass
-@@ -39,6 +39,7 @@ inherit multiprocessing toolchain-funcs
- # @DESCRIPTION:
- # All supported Python implementations, most preferred last.
- _PYTHON_ALL_IMPLS=(
-+	pypy3_11
- 	python3_{14..15}t
- 	python3_{12..15}
- )
-@@ -50,7 +51,7 @@ readonly _PYTHON_ALL_IMPLS
- # All historical Python implementations that are no longer supported.
- _PYTHON_HISTORICAL_IMPLS=(
- 	jython2_7
--	pypy pypy1_{8,9} pypy2_0 pypy3 pypy3_11
-+	pypy pypy1_{8,9} pypy2_0 pypy3
- 	python2_{5..7}
- 	python3_{1..11}
- 	python3_13t
+Structural, not a context diff.
+=--getbinpkgonly= aside, this is the same lesson: upstream reshapes these two
+arrays and a patch that matches on surrounding lines breaks whenever they do.
+=python3_{14..15}t= plus =python3_{12..15}= became =python3_{12..13}= plus
+=python3_{14..15}{t,}= in a single sync, and the repos build failed the moment
+a fresh portage was pulled:
+
+: ERROR: process "patch -p2 -i /tmp/python-eclass-pypy3_11-fix.patch ..." exit code: 1
+
+So find the arrays and move the token between them, which survives any
+reshaping of their contents.  Idempotent, so a rerun or a rebuilt layer cannot
+double add, and it verifies its own work rather than trusting the edit --
+=patch= at least failed loudly, and whatever replaces it has to do the same.
+#+begin_src python :tangle ./repos/pypy3_11-eclass-fix.py :mkdirp yes
+"""Move pypy3_11 from _PYTHON_HISTORICAL_IMPLS to _PYTHON_ALL_IMPLS."""
+
+import pathlib
+import re
+import subprocess
+import sys
+
+IMPL = "pypy3_11"
+ECLASS = (
+    sys.argv[1]
+    if len(sys.argv) > 1
+    else "/var/db/repos/gentoo/eclass/python-utils-r1.eclass"
+)
+
+
+def fail(msg):
+    sys.exit("pypy3_11-eclass-fix: %s" % msg)
+
+
+def find(text, name):
+    """the body of a `name=( ... )' bash array, as (start, end) offsets"""
+    m = re.search(r"^%s=\(\n(.*?)^\)$" % re.escape(name), text, re.M | re.S)
+    if not m:
+        fail("cannot find %s in %s" % (name, ECLASS))
+    return m.start(1), m.end(1)
+
+
+def has_impl(body):
+    return re.search(r"(?<![\w-])%s(?![\w-])" % IMPL, body) is not None
+
+
+def drop_impl(body):
+    out = []
+    for line in body.split("\n"):
+        # only the token, so the rest of a shared line keeps its spacing
+        stripped = re.sub(r"(?<![\w-])%s(?![\w-])" % IMPL, "", line)
+        stripped = re.sub(r"  +", " ", stripped).rstrip()
+        if stripped.strip():
+            out.append(stripped)
+        elif not line.strip():
+            out.append(line)
+    return "\n".join(out) + ("\n" if body.endswith("\n") else "")
+
+
+def add_impl(body):
+    # first, because the comment says most preferred last
+    first = body.split("\n")[0]
+    indent = first[: len(first) - len(first.lstrip())] or "\t"
+    return "%s%s\n%s" % (indent, IMPL, body)
+
+
+def main():
+    path = pathlib.Path(ECLASS)
+    text = path.read_text()
+
+    a0, a1 = find(text, "_PYTHON_ALL_IMPLS")
+    h0, h1 = find(text, "_PYTHON_HISTORICAL_IMPLS")
+
+    in_all = has_impl(text[a0:a1])
+    in_hist = has_impl(text[h0:h1])
+
+    if in_all and not in_hist:
+        print("pypy3_11-eclass-fix: already applied, nothing to do")
+        return
+
+    # later block first, so the earlier one's offsets still hold
+    if a0 < h0:
+        text = text[:h0] + drop_impl(text[h0:h1]) + text[h1:]
+        text = text[:a0] + (text[a0:a1] if in_all else add_impl(text[a0:a1])) + text[a1:]
+    else:
+        text = text[:a0] + (text[a0:a1] if in_all else add_impl(text[a0:a1])) + text[a1:]
+        h0, h1 = find(text, "_PYTHON_HISTORICAL_IMPLS")
+        text = text[:h0] + drop_impl(text[h0:h1]) + text[h1:]
+
+    path.write_text(text)
+
+    # Verify by letting bash evaluate the arrays, not by re-reading them with
+    # the same regex that wrote them -- a check that shares its parser with the
+    # edit only confirms the parser is self consistent.  These lists are bash
+    # arrays in an eclass, so there is no portage API for them, but bash itself
+    # will do the parsing, brace expansion included: python3_{12..13} becomes
+    # two entries here exactly as it does for portage.
+    for name, want in (("_PYTHON_ALL_IMPLS", True), ("_PYTHON_HISTORICAL_IMPLS", False)):
+        decl = re.search(r"^%s=\(\n.*?^\)$" % re.escape(name), path.read_text(), re.M | re.S)
+        out = subprocess.run(
+            ["bash", "-c", '%s\nprintf "%%s\\n" "${%s[@]}"' % (decl.group(0), name)],
+            capture_output=True, text=True,
+        )
+        if out.returncode != 0:
+            fail("bash could not evaluate %s: %s" % (name, out.stderr.strip()))
+        got = IMPL in out.stdout.split()
+        if got is not want:
+            fail("after editing, %s in %s is %s, expected %s"
+                 % (IMPL, name, got, want))
+    print("pypy3_11-eclass-fix: moved %s to _PYTHON_ALL_IMPLS" % IMPL)
+
+
+if __name__ == "__main__":
+    main()
 #+end_src
 
 * common
