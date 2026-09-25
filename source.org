@@ -5088,6 +5088,20 @@ fi
 echo builder ${_builder}
 #+end_src
 
+#+name: &builder-get-targets
+#+begin_src bash :noweb yes
+targets=$(\
+docker run \
+--rm \
+<<&builder-args>>
+${_builder} \
+sh -c 'set -o pipefail; emerge --backtrack=99 --color=n --with-bdeps=y -q -uDN -p @docker | { grep "\(^\[ebuild\|acct-\)" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'")
+# XXX acct- is a workaround for https://bugs.gentoo.org/890777
+# FIXME it seems that sometimes this will fail on packages that need to be rebuilt and then
+# the binpkg only will fail due to incorrect slot deps or something until we reemerge ???
+CODE=$?
+#+end_src
+
 # TODO crossdev aarch64-unknown-linux-gnu-emerge
 FIXME sometimes this fails to update a package with slotted deps or something
 #+name: &builder-world
@@ -5099,28 +5113,17 @@ local CODE
 echo get targets
 # get targets
 container-check
-targets=$(\
-docker run \
---rm \
-<<&builder-args>>
-${_builder} \
-sh -c 'set -o pipefail; emerge --backtrack=99 --color=n --with-bdeps=y -q -uDN -p @docker | { grep "\(^\[ebuild\|acct-\)" || true; } | cut -b17- | awk '"'"'{ print "="$1 }'"'")
-# XXX acct- is a workaround for https://bugs.gentoo.org/890777
-# FIXME it seems that sometimes this will fail on packages that need to be rebuilt and then
-# the binpkg only will fail due to incorrect slot deps or something until we reemerge ???
 
-CODE=$?
-[ ${CODE} -eq 0 ] || return ${CODE}
-
-[ "${targets}" ] || return 0  # we're done here
+<<&builder-get-targets>>
 
 targets_ghc=$(echo ${targets} | awk -v RS='\\s' '/^=dev-lang\/ghc/')
-targets_user=$(echo ${targets} | awk -v RS='\\s' '/^=acct-user/')
-targets_group=$(echo ${targets} | awk -v RS='\\s' '/^=acct-group/')
-targets_nogruser=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-(group|user)/')
-
 [ "${targets_ghc}" ] && {
 echo ghc targets
+
+<<&docker-run-prefix>>
+emerge --color=y -q --keep-going --getbinpkgonly --usepkgonly --nodeps ${targets_ghc}
+<<&docker-run-suffix>>
+
 <<&docker-run-prefix>>
 emerge --color=y --with-bdeps=y --onlydeps --onlydeps-with-rdeps=n -1 -q --keep-going ${targets_ghc}
 <<&docker-run-suffix>>
@@ -5133,8 +5136,19 @@ emerge --color=y -q --keep-going ${targets_ghc}
 <<&docker-run-prefix>>
 emerge --color=y -q --keep-going haskell-updater
 <<&docker-run-suffix>>
-
+[ ${CODE} -eq 0 ] || {
+echo get targets post ghc
+<<&builder-get-targets>>
 }
+}
+
+[ ${CODE} -eq 0 ] || return ${CODE}
+
+[ "${targets}" ] || return 0  # we're done here
+
+targets_user=$(echo ${targets} | awk -v RS='\\s' '/^=acct-user/')
+targets_group=$(echo ${targets} | awk -v RS='\\s' '/^=acct-group/')
+targets_nogruser=$(echo ${targets} | awk -v RS='\\s' '!/^=acct-(group|user)/')
 
 [ "${targets_group}" ] && {
 echo only acct-group targets  # XXX avoid --nodeps order issues
