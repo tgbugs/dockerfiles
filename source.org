@@ -3385,10 +3385,14 @@ pushd /var/db/repos/gentoo/x11-libs/gtk+ \
 && sed -i 's,\(>=app-accessibility.\+\),accessibility? ( \1 ) dev-libs/atk,' gtk+-3.*.ebuild \
 && ebuild "$(ls *.ebuild | tail -n1)" digest
 
-# fix python eclass to restore pypy3_11 support
+# fix python eclasses to restore pypy3_11 support
 ADD pypy3_11-eclass-fix.py /tmp/pypy3_11-eclass-fix.py
 RUN \
 python /tmp/pypy3_11-eclass-fix.py /var/db/repos/gentoo/eclass/python-utils-r1.eclass
+
+ADD pypy3_11-distutils-fix.patch /tmp/pypy3_11-distutils-fix.patch
+RUN \
+patch -p2 -i /tmp/pypy3_11-distutils-fix.patch /var/db/repos/gentoo/eclass/distutils-r1.eclass
 
 FROM docker.io/library/busybox:latest
 
@@ -3399,6 +3403,22 @@ VOLUME /var/db/repos
 #+end_src
 
 *** patches
+**** distutils-r1.eclass
+#+begin_src diff :tangle ./repos/pypy3_11-distutils-fix.patch :mkdirp yes
+--- a/eclass/distutils-r1.eclass
++++ b/eclass/distutils-r1.eclass
+@@ -1250,7 +1250,7 @@ _distutils-r1_find_best_wheel() {
+ 				fi
+ 				: $(( minor-- ))
+ 			done
+-			[[ ! ${is_compatible} ]] &&
++			[[ ! ${is_compatible} && ! ${DISTUTILS_EXT} ]] &&
+ 				die "Incompatible Python tag found in ${whl_fn}"
+ 		fi
+ 
+#+end_src
+
+**** python-utils-r1.eclass
 Structural, not a context diff.
 =--getbinpkgonly= aside, this is the same lesson: upstream reshapes these two
 arrays and a patch that matches on surrounding lines breaks whenever they do.
