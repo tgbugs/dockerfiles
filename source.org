@@ -9869,7 +9869,18 @@ test-image tgbugs/musl:sbcl
 #+header: :shebang "#!/usr/bin/env sh\nset -e"
 #+begin_src bash :tangle ./bin/test/tgbugs/musl/sbcl/test :mkdirp yes :noweb yes
 <<&bash-at-abs-path>>
-sbcl --noinform --noprint --non-interactive --load test.lisp
+echo sbcl basic test
+sbcl --noinform --noprint --non-interactive --load test.lisp || exit $?
+
+echo sbcl static linking test
+pushd /dockerfiles/helper-repos/sbcl > /dev/null 2>&1;
+git config --global --add safe.directory /dockerfiles/helper-repos/sbcl > /dev/null 2>&1;
+git checkout static-executable-v2-$(sbcl --noinform --non-interactive --eval '(princ (lisp-implementation-version))') > /dev/null 2>&1;
+sh contrib/sb-tiny/test-static.sh
+CODE=$?
+git checkout @{-1} > /dev/null 2>&1;
+popd > /dev/null 2>&1;
+exit $CODE
 #+end_src
 
 #+name: &sbcl-test-lisp
