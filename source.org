@@ -5980,7 +5980,7 @@ cp_data = {}
 ebuilds = {}
 maybe_rebuild = []
 not_live = set()
-for live in sorted(lives, reverse=True):
+for live in sorted(lives, reverse=True, key=(lambda a: str(a))):
     atoms = list(bintree.dbapi.match(live))
 
     if not atoms:
