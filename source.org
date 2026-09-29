@@ -2577,7 +2577,7 @@ dev-python/seaborn stats
 
 # tgbugs-overlay python
 app-arch/brotli python  # needed by aiohttp by elasticsearch-py
-dev-python/interlex alt database
+dev-python/interlex alt
 dev-python/orthauth yaml
 dev-python/pint babel uncertainties
 dev-python/sparcur cron  # XXX FIXME not all images want to pull in the cron deps, or the dashboard deps
@@ -7293,6 +7293,68 @@ dev-db/pguri
 #+end_src
 ** interlex
 *** run
+*** test
+*** build
+#+name: &musl-build-interlex
+#+begin_src screen
+<<&docker-build>>
+--tag tgbugs/musl:interlex \
+--file musl/interlex/Dockerfile musl/interlex
+#+end_src
+
+*** file
+#+begin_src dockerfile :tangle ./musl/interlex/Dockerfile
+FROM tgbugs/musl:binpkg-only
+
+<<&build-world-common>>
+
+# quick rebuild
+RUN echo 0
+RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
+emerge -q interlex
+
+ADD entrypoints /etc/entrypoints
+ENTRYPOINT ["/etc/entrypoints/default.sh"]
+#+end_src
+
+*** world
+#+name: world-interlex
+#+begin_src conf :tangle ./musl/interlex/world
+dev-python/interlex
+#+end_src
+
+*** entrypoints
+**** default
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/default.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+# TODO make sure the configs are ok
+/etc/init.d/interlex start
+#/etc/init.d/interlex-es-index start  # TODO not merged yet
+#+end_src
+
+**** server
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/server.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+# TODO make sure the configs are ok
+/etc/init.d/interlex start
+#+end_src
+
+**** worker
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/worker.sh :mkdirp yes
+rc-status
+touch /run/openrc/softlevel
+# TODO make sure the configs are ok
+/etc/init.d/interlex-es-index start
+#+end_src
+
+*** configs
+** interlex-dev
+*** run
 WARNING! If you mount your postgres data directory like this make sure
 the host system is NOT also running postgres on top of that directory
 otherwise you will have a BAD TIME.
@@ -7311,7 +7373,7 @@ docker run \
 -v ~/.pgpass-interlex:/root/.pgpass-interlex \
 -v ~/.mypass-interlex:/root/.mypass-interlex \
 -e DISPLAY=$DISPLAY \
--it tgbugs/musl:interlex
+-it tgbugs/musl:interlex-dev
 #+end_src
 
 **** ops
@@ -7322,27 +7384,27 @@ docker run \
 -v ~/.pgpass-interlex:/root/.pgpass-interlex \
 -v ~/.mypass-interlex:/root/.mypass-interlex \
 -e DISPLAY=$DISPLAY \
--it tgbugs/musl:interlex
+-it tgbugs/musl:interlex-dev
 #+end_src
 
 *** test
 #+begin_src screen
-test-image tgbugs/musl:interlex
+test-image tgbugs/musl:interlex-dev
 #+end_src
 
 #+header: :shebang "#!/usr/bin/env sh\nset -e"
-#+begin_src bash :tangle ./bin/test/tgbugs/musl/interlex/test :mkdirp yes :noweb yes
+#+begin_src bash :tangle ./bin/test/tgbugs/musl/interlex-dev/test :mkdirp yes :noweb yes
 <<&bash-at-abs-path>>
 
 <<&config-interlex-db>>
 
 pypy3 -c 'from pyontutils.config import auth; from interlex.config import auth'  # side effect create user config files
-cp /dockerfiles/musl/interlex/test-config.yaml ~/.config/interlex/config.yaml
-cp /dockerfiles/musl/interlex/test-config-pyontutils.yaml ~/.config/pyontutils/config.yaml
+cp /dockerfiles/musl/interlex-dev/test-config.yaml ~/.config/interlex/config.yaml
+cp /dockerfiles/musl/interlex-dev/test-config-pyontutils.yaml ~/.config/pyontutils/config.yaml
 
 mkdir ~/.config/orthauth
 chmod 0700 ~/.config/orthauth
-cp /dockerfiles/musl/interlex/test-secrets.sxpr ~/.config/orthauth/secrets.sxpr
+cp /dockerfiles/musl/interlex-dev/test-secrets.sxpr ~/.config/orthauth/secrets.sxpr
 chmod 0600 ~/.config/orthauth/secrets.sxpr
 _rand_key=$(pypy3 -c 'from interlex.auth import gen_key; print(gen_key(), end="")')
 sed -i "s/ixp_.\+/${_rand_key}/" ~/.config/orthauth/secrets.sxpr
@@ -7360,7 +7422,7 @@ pypy3 -m pytest --verbose --color=yes -W ignore /usr/share/interlex/test
 
 #+end_src
 
-#+begin_src yaml :tangle ./musl/interlex/test-config.yaml :mkdirp yes
+#+begin_src yaml :tangle ./musl/interlex-dev/test-config.yaml :mkdirp yes
 auth-stores:
   secrets:
     path: ~/.config/orthauth/secrets.sxpr
@@ -7376,7 +7438,7 @@ auth-variables:
     path: interlex flask session-secret-key
 #+end_src
 
-#+begin_src yaml :tangle ./musl/interlex/test-config-pyontutils.yaml
+#+begin_src yaml :tangle ./musl/interlex-dev/test-config-pyontutils.yaml
 auth-stores:
   secrets:
     path: ~/.config/orthauth/secrets.sxpr
@@ -7407,7 +7469,7 @@ from interlex.auth import gen_key
 return gen_key()
 #+end_src
 
-#+begin_src lisp :noweb yes :tangle ./musl/interlex/test-secrets.sxpr
+#+begin_src lisp :noweb yes :tangle ./musl/interlex-dev/test-secrets.sxpr
 (
  :interlex
  (
@@ -7427,11 +7489,11 @@ localhost:3306:*:nif_eelg_secure:password
 #+end_src
 
 *** build
-#+name: &musl-build-interlex
+#+name: &musl-build-interlex-dev
 #+begin_src screen
 <<&docker-build>>
---tag tgbugs/musl:interlex \
---file musl/interlex/Dockerfile musl/interlex
+--tag tgbugs/musl:interlex-dev \
+--file musl/interlex-dev/Dockerfile musl/interlex-dev
 #+end_src
 
 rebuild for quick package changes
@@ -7439,11 +7501,11 @@ rebuild for quick package changes
 builder-arb --usepkg=y --onlydeps --onlydeps-with-rdeps=n interlex
 builder-arb --nodeps interlex
 # increment RUN echo 0 below
-# ./source.org build-image tgbugs/musl:interlex
+# ./source.org build-image tgbugs/musl:interlex-dev
 #+end_src
 
 *** file
-#+begin_src dockerfile :tangle ./musl/interlex/Dockerfile
+#+begin_src dockerfile :tangle ./musl/interlex-dev/Dockerfile
 FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
@@ -7462,8 +7524,10 @@ ENTRYPOINT ["/etc/entrypoints/default.sh"]
 # or something, this would allow us to build license tainted software and
 # then individual images that want to use it could set the license before
 # emerging the binpkg
-#+name: world-interlex
-#+begin_src conf :tangle ./musl/interlex/world
+#+name: world-interlex-dev
+#+begin_src conf :tangle ./musl/interlex-dev/world
+net-misc/rabbitmq-server
+dev-db/postgresql
 dev-python/interlex
 #+end_src
 FIXME there has got to be a better way to do this ...
@@ -7471,7 +7535,7 @@ FIXME there has got to be a better way to do this ...
 *** entrypoints
 **** default
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/default.sh :mkdirp yes
+#+begin_src bash :noweb yes :tangle ./musl/interlex-dev/entrypoints/default.sh :mkdirp yes
 <<&config-pg>>
 rc-status
 touch /run/openrc/softlevel
@@ -7486,7 +7550,7 @@ to start the container as root and then either use docker exec
 to run something else as another user or who knows
 #+header: :shebang "#!/usr/bin/env sh"
 #+name: &interlex-entrypoint-common
-#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/common.sh :mkdirp yes
+#+begin_src bash :noweb yes :tangle ./musl/interlex-dev/entrypoints/common.sh :mkdirp yes
 _oum=$(umask)
 umask 0077
 cp /root/.pgpass-interlex /var/lib/interlex/.pgpass
@@ -7520,7 +7584,7 @@ interlex-dbsetup  # quite broken due to install path issues right now
 **** mysql dump
 **** sync
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/sync.sh :mkdirp yes
+#+begin_src bash :noweb yes :tangle ./musl/interlex-dev/entrypoints/sync.sh :mkdirp yes
 <<&interlex-common>>
 # FIXME this needs to run as the interlex user probably due to the way we provide config files
 # FIXME if hitting prod this needs the port to change, if syncing from a dev copy dumped from prod --network=host probably needed
@@ -7540,7 +7604,7 @@ touch /run/openrc/softlevel
 #+end_src
 
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :noweb yes :tangle ./musl/interlex/entrypoints/service.sh :mkdirp yes
+#+begin_src bash :noweb yes :tangle ./musl/interlex-dev/entrypoints/service.sh :mkdirp yes
 <<&interlex-common>>
 # XXX FIXME adjust conf.d for testing
 # DATABASE=__interlex_testing
