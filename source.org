@@ -2506,6 +2506,9 @@ dev-python/pypy3_10 ~amd64
 **** package.use
 # TODO consider dev-db/sqlite secure-delete
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use
+# wd40
+dev-vcs/git -rust
+
 # needed for podman
 net-firewall/iptables nftables
 
