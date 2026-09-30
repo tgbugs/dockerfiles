@@ -10002,6 +10002,11 @@ if [[ ! -d "${hrp}" ]]; then
 mkdir "${hrp}"
 fi
 
+if [[ -d "${rp}" ]] && [[ ! -d "${rp}/.git" ]]; then
+    # malformed git repo for some reason
+    mv "${rp}" "${hrp}/sbcl-old-$(date "+%Y-%m-%dT%H%M%S%z")"
+fi
+
 if [[ ! -d "${rp}" ]]; then
 pushd "${hrp}"
   git clone https://github.com/sbcl/sbcl.git
