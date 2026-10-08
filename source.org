@@ -1798,6 +1798,7 @@ dev-haskell/hxt::haskell
 dev-haskell/polyparse::haskell
 dev-haskell/temporary::haskell
 dev-haskell/wl-pprint-text::haskell
+<media-gfx/imagemagick-7::gentoo  # needed for dynapad until we can port to 7
 #+end_src
 
 Transient workarounds for specific versions.
