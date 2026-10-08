@@ -1254,6 +1254,7 @@ ADD ${bp}gtk-no-atk-gtkacc.patch                 etc/portage/patches/x11-libs/gt
 ADD ${bp}gtk-no-atk-mb.patch                     etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mb.patch
 ADD ${bp}gtk-no-atk-mot.patch                    etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mot.patch
 ADD ${bp}sbcl-2.6.4-musl-termios.patch           etc/portage/patches/dev-lisp/sbcl-2.6.4/sbcl-2.6.4-musl-termios.patch
+ADD ${bp}sbcl-2.6.9-lifetimes.patch              etc/portage/patches/dev-lisp/sbcl-2.6.9/sbcl-2.6.9-lifetimes.patch
 #ADD ${bp}generically-cabal.patch                 etc/portage/patches/dev-haskell/generically/generically-cabal.patch
 
 RUN \
@@ -10256,6 +10257,32 @@ index 26a16d36a..8632dcded 100644
   #-win32
 #+end_src
 
+Backport of sbcl 7efe3af18c611a544f057ae57e7a34054c652f44 to 2.6.9
+#+begin_src diff :tangle ./docker-profile/base/sbcl-2.6.9-lifetimes.patch :mkdirp yes
+diff --git a/src/code/x86-64-simd.lisp b/src/code/x86-64-simd.lisp
+index 484272223..de82a07a9 100644
+--- a/src/code/x86-64-simd.lisp
++++ b/src/code/x86-64-simd.lisp
+@@ -1611,7 +1611,7 @@
+             (inst jmp :l LOOP)
+ 
+             DONE
+-
++            (inst sub byte-array byte-array*)
+             ;; Find the max last-newline...
+             (progn
+               (inst movdqa  temp last-newlines)
+@@ -1629,8 +1629,7 @@
+               (inst pandn   temp temp1)
+               (inst por     temp last-newlines)
+               (inst movd    last-newline temp)
+-              (inst movsx '(:dword :qword) last-newline last-newline))
+-            (inst sub byte-array byte-array*))
++              (inst movsx '(:dword :qword) last-newline last-newline)))
+         (setf (sb-impl::buffer-tail obuf) (+ tail copied))
+         (values (+ start copied)
+                 (if (>= last-newline 0)
+#+end_src
 ** sbcl-user
 *** run
 #+begin_src bash
