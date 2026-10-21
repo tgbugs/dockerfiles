@@ -766,6 +766,7 @@ echo start image builds
 
 ## interlex
 <<&musl-build-interlex>> || return $?; echo mbilx;
+<<&musl-build-interlex-dev>> || return $?; echo mbilxd;
 
 ## sparcron
 <<&musl-build-sparcron>> || return $?; echo mbsp;
@@ -2510,6 +2511,9 @@ dev-python/pypy3_10 ~amd64
 #+begin_src conf :tangle ./docker-profile/base/docker-profile/profiles/tgbugs/package.use
 # wd40
 dev-vcs/git -rust
+
+# needed for nginx
+app-misc/mime-types nginx
 
 # needed for podman
 net-firewall/iptables nftables
@@ -7326,6 +7330,8 @@ ENTRYPOINT ["/etc/entrypoints/default.sh"]
 #+name: world-interlex
 #+begin_src conf :tangle ./musl/interlex/world
 dev-python/interlex
+www-servers/nginx
+www-servers/gunicorn
 #+end_src
 
 *** entrypoints
