@@ -12172,8 +12172,9 @@ COPY accept_keyword[s] /etc/portage/package.accept_keywords/tweaks
 ADD world /etc/portage/sets/docker
 
 # -ebuild locks is so much faster building acct-* ebuilds first is MUCH faster
+# FIXME failure here should be fatal, but not needing to install any accounts should be ok
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
-FEATURES=ebuild-locks emerge -1 -q -uDN $(emerge -p @docker | grep -o 'acct-.\+$' | sed 's/^/=/') \
+FEATURES=ebuild-locks emerge -1 -q -uDN $(emerge -p @docker | grep -o 'acct-.\+$' | awk '{ print $1 }' | sed 's/^/=/') \
 ;  emerge -q --backtrack=99 -uDN @docker \
 <<&archive-or-rm>>
 
@@ -12181,7 +12182,7 @@ FEATURES=ebuild-locks emerge -1 -q -uDN $(emerge -p @docker | grep -o 'acct-.\+$
 # in a docker file, this adds noise but at least the behavior is consistent
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 if (emerge -p @license); then  \
-FEATURES=ebuild-locks emerge -1 -q -uDN $(emerge -p @license | grep -o 'acct-.\+$' | sed 's/^/=/') \
+FEATURES=ebuild-locks emerge -1 -q -uDN $(emerge -p @license | grep -o 'acct-.\+$' | awk '{ print $1 }' | sed 's/^/=/') \
 ;  emerge -q --backtrack=99 -uDN @license \
 <<&archive-or-rm>>; \
 else true; fi
