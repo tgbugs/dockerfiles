@@ -7385,6 +7385,7 @@ ENTRYPOINT ["/etc/entrypoints/default.sh"]
 #+name: world-interlex
 #+begin_src conf :tangle ./musl/interlex/world
 dev-python/interlex
+dev-python/pytest
 www-servers/nginx
 www-servers/gunicorn
 #+end_src
