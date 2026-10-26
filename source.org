@@ -12250,6 +12250,7 @@ else true; fi
 ;  [[ -n ${ARCHIVE} ]] \
 || { rm -r /var/cache/distfiles/* > /dev/null 2>&1 \
    ; rm -r /var/cache/binpkgs/* > /dev/null 2>&1 \
+   ; rm -r /var/cache/binhost/* > /dev/null 2>&1 \
    ; rm -r /var/log/portage/elog/summary.log > /dev/null 2>&1 \
    ; rm -r /var/log/emerge-fetch.log > /dev/null 2>&1 \
    ; rm -r /var/log/emerge.log > /dev/null 2>&1;} \
