@@ -1251,6 +1251,7 @@ ADD ${bp}portage-onlydeps-license.patch          etc/portage/patches/sys-apps/po
 ADD ${bp}rdflib-float-nonorm.patch               etc/portage/patches/dev-python/rdflib-7.1.1/rdflib-float-nonorm.patch
 ADD ${bp}cloudpickle-pypy3.11.patch              etc/portage/patches/dev-python/cloudpickle-3.1.1/cloudpickle-pypy3.11.patch
 ADD ${bp}raptor-2.0.16-ttl-parser.patch          etc/portage/patches/media-libs/raptor/raptor-2.0.16-ttl-parser.patch
+ADD ${bp}raptor-2.0.16-ntriples-norm-lang.patch  etc/portage/patches/media-libs/raptor/raptor-2.0.16-ntriples-norm-lang.patch
 ADD ${bp}gtk-no-atk-gtkacc.patch                 etc/portage/patches/x11-libs/gtk+/gtk-no-atk-gtkacc.patch
 ADD ${bp}gtk-no-atk-mb.patch                     etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mb.patch
 ADD ${bp}gtk-no-atk-mot.patch                    etc/portage/patches/x11-libs/gtk+/gtk-no-atk-mot.patch
@@ -2131,6 +2132,60 @@ will be reparsed and the stale copy should not be retained.
      }
    } else {
      /* this was the last chunk, finalise */
+#+end_src
+
+#+begin_src diff :tangle ./docker-profile/base/raptor-2.0.16-ntriples-norm-lang.patch
+--- a/src/raptor_internal.h
++++ b/src/raptor_internal.h
+@@ -723,6 +723,7 @@
+ int raptor_term_print_as_ntriples(const raptor_term *term, FILE* stream);
+ 
+ /* raptor_ntriples.c */
++extern int raptor_ntriples_normalize_language;
+ size_t raptor_ntriples_parse_term(raptor_world* world, raptor_locator* locator, unsigned char *string, size_t *len_p, raptor_term** term_p, int allow_turtle);
+ 
+ /* raptor_parse.c */
+
+--- a/src/raptor_ntriples.c
++++ b/src/raptor_ntriples.c
+@@ -597,11 +597,13 @@ raptor_ntriples_parse_term(raptor_world* world, raptor_locator* locator,
+            * http://www.w3.org/TR/rdf-concepts/#dfn-language-identifier
+            * Also convert _ to - as synonym / typo.
+            */
+-          for(q = object_literal_language; *q; q++) {
+-            if(IS_ASCII_UPPER(*q))
+-              *q = RAPTOR_GOOD_CAST(unsigned char, TO_ASCII_LOWER(*q));
+-            if(*q == '_')
+-              *q = '-';
++          if(raptor_ntriples_normalize_language != 0) {
++            for(q = object_literal_language; *q; q++) {
++              if(IS_ASCII_UPPER(*q))
++                *q = RAPTOR_GOOD_CAST(unsigned char, TO_ASCII_LOWER(*q));
++              if(*q == '_')
++                *q = '-';
++            }
+           }
+ 
+         }
+--- a/src/raptor_parse.c
++++ b/src/raptor_parse.c
+@@ -48,6 +48,7 @@
+ #include "raptor2.h"
+ #include "raptor_internal.h"
+ 
++int raptor_ntriples_normalize_language = 1;
+ 
+ #ifndef STANDALONE
+ 
+@@ -1084,6 +1085,8 @@ raptor_parser_set_option(raptor_parser *parser, raptor_option option,
+   if(option == RAPTOR_OPTION_STRICT && !rc) {
+     int is_strict = RAPTOR_OPTIONS_GET_NUMERIC(parser, RAPTOR_OPTION_STRICT);
+     raptor_parser_set_strict(parser, is_strict);
++  } else if(option == RAPTOR_OPTION_NORMALIZE_LANGUAGE && !rc) {
++    raptor_ntriples_normalize_language = RAPTOR_OPTIONS_GET_NUMERIC(parser, RAPTOR_OPTION_NORMALIZE_LANGUAGE);
+   }
+ 
+   return rc;
 #+end_src
 
 ***** sys-apps/portage
