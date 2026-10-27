@@ -7397,6 +7397,7 @@ www-servers/gunicorn
 #+begin_src bash :tangle ./musl/interlex/entrypoints/config.sh :mkdirp yes
 cfg=/root/ilx-config
 [ -f /var/lib/interlex/.cfg-done ] || {
+[ -d /etc/nginx/conf.d ] || mkdir /etc/nginx/conf.d;
 cp ${cfg}/server-confd          /etc/conf.d/interlex
 cp ${cfg}/worker-confd          /etc/conf.d/interlex-es-index
 cp ${cfg}/nginx.conf            /etc/nginx/nginx.conf
@@ -7432,7 +7433,7 @@ touch /var/lib/interlex/.cfg-done
 #+end_src
 **** common
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :tangle ./musl/interlex/entrypoints/common.sh :mkdirp yes
+#+begin_src bash :tangle ./musl/interlex/entrypoints/common.sh
 rc-status
 touch /run/openrc/softlevel
 
@@ -7458,17 +7459,47 @@ touch /run/openrc/softlevel
 
 **** server
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :tangle ./musl/interlex/entrypoints/server.sh :mkdirp yes
+#+begin_src bash :tangle ./musl/interlex/entrypoints/server.sh
 /etc/entrypoints/common.sh
-/etc/init.d/interlex start
-/etc/init.d/nginx start
+function cleanup() {
+/etc/init.d/nginx stop
+/etc/init.d/interlex stop
+}
+trap cleanup SIGTERM SIGINT
+/etc/init.d/interlex start || exit $?
+/etc/init.d/nginx start || exit $?
+sleep infinity &
+wait $!
 #+end_src
 
 **** worker
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :tangle ./musl/interlex/entrypoints/worker.sh :mkdirp yes
+#+begin_src bash :tangle ./musl/interlex/entrypoints/worker.sh
 /etc/entrypoints/common.sh
-/etc/init.d/interlex-es-index start
+function cleanup() {
+/etc/init.d/interlex-es-index stop
+}
+trap cleanup SIGTERM SIGINT
+/etc/init.d/interlex-es-index start || exit $?
+sleep infinity &
+wait $!
+#+end_src
+
+**** services
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/services.sh
+/etc/entrypoints/common.sh
+function cleanup() {
+/etc/init.d/nginx stop
+/etc/init.d/interlex stop
+/etc/init.d/interlex-es-index stop
+}
+trap cleanup SIGTERM SIGINT
+/etc/init.d/interlex-es-index start || exit $?
+/etc/init.d/interlex start || exit $?
+/etc/init.d/nginx start || exit $?
+sleep infinity &
+wait $!
 #+end_src
 
 **** setup
@@ -7488,12 +7519,20 @@ runuser -u interlex -- interlex-dbsetup  ${INTERLEX_DB_PORT} ${INTERLEX_TEST_DAT
 #+end_src
 **** ingest
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :tangle ./musl/interlex/entrypoints/ingest.sh :mkdirp yes
+#+begin_src bash :tangle ./musl/interlex/entrypoints/ingest.sh
 /etc/entrypoints/config.sh
 chown interlex:interlex /tmp/interlex-load
 for uri in ${@}; do
 runuser -u interlex -- pypy3 -m interlex.ingest tgbugs ${uri} --commit --debug
 done
+#+end_src
+**** certbot
+This executes a manual run of certbot, however we also need a periodic
+check while a container is running and a check on container startup.
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/certbot.sh
+[ -n "${1}" ] || { echo domain required; exit 1; }
+certbot --nginx -d ${1}
 #+end_src
 
 *** configs
