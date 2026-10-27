@@ -7384,6 +7384,7 @@ ENTRYPOINT ["/etc/entrypoints/default.sh"]
 *** world
 #+name: world-interlex
 #+begin_src conf :tangle ./musl/interlex/world
+app-crypt/certbot
 dev-python/interlex
 dev-python/pytest
 www-servers/nginx
@@ -7391,32 +7392,108 @@ www-servers/gunicorn
 #+end_src
 
 *** entrypoints
-**** default
+**** config
 #+header: :shebang "#!/usr/bin/env bash"
-#+begin_src bash :tangle ./musl/interlex/entrypoints/default.sh :mkdirp yes
+#+begin_src bash :tangle ./musl/interlex/entrypoints/config.sh :mkdirp yes
+cfg=/root/ilx-config
+[ -f /var/lib/interlex/.cfg-done ] || {
+cp ${cfg}/server-confd          /etc/conf.d/interlex
+cp ${cfg}/worker-confd          /etc/conf.d/interlex-es-index
+cp ${cfg}/nginx.conf            /etc/nginx/nginx.conf
+cp ${cfg}/uri.scicrunch.io.conf /etc/nginx/conf.d/uri.scicrunch.io.conf
+
+[ -d /var/lib/interlex/.config ]            || { mkdir /var/lib/interlex/.config; chmod 0700 /var/lib/interlex/.config; }
+[ -d /var/lib/interlex/.config/interlex ]   ||   mkdir /var/lib/interlex/.config/interlex
+[ -d /var/lib/interlex/.config/orthauth ]   ||   mkdir /var/lib/interlex/.config/orthauth
+[ -d /var/lib/interlex/.config/pyontutils ] ||   mkdir /var/lib/interlex/.config/pyontutils
+
+_oum=$(umask)
+umask 0077
+[ -f ${cfg}/.mypass-interlex ]      && cp ${cfg}/.mypass-interlex /var/lib/interlex/.mypass
+[ -f ${cfg}/.pgpass-interlex ]      && cp ${cfg}/.pgpass-interlex /var/lib/interlex/.pgpass
+[ -f ${cfg}/secrets-interlex.sxpr ] && cp ${cfg}/secrets-interlex.sxpr /var/lib/interlex/.config/orthauth/secrets.sxpr
+[ -f ${cfg}/user-config.yaml ]      && cp ${cfg}/user-config.yaml /var/lib/interlex/.config/interlex/config.yaml
+umask ${_oum}
+
+paths=(
+/var/lib/interlex/.pgpass
+/var/lib/interlex/.mypass
+/var/lib/interlex/.config/orthauth/secrets.sxpr
+/var/lib/interlex/.config/interlex/config.yaml
+)
+
+chown -R interlex:interlex /var/lib/interlex/.config
+for p in "${paths[@]}"; do
+[ -f ${p} ] && chown interlex:interlex ${p};
+done
+
+touch /var/lib/interlex/.cfg-done
+}
+#+end_src
+**** common
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/common.sh :mkdirp yes
 rc-status
 touch /run/openrc/softlevel
-# TODO make sure the configs are ok
-/etc/init.d/interlex start
-#/etc/init.d/interlex-es-index start  # TODO not merged yet
+
+/etc/entrypoints/config.sh
+
+[ -d /etc/letsencrypt/live/uri.scicrunch.io ] || {
+    # testing
+    mkdir -p /etc/letsencrypt/live/uri.scicrunch.io;
+    # firefox via nss does not yet support mldsa87 keys
+    #openssl req -x509 -newkey mldsa87 -days 3650 -noenc \
+    openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:secp384r1 -days 3650 -noenc \
+            -keyout /etc/letsencrypt/live/uri.scicrunch.io/privkey.pem \
+            -out /etc/letsencrypt/live/uri.scicrunch.io/fullchain.pem \
+            -subj "/CN=uri.scicrunch.io";
+}
+#+end_src
+**** default
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/default.sh
+/etc/entrypoints/common.sh
+/bin/bash
 #+end_src
 
 **** server
 #+header: :shebang "#!/usr/bin/env bash"
 #+begin_src bash :tangle ./musl/interlex/entrypoints/server.sh :mkdirp yes
-rc-status
-touch /run/openrc/softlevel
-# TODO make sure the configs are ok
+/etc/entrypoints/common.sh
 /etc/init.d/interlex start
+/etc/init.d/nginx start
 #+end_src
 
 **** worker
 #+header: :shebang "#!/usr/bin/env bash"
 #+begin_src bash :tangle ./musl/interlex/entrypoints/worker.sh :mkdirp yes
-rc-status
-touch /run/openrc/softlevel
-# TODO make sure the configs are ok
+/etc/entrypoints/common.sh
 /etc/init.d/interlex-es-index start
+#+end_src
+
+**** setup
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/setup.sh :mkdirp yes
+/etc/entrypoints/config.sh
+
+source /etc/conf.d/interlex
+INTERLEX_DB_HOST=${DB_HOST}
+INTERLEX_DB_PORT=${DB_PORT}
+INTERLEX_DATABASE=${DATABASE}
+
+runuser -u interlex -- interlex-dbsetup ${INTERLEX_DB_PORT} ${INTERLEX_DATABASE} ${INTERLEX_DB_HOST}
+
+INTERLEX_TEST_DATABASE=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("test-database"))')
+runuser -u interlex -- interlex-dbsetup  ${INTERLEX_DB_PORT} ${INTERLEX_TEST_DATABASE} ${INTERLEX_DB_HOST}
+#+end_src
+**** ingest
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/ingest.sh :mkdirp yes
+/etc/entrypoints/config.sh
+chown interlex:interlex /tmp/interlex-load
+for uri in ${@}; do
+runuser -u interlex -- pypy3 -m interlex.ingest tgbugs ${uri} --commit --debug
+done
 #+end_src
 
 *** configs
