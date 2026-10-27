@@ -2570,6 +2570,9 @@ dev-vcs/git -rust
 # needed for nginx
 app-misc/mime-types nginx
 
+# simplify cert process
+app-crypt/certbot certbot-nginx
+
 # needed for podman
 net-firewall/iptables nftables
 
@@ -7372,6 +7375,8 @@ FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
 
+ADD gunicorn.conf /etc/python-exec/gunicorn.conf
+
 # quick rebuild
 RUN echo 0
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
@@ -7385,6 +7390,7 @@ ENTRYPOINT ["/etc/entrypoints/default.sh"]
 #+name: world-interlex
 #+begin_src conf :tangle ./musl/interlex/world
 app-crypt/certbot
+app-editors/vim
 dev-python/interlex
 dev-python/pytest
 www-servers/nginx
@@ -7536,6 +7542,9 @@ certbot --nginx -d ${1}
 #+end_src
 
 *** configs
+#+begin_src conf :tangle ./musl/interlex/gunicorn.conf
+pypy3.11
+#+end_src
 ** interlex-dev
 *** run
 WARNING! If you mount your postgres data directory like this make sure
