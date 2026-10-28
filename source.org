@@ -7381,6 +7381,7 @@ RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,r
 emerge -q interlex
 
 ADD gunicorn.conf /etc/python-exec/gunicorn.conf
+ADD vimrc.local /etc/vim/vimrc.local
 
 ADD entrypoints /etc/entrypoints
 ENTRYPOINT ["/etc/entrypoints/default.sh"]
@@ -7414,12 +7415,17 @@ cp ${cfg}/uri.*.conf   /etc/nginx/conf.d/uri.*.conf
 [ -d /var/lib/interlex/.config/orthauth ]   ||   mkdir /var/lib/interlex/.config/orthauth
 [ -d /var/lib/interlex/.config/pyontutils ] ||   mkdir /var/lib/interlex/.config/pyontutils
 
+pgp=/var/lib/interlex/.pgpass
+myp=/var/lib/interlex/.mypass
+sec=/var/lib/interlex/.config/orthauth/secrets.sxpr
+ucf=/var/lib/interlex/.config/interlex/config.yaml
+
 _oum=$(umask)
 umask 0077
-[ -f ${cfg}/.mypass-interlex ]      && cp ${cfg}/.mypass-interlex /var/lib/interlex/.mypass
-[ -f ${cfg}/.pgpass-interlex ]      && cp ${cfg}/.pgpass-interlex /var/lib/interlex/.pgpass
-[ -f ${cfg}/secrets-interlex.sxpr ] && cp ${cfg}/secrets-interlex.sxpr /var/lib/interlex/.config/orthauth/secrets.sxpr
-[ -f ${cfg}/user-config.yaml ]      && cp ${cfg}/user-config.yaml /var/lib/interlex/.config/interlex/config.yaml
+[ -f ${cfg}/.pgpass-interlex -a ! -f ${myp} ]      && cp ${cfg}/.pgpass-interlex ${pgp}
+[ -f ${cfg}/.mypass-interlex -a ! -f ${myp} ]      && cp ${cfg}/.mypass-interlex ${myp}
+[ -f ${cfg}/secrets-interlex.sxpr -a ! -f ${sec} ] && cp ${cfg}/secrets-interlex.sxpr ${sec}
+[ -f ${cfg}/user-config.yaml -a ! -f  ${ucf}]      && cp ${cfg}/user-config.yaml ${ucf}
 umask ${_oum}
 
 paths=(
@@ -7437,6 +7443,7 @@ done
 touch /var/lib/interlex/.cfg-done
 }
 #+end_src
+
 **** common
 #+header: :shebang "#!/usr/bin/env bash"
 #+begin_src bash :tangle ./musl/interlex/entrypoints/common.sh
@@ -7510,9 +7517,11 @@ wait $!
 #+end_src
 
 **** setup
+Run on orchestrator since needs postgres pass.
 #+header: :shebang "#!/usr/bin/env bash"
 #+begin_src bash :tangle ./musl/interlex/entrypoints/setup.sh :mkdirp yes
 /etc/entrypoints/config.sh
+set -e
 
 source /etc/conf.d/interlex
 INTERLEX_DB_HOST=${DB_HOST}
@@ -7523,7 +7532,60 @@ runuser -u interlex -- interlex-dbsetup ${INTERLEX_DB_PORT} ${INTERLEX_DATABASE}
 
 INTERLEX_TEST_DATABASE=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("test-database"))')
 runuser -u interlex -- interlex-dbsetup  ${INTERLEX_DB_PORT} ${INTERLEX_TEST_DATABASE} ${INTERLEX_DB_HOST}
+#+end_src
 
+**** passwords
+Run on orchestrator since needs postgres pass.
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/passwords.sh
+/etc/entrypoints/config.sh
+set -e
+
+source /etc/conf.d/interlex
+INTERLEX_DB_HOST=${DB_HOST}
+INTERLEX_DB_PORT=${DB_PORT}
+INTERLEX_DATABASE=${DATABASE}
+ILX_USER=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("db-user"))')
+runuser -u interlex -- psql -U postgres -h ${INTERLEX_DB_HOST} -p ${INTERLEX_DB_PORT} -d postgres -c "\password interlex-admin"
+runuser -u interlex -- psql -U postgres -h ${INTERLEX_DB_HOST} -p ${INTERLEX_DB_PORT} -d postgres -c "\password ${ILX_USER}"
+#+end_src
+
+**** admin
+Run on orchestrator since needs interlex-admin pass.
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/admin.sh :mkdirp yes
+/etc/entrypoints/config.sh
+set -e
+# FIXME these can be run without postgres password but needs the interlex-admin password which shouldn't be on the www host
+# FIXME TODO need a quick script to add the admin user so that it isn't hardcoded to tgbugs
+runuser -u interlex -- pypy3 -m interlex.cli ops admin --user ${1}
+#+end_src
+
+**** api-key
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/api-key.sh :mkdirp yes
+/etc/entrypoints/config.sh
+set -e
+euc=/root/ilx-config/extra-user-config.yaml
+[ -f ${euc} ] || { echo missing ${euc} ;exit 1; }
+mv /var/lib/interlex/.config/interlex/config.yaml /var/lib/interlex/.config/interlex/config.yaml.real
+cp ${euc} /var/lib/interlex/.config/interlex/config.yaml
+chown interlex:interlex /var/lib/interlex/.config/interlex/config.yaml
+INTERLEX_API_KEY=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("interlex-api-key"))')
+INTERLEX_TEST_API_KEY=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("interlex-test-api-key"))')
+# TODO we might also need to get the test user? but we aren't checking alignment of api keys with systems etc.
+# also we don't really want keys to be reused so we could generate new ones here ... but then they might not get inserted ... ugh
+unlink /var/lib/interlex/.config/interlex/config.yaml
+mv /var/lib/interlex/.config/interlex/config.yaml.real /var/lib/interlex/.config/interlex/config.yaml
+runuser -u interlex -- pypy3 -m interlex.cli ops api-key --production --user ${1}
+runuser -u interlex -- pypy3 -m interlex.cli ops api-key  # XXX expects test-api-user to be set
+#+end_src
+
+**** curies
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/curies.sh :mkdirp yes
+/etc/entrypoints/config.sh
+set -e
 # TODO move this into dbsetup so we can avoid all the issues related to missing curies
 runuser -u interlex -- pypy3 -m interlex.cli ops curies --group base --production
 runuser -u interlex -- pypy3 -m interlex.cli ops curies --group base
@@ -7551,6 +7613,12 @@ certbot --nginx -d ${1}
 #+begin_src conf :tangle ./musl/interlex/gunicorn.conf
 pypy3.11
 #+end_src
+
+prevent vim from changing file mode when modifying a file
+#+begin_src vimrc :tangle ./musl/interlex/vimrc.local
+set backupcopy=yes
+#+end_src
+
 ** interlex-dev
 *** run
 WARNING! If you mount your postgres data directory like this make sure
