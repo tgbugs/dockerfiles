@@ -7375,12 +7375,12 @@ FROM tgbugs/musl:binpkg-only
 
 <<&build-world-common>>
 
-ADD gunicorn.conf /etc/python-exec/gunicorn.conf
-
 # quick rebuild
 RUN echo 0
 RUN --mount=from=tgbugs/repos:latest,source=/var/db/repos,target=/var/db/repos,rw \
 emerge -q interlex
+
+ADD gunicorn.conf /etc/python-exec/gunicorn.conf
 
 ADD entrypoints /etc/entrypoints
 ENTRYPOINT ["/etc/entrypoints/default.sh"]
@@ -7523,7 +7523,12 @@ runuser -u interlex -- interlex-dbsetup ${INTERLEX_DB_PORT} ${INTERLEX_DATABASE}
 
 INTERLEX_TEST_DATABASE=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("test-database"))')
 runuser -u interlex -- interlex-dbsetup  ${INTERLEX_DB_PORT} ${INTERLEX_TEST_DATABASE} ${INTERLEX_DB_HOST}
+
+# TODO move this into dbsetup so we can avoid all the issues related to missing curies
+runuser -u interlex -- pypy3 -m interlex.cli ops curies --group base --production
+runuser -u interlex -- pypy3 -m interlex.cli ops curies --group base
 #+end_src
+
 **** ingest
 #+header: :shebang "#!/usr/bin/env bash"
 #+begin_src bash :tangle ./musl/interlex/entrypoints/ingest.sh
