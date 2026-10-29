@@ -7546,7 +7546,7 @@ INTERLEX_DB_HOST=${DB_HOST}
 INTERLEX_DB_PORT=${DB_PORT}
 INTERLEX_DATABASE=${DATABASE}
 ILX_USER=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("db-user"))')
-runuser -u interlex -- psql -U postgres -h ${INTERLEX_DB_HOST} -p ${INTERLEX_DB_PORT} -d postgres -c "\password interlex-admin"
+runuser -u interlex -- psql --no-password -U postgres -h ${INTERLEX_DB_HOST} -p ${INTERLEX_DB_PORT} -d postgres -c "\password interlex-admin"
 runuser -u interlex -- psql -U postgres -h ${INTERLEX_DB_HOST} -p ${INTERLEX_DB_PORT} -d postgres -c "\password ${ILX_USER}"
 #+end_src
 
@@ -7556,9 +7556,7 @@ Run on orchestrator since needs interlex-admin pass.
 #+begin_src bash :tangle ./musl/interlex/entrypoints/admin.sh :mkdirp yes
 /etc/entrypoints/config.sh
 set -e
-# FIXME these can be run without postgres password but needs the interlex-admin password which shouldn't be on the www host
-# FIXME TODO need a quick script to add the admin user so that it isn't hardcoded to tgbugs
-runuser -u interlex -- pypy3 -m interlex.cli ops admin --user ${1}
+runuser -u interlex -- pypy3 -c 'from interlex.dangerops import register_first_admin; register_first_admin()' "${@}"
 #+end_src
 
 **** api-key
@@ -7600,6 +7598,7 @@ for uri in ${@}; do
 runuser -u interlex -- pypy3 -m interlex.ingest tgbugs ${uri} --commit --debug
 done
 #+end_src
+
 **** certbot
 This executes a manual run of certbot, however we also need a periodic
 check while a container is running and a check on container startup.
