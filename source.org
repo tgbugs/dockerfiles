@@ -7425,7 +7425,7 @@ umask 0077
 [ -f ${cfg}/.pgpass-interlex -a ! -f ${myp} ]      && cp ${cfg}/.pgpass-interlex ${pgp}
 [ -f ${cfg}/.mypass-interlex -a ! -f ${myp} ]      && cp ${cfg}/.mypass-interlex ${myp}
 [ -f ${cfg}/secrets-interlex.sxpr -a ! -f ${sec} ] && cp ${cfg}/secrets-interlex.sxpr ${sec}
-[ -f ${cfg}/user-config.yaml -a ! -f  ${ucf}]      && cp ${cfg}/user-config.yaml ${ucf}
+[ -f ${cfg}/user-config.yaml -a ! -f  ${ucf} ]     && cp ${cfg}/user-config.yaml ${ucf}
 umask ${_oum}
 
 paths=(
