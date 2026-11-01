@@ -7531,8 +7531,8 @@ INTERLEX_DATABASE=${DATABASE}
 
 runuser -u interlex -- interlex-dbsetup ${INTERLEX_DB_PORT} ${INTERLEX_DATABASE} ${INTERLEX_DB_HOST}
 
-INTERLEX_TEST_DATABASE=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("test-database"))')
-runuser -u interlex -- interlex-dbsetup  ${INTERLEX_DB_PORT} ${INTERLEX_TEST_DATABASE} ${INTERLEX_DB_HOST}
+#INTERLEX_TEST_DATABASE=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("test-database"))')
+#runuser -u interlex -- interlex-dbsetup  ${INTERLEX_DB_PORT} ${INTERLEX_TEST_DATABASE} ${INTERLEX_DB_HOST}
 #+end_src
 
 **** passwords
