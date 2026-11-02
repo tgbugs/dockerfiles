@@ -7529,7 +7529,15 @@ INTERLEX_DB_HOST=${DB_HOST}
 INTERLEX_DB_PORT=${DB_PORT}
 INTERLEX_DATABASE=${DATABASE}
 
-runuser -u interlex -- interlex-dbsetup ${INTERLEX_DB_PORT} ${INTERLEX_DATABASE} ${INTERLEX_DB_HOST}
+DB_EXISTS=$(runuser -u interlex -- psql --no-password -U postgres -d postgres \
+-h ${INTERLEX_DB_HOST} -p ${INTERLEX_DB_PORT} -tA \
+-c "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = '${INTERLEX_DATABASE}');")
+if { [ "${DB_EXISTS}" = "f" ] || [ "${1}" = "--force" ]; }; then
+runuser -u interlex -- interlex-dbsetup ${INTERLEX_DB_PORT} ${INTERLEX_DATABASE} ${INTERLEX_DB_HOST};
+else
+    echo ${INTERLEX_DATABASE} already exists on ${INTERLEX_DB_HOST}:${INTERLEX_DB_PORT} use --force to drop and recreate
+    exit 1;
+fi
 
 #INTERLEX_TEST_DATABASE=$(runuser -u interlex -- python -c 'from interlex.config import auth; print(auth.get("test-database"))')
 #runuser -u interlex -- interlex-dbsetup  ${INTERLEX_DB_PORT} ${INTERLEX_TEST_DATABASE} ${INTERLEX_DB_HOST}
