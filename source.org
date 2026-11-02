@@ -9299,7 +9299,6 @@ popd
                   (concat " || echo " rp " failed with $? ... continuing"))))
        (cl-loop
         for (pi . _) in py-inst
-        unless (string-match "interlex" pi) ; TODO needs ssh
         collect ; FIXME didn't we wind up having to use PYTHONPATH ???
         (concat "pushd " pi "
 touch pyproject.toml
