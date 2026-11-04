@@ -7403,7 +7403,7 @@ www-servers/gunicorn
 #+header: :shebang "#!/usr/bin/env bash"
 #+begin_src bash :tangle ./musl/interlex/entrypoints/config.sh :mkdirp yes
 cfg=/root/ilx-config
-[ -f /var/lib/interlex/.cfg-done ] || {
+{ [ ! -f /var/lib/interlex/.cfg-done ] && [ -d ${cfg} ]; } && {
 [ -d /etc/nginx/conf.d ] || mkdir /etc/nginx/conf.d;
 cp ${cfg}/server-confd /etc/conf.d/interlex
 cp ${cfg}/worker-confd /etc/conf.d/interlex-es-index
