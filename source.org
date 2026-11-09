@@ -7440,6 +7440,9 @@ for p in "${paths[@]}"; do
 [ -f ${p} ] && chown interlex:interlex ${p};
 done
 
+# FIXME HACK populate additional config files to avoid race conditions during server startup
+runuser -u interlex -- python -c 'import interlex.config, pyontutils.config, idlib.config, ontquery.plugins.services'
+
 touch /var/lib/interlex/.cfg-done
 }
 #+end_src
@@ -7452,7 +7455,8 @@ touch /run/openrc/softlevel
 
 /etc/entrypoints/config.sh
 
-profile_hostname=$(basename $(ls /etc/nginx/conf.d/uri.*.conf | head -n1) | sed 's/.conf$//')
+profile_hostname=$(basename $(ls /etc/nginx/conf.d/uri.*.conf 2>/dev/null | head -n1) | sed 's/.conf$//')
+[ -n "${profile_hostname}" ] && {
 [ -d /etc/letsencrypt/live/${profile_hostname} ] || {
     # testing
     mkdir -p /etc/letsencrypt/live/${profile_hostname};
@@ -7462,6 +7466,7 @@ profile_hostname=$(basename $(ls /etc/nginx/conf.d/uri.*.conf | head -n1) | sed 
             -keyout /etc/letsencrypt/live/${profile_hostname}/privkey.pem \
             -out /etc/letsencrypt/live/${profile_hostname}/fullchain.pem \
             -subj "/CN=${profile_hostname}";
+}
 }
 #+end_src
 **** default
