@@ -1,4 +1,4 @@
-# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: f544374708f14a05c210b8f8e556dba937f0f4906f836308e84047e80dca3749; -*-
+# -*- orgstrap-cypher: sha256; orgstrap-norm-func-name: orgstrap-norm-func--dprp-1-0; orgstrap-block-checksum: caa67869303a487af3e9beca3b31b89281b8ab9f51234ea3583deb239ba553d9; -*-
 # [[orgstrap][jump to the orgstrap block for this file]]
 #+title: Literate source for docker files
 
@@ -1472,6 +1472,7 @@ dev-haskell/conduit-extra
 dev-haskell/constraints
 dev-haskell/contravariant
 dev-haskell/cookie
+dev-haskell/cryptohash-md5
 dev-haskell/cryptohash-sha256
 dev-haskell/crypton
 dev-haskell/crypton-connection
@@ -10218,6 +10219,16 @@ docker build \
 #+begin_src dockerfile :tangle ./musl/binpkg-only/static.Dockerfile
 FROM tgbugs/musl:static-xorg
 <<&musl-binpkg-only-common>>
+# sbcl patches and env
+# FIXME this has to be here because portage checks user patches now (hooray)
+# so in principle we can do away with the stupid use flag hack
+ADD patches/dev-lisp /etc/portage/patches/dev-lisp
+ADD static-sbcl.env /etc/portage/env/dev-lisp/sbcl
+#+end_src
+
+*** retangles
+#+begin_src ebuild :noweb yes :tangle ./musl/binpkg-only/static-sbcl.env
+<<&sbcl-env-static>>
 #+end_src
 
 ** sbcl
@@ -13187,13 +13198,17 @@ currently only sbcl static uses this but other things might need it in the futur
   ;; we could make it dependent only on gentoo/stage3:amd64-musl-hardened-openrc
   ;; local-portage-snap but it would still need to run after tangle
   (let ((sbcl-static-patches-source "<<&helper-repos()>>/sbcl/patches")
-        (sbcl-static-patches-target "musl/package-builder/patches"))
+        (sbcl-static-patches-target "musl/package-builder/patches")
+        (sbcl-static-patches-target-bpo "musl/binpkg-only/patches"))
     (cl-loop
      for (source . target) in
      (list
       (cons
        sbcl-static-patches-source
-       sbcl-static-patches-target))
+       sbcl-static-patches-target)
+      (cons
+       sbcl-static-patches-source
+       sbcl-static-patches-target-bpo))
      do
      (when (file-exists-p source)
        (copy-directory source target 'keep-time 'parents 'copy-contents)))))
