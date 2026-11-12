@@ -7460,13 +7460,39 @@ profile_hostname=$(basename $(ls /etc/nginx/conf.d/uri.*.conf 2>/dev/null | head
 [ -n "${profile_hostname}" ] && {
 [ -d /etc/letsencrypt/live/${profile_hostname} ] || {
     # testing
-    mkdir -p /etc/letsencrypt/live/${profile_hostname};
+    arc=/etc/letsencrypt/archive/${profile_hostname}
+    liv=/etc/letsencrypt/live/${profile_hostname}
+    mkdir -p ${arc};
     # firefox via nss does not yet support mldsa87 keys
     #openssl req -x509 -newkey mldsa87 -days 3650 -noenc \
     openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:secp384r1 -days 3650 -noenc \
-            -keyout /etc/letsencrypt/live/${profile_hostname}/privkey.pem \
-            -out /etc/letsencrypt/live/${profile_hostname}/fullchain.pem \
+            -keyout ${arc}/privkey1.pem \
+            -out ${arc}/fullchain1.pem \
             -subj "/CN=${profile_hostname}";
+    cp ${arc}/fullchain1.pem ${arc}/cert1.pem
+    cp ${arc}/fullchain1.pem ${arc}/chain1.pem
+
+    mkdir -p ${liv};
+    ln -s ../../archive/${profile_hostname}/cert1.pem ${liv}/cert.pem
+    ln -s ../../archive/${profile_hostname}/chain1.pem ${liv}/chain.pem
+    ln -s ../../archive/${profile_hostname}/fullchain1.pem ${liv}/fullchain.pem
+    ln -s ../../archive/${profile_hostname}/privkey1.pem ${liv}/privkey.pem
+
+    mkdir -p /etc/letsencrypt/renewal
+    ren=/etc/letsencrypt/renewal/${profile_hostname}.conf
+    cat > ${ren} <<EOF
+archive_dir = ${arc}
+cert = ${liv}/cert.pem
+privkey = ${liv}/privkey.pem
+chain = ${liv}/chain.pem
+fullchain = ${liv}/fullchain.pem
+[renewalparams]
+authenticator = nginx
+installer = nginx
+server = https://acme-v02.api.letsencrypt.org/directory
+key_type = ecdsa
+EOF
+
 }
 }
 #+end_src
@@ -7646,7 +7672,20 @@ check while a container is running and a check on container startup.
 #+header: :shebang "#!/usr/bin/env bash"
 #+begin_src bash :tangle ./musl/interlex/entrypoints/certbot.sh
 [ -n "${1}" ] || { echo domain required; exit 1; }
-certbot --non-interactive --agree-tos --nginx -d ${1}
+
+[ -d /etc/letsencrypt/accounts/acme-v02.api.letsencrypt.org ] || {
+certbot register --non-interactive --register-unsafely-without-email --agree-tos
+}
+
+crt_live=/etc/letsencrypt/live/${1}
+if [ -d ${crt_live} ]; then
+    # check for self signed
+    if openssl verify -check_ss_sig -CAfile ${crt_live}/cert.pem ${crt_live}/fullchain.pem; then
+       certbot renew --non-interactive --force-renewal --cert-name ${1}
+    fi
+else
+certbot --non-interactive --agree-tos --nginx --domain ${1}
+fi
 #+end_src
 
 *** configs
