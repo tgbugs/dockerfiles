@@ -7512,8 +7512,10 @@ EOF
 function cleanup() {
 /etc/init.d/nginx stop
 /etc/init.d/interlex stop
+/etc/init.d/cronie stop
 }
 trap cleanup SIGTERM SIGINT
+/etc/init.d/cronie start || exit $?
 /etc/init.d/interlex start || exit $?
 /etc/init.d/nginx start || exit $?
 sleep infinity &
@@ -7654,6 +7656,24 @@ export PGSSLMODE
 # TODO move this into dbsetup so we can avoid all the issues related to missing curies
 runuser -u interlex -- pypy3 -m interlex.cli ops curies --group base --production
 #runuser -u interlex -- pypy3 -m interlex.cli ops curies --group base # TODO skip for now
+#+end_src
+
+**** sync
+#+header: :shebang "#!/usr/bin/env bash"
+#+begin_src bash :tangle ./musl/interlex/entrypoints/sync.sh
+/etc/entrypoints/config.sh
+source /etc/conf.d/interlex  # FIXME needed for PGSSLMODE
+export PGSSLMODE
+export PYTHONBREAKPOINT=0
+runuser -u interlex -- pypy3 -c 'import sys; from interlex.config import _existing_user_map_path as ep; ep is None and sys.exit(1)'
+code=$?
+[ ${code} = 0 ] || { echo existing-user-map required for sync; exit ${code}; }
+
+runuser -u interlex -- pypy3 -m interlex.alt
+code=$?
+[ ${code} = 0 ] || { echo alt db configuration incorrect; exit ${code}; }
+
+runuser -u interlex -- pypy3 -m interlex.cli sync
 #+end_src
 
 **** ingest
