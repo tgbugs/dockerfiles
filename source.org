@@ -7665,9 +7665,6 @@ runuser -u interlex -- pypy3 -m interlex.cli ops curies --group base --productio
 source /etc/conf.d/interlex  # FIXME needed for PGSSLMODE
 export PGSSLMODE
 export PYTHONBREAKPOINT=0
-runuser -u interlex -- pypy3 -c 'import sys; from interlex.config import _existing_user_map_path as ep; ep is None and sys.exit(1)'
-code=$?
-[ ${code} = 0 ] || { echo existing-user-map required for sync; exit ${code}; }
 
 runuser -u interlex -- pypy3 -m interlex.alt
 code=$?
