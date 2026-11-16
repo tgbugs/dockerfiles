@@ -7603,6 +7603,7 @@ select exists (select rolname from pg_roles where rolname = 'interlex-admin' and
 \endif
 EOF
 passex=$?
+passex=1  # FIXME completely broken as role password is ***** even when no password is set
 set -e
 
 { [ "${passex}" = 0 ] && [ -z "${1}" ]; } || {
