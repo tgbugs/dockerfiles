@@ -2623,7 +2623,8 @@ app-text/poppler cairo png
 dev-libs/jemalloc stats
 
 # pypy3
-dev-lang/pypy sqlite
+dev-lang/pypy3-exe jit
+dev-lang/pypy sqlite jit
 
 # uwsgi needs at least one backend enabled
 www-servers/uwsgi python
